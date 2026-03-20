@@ -309,6 +309,7 @@ YAHOO_SYMBOLS = {
     "EEM": "EEM",
     "QQQ": "QQQ",
     "SPY": "SPY",
+    "IWM": "IWM",
     "XLE": "XLE",
     "USO": "USO",
     "GLD": "GLD",
@@ -2334,8 +2335,9 @@ def yahoo_chart(symbol: str, range_: str = "18mo", interval: str = "1d") -> pd.D
 def fetch_market_bundle() -> Dict[str, pd.DataFrame]:
     out: Dict[str, pd.DataFrame] = {}
     for name, symbol in YAHOO_SYMBOLS.items():
+        range_ = "5y" if name == "IWM" else "18mo"
         try:
-            out[name] = yahoo_chart(symbol)
+            out[name] = yahoo_chart(symbol, range_=range_)
         except Exception:
             out[name] = pd.DataFrame(columns=["date", "close"])
     return out
@@ -2669,6 +2671,78 @@ def headline_hit_count(news_items: List[Dict[str, str]], keywords: List[str]) ->
 
 def short_ret(prices: pd.DataFrame, col: str, days: int = 5) -> float:
     return safe_trailing_return(prices, col, days)
+
+
+def price_vs_rolling_high(prices: pd.DataFrame, col: str, window: int = 252) -> float:
+    if prices.empty or col not in prices.columns:
+        return float("nan")
+    s = prices[col].dropna()
+    if len(s) < max(30, window // 3):
+        return float("nan")
+    take = s.iloc[-min(window, len(s)):]
+    high = take.max()
+    now = take.iloc[-1]
+    if pd.isna(high) or pd.isna(now) or high == 0:
+        return float("nan")
+    return float(now / high - 1.0)
+
+
+def classify_iwm_top_signal(prices: pd.DataFrame) -> Dict[str, object]:
+    iwm20 = short_ret(prices, "IWM", 20)
+    iwm63 = short_ret(prices, "IWM", 63)
+    iwm126 = short_ret(prices, "IWM", 126)
+    spy20 = short_ret(prices, "SPY", 20)
+    spy63 = short_ret(prices, "SPY", 63)
+    qqq20 = short_ret(prices, "QQQ", 20)
+    to_52w = price_vs_rolling_high(prices, "IWM", 252)
+    to_3y = price_vs_rolling_high(prices, "IWM", 756)
+
+    rel20_spy = iwm20 - spy20 if not pd.isna(iwm20) and not pd.isna(spy20) else float("nan")
+    rel63_spy = iwm63 - spy63 if not pd.isna(iwm63) and not pd.isna(spy63) else float("nan")
+    rel20_qqq = iwm20 - qqq20 if not pd.isna(iwm20) and not pd.isna(qqq20) else float("nan")
+
+    near_52w = clamp01(1.0 - max(0.0, -to_52w) / 0.08) if not pd.isna(to_52w) else 0.0
+    near_3y = clamp01(1.0 - max(0.0, -to_3y) / 0.12) if not pd.isna(to_3y) else 0.0
+    proximity = max(near_52w, near_3y)
+
+    parabolic = 0.0
+    if not pd.isna(iwm20):
+        parabolic += 0.35 * clamp01((iwm20 - 8.0) / 10.0)
+    if not pd.isna(iwm63):
+        parabolic += 0.25 * clamp01((iwm63 - 18.0) / 16.0)
+    if not pd.isna(iwm126):
+        parabolic += 0.10 * clamp01((iwm126 - 28.0) / 18.0)
+    if not pd.isna(rel20_spy):
+        parabolic += 0.20 * clamp01((rel20_spy - 3.0) / 6.0)
+    if not pd.isna(rel20_qqq):
+        parabolic += 0.10 * clamp01((rel20_qqq - 4.0) / 8.0)
+
+    score = clamp01(0.50 * proximity + 0.50 * clamp01(parabolic))
+    rows = [
+        ("IWM 20d", move_text(iwm20), "Short squeeze / small-cap chase"),
+        ("IWM 63d", move_text(iwm63), "Medium-horizon acceleration"),
+        ("IWM 126d", move_text(iwm126), "Late-cycle persistence / blow-off check"),
+        ("IWM vs 52w high", move_text(to_52w * 100 if not pd.isna(to_52w) else float("nan")), "0% = exactly at 52w high"),
+        ("IWM vs 3y high", move_text(to_3y * 100 if not pd.isna(to_3y) else float("nan")), "ATH proxy / longer-cycle high"),
+        ("IWM rel SPY 20d", move_text(rel20_spy), "Small caps outrunning broad large caps"),
+        ("IWM rel QQQ 20d", move_text(rel20_qqq), "Risk appetite outrunning duration leaders"),
+    ]
+
+    if score >= 0.75:
+        label = "IWM parabolic near ATH-to-ATH"
+        read = "Small caps lagi ngacir parah sambil mepet high jangka panjang. Ini gue baca sebagai late-cycle euphoria / topping risk, bukan breadth sehat biasa."
+    elif score >= 0.55:
+        label = "IWM late-cycle chase"
+        read = "IWM kuat dan dekat high, jadi ini sudah masuk family euphoric catch-up. Bagus untuk tape jangka pendek, tapi crash meter harus mulai naik."
+    elif proximity >= 0.75 and ((not pd.isna(iwm20) and iwm20 > 5) or (not pd.isna(iwm63) and iwm63 > 12)):
+        label = "IWM high-zone risk"
+        read = "IWM belum full parabolic, tapi sudah masuk area yang sering muncul dekat fase topping atau breadth climax."
+        score = max(score, 0.40)
+    else:
+        label = "IWM not euphoric"
+        read = "Belum ada bukti kuat small-cap euphoria / ATH-chase yang cukup buat dibaca sebagai topping filter besar."
+        score = max(score, 0.18)
+    return {"label": label, "read": read, "score": score, "rows": rows}
 
 
 def move_text(x: float, pct: bool = True) -> str:
@@ -3445,6 +3519,7 @@ def build_crash_meter(state: MacroState, prices: pd.DataFrame, news_items: List[
     energy = classify_energy_shock(state, prices, news_items)
     war = classify_war_damage_persistence(state, prices, news_items)
     bottom = classify_bottom_quality(state, prices, news_items, next_likely_quad(state))
+    iwm_top = classify_iwm_top_signal(prices)
 
     dy2 = delta(state.y2_now, state.y2_prev)
     ddxy = delta(state.dxy_now, state.dxy_prev)
@@ -3460,14 +3535,15 @@ def build_crash_meter(state: MacroState, prices: pd.DataFrame, news_items: List[
     war_s = float(war.get("score", 0.0))
     bottom_s = float(bottom.get("score", 0.0))
     em_s = float(ihsg_overlay.get("em_stress", 0.0))
+    iwm_top_s = float(iwm_top.get("score", 0.0))
 
-    deflation = max(0.05, 0.32 * liq_s + 0.16 * front_s + 0.12 * clamp01(-growth_delta / 0.55) + 0.12 * clamp01(-dbreadth / 4.0) + 0.10 * clamp01(ddxy / 2.0) + 0.10 * (1 - bottom_s) + 0.08 * clamp01(dcredit / 0.45))
-    credit = max(0.05, 0.38 * pc_s + 0.18 * front_s + 0.14 * liq_s + 0.12 * clamp01(dcredit / 0.45) + 0.10 * clamp01(-dbreadth / 4.0) + 0.08 * em_s)
-    growth = max(0.05, 0.24 * clamp01(-growth_delta / 0.55) + 0.18 * clamp01(-doil_pct / 8.0) + 0.16 * liq_s + 0.12 * clamp01(dcredit / 0.45) + 0.15 * clamp01(-dbreadth / 4.0) + 0.15 * (1 - bottom_s))
-    inflation = max(0.05, 0.24 * energy_s + 0.20 * clamp01(doil_pct / 8.0) + 0.14 * war_s + 0.14 * clamp01(dy2 / 0.35) + 0.14 * clamp01(ddxy / 2.0) + 0.14 * clamp01(-dbreadth / 4.0))
-    policy = max(0.05, 0.42 * front_s + 0.16 * clamp01(dy2 / 0.35) + 0.14 * clamp01(ddxy / 2.0) + 0.10 * liq_s + 0.10 * clamp01(-dbreadth / 4.0) + 0.08 * clamp01(dcredit / 0.45))
-    geopolitical = max(0.05, 0.34 * war_s + 0.24 * energy_s + 0.14 * clamp01(doil_pct / 8.0) + 0.10 * clamp01(ddxy / 2.0) + 0.10 * clamp01(-dbreadth / 4.0) + 0.08 * em_s)
-    systemic = max(0.05, 0.24 * liq_s + 0.22 * pc_s + 0.18 * front_s + 0.12 * clamp01(dcredit / 0.45) + 0.12 * clamp01(-dbreadth / 4.0) + 0.12 * clamp01(ddxy / 2.0))
+    deflation = max(0.05, 0.30 * liq_s + 0.15 * front_s + 0.12 * clamp01(-growth_delta / 0.55) + 0.11 * clamp01(-dbreadth / 4.0) + 0.10 * clamp01(ddxy / 2.0) + 0.10 * (1 - bottom_s) + 0.07 * clamp01(dcredit / 0.45) + 0.05 * iwm_top_s)
+    credit = max(0.05, 0.35 * pc_s + 0.17 * front_s + 0.13 * liq_s + 0.11 * clamp01(dcredit / 0.45) + 0.09 * clamp01(-dbreadth / 4.0) + 0.08 * em_s + 0.07 * iwm_top_s)
+    growth = max(0.05, 0.22 * clamp01(-growth_delta / 0.55) + 0.16 * clamp01(-doil_pct / 8.0) + 0.15 * liq_s + 0.11 * clamp01(dcredit / 0.45) + 0.14 * clamp01(-dbreadth / 4.0) + 0.14 * (1 - bottom_s) + 0.08 * iwm_top_s)
+    inflation = max(0.05, 0.22 * energy_s + 0.18 * clamp01(doil_pct / 8.0) + 0.13 * war_s + 0.13 * clamp01(dy2 / 0.35) + 0.13 * clamp01(ddxy / 2.0) + 0.13 * clamp01(-dbreadth / 4.0) + 0.08 * iwm_top_s)
+    policy = max(0.05, 0.38 * front_s + 0.15 * clamp01(dy2 / 0.35) + 0.13 * clamp01(ddxy / 2.0) + 0.10 * liq_s + 0.09 * clamp01(-dbreadth / 4.0) + 0.07 * clamp01(dcredit / 0.45) + 0.08 * iwm_top_s)
+    geopolitical = max(0.05, 0.32 * war_s + 0.22 * energy_s + 0.13 * clamp01(doil_pct / 8.0) + 0.10 * clamp01(ddxy / 2.0) + 0.09 * clamp01(-dbreadth / 4.0) + 0.08 * em_s + 0.06 * iwm_top_s)
+    systemic = max(0.05, 0.22 * liq_s + 0.20 * pc_s + 0.16 * front_s + 0.11 * clamp01(dcredit / 0.45) + 0.11 * clamp01(-dbreadth / 4.0) + 0.10 * clamp01(ddxy / 2.0) + 0.10 * iwm_top_s)
 
     raw = {
         "Deflationary / liquidity crash": deflation,
@@ -3483,15 +3559,16 @@ def build_crash_meter(state: MacroState, prices: pd.DataFrame, news_items: List[
     dominant_family = max(family_probs, key=family_probs.get)
 
     crash_score = 100.0 * clamp01(
-        0.22 * front_s +
-        0.20 * pc_s +
-        0.18 * liq_s +
-        0.10 * energy_s +
-        0.08 * war_s +
+        0.21 * front_s +
+        0.18 * pc_s +
+        0.16 * liq_s +
+        0.09 * energy_s +
+        0.07 * war_s +
         0.07 * em_s +
         0.07 * clamp01(dcredit / 0.45) +
         0.05 * clamp01(ddxy / 2.0) +
-        0.03 * clamp01(-dbreadth / 4.0)
+        0.03 * clamp01(-dbreadth / 4.0) +
+        0.07 * iwm_top_s
     )
     if crash_score >= 80:
         label = "Extreme"
@@ -3510,6 +3587,7 @@ def build_crash_meter(state: MacroState, prices: pd.DataFrame, news_items: List[
         ("Everything-down tape", liq["label"], f"{liq_s:.0%}"),
         ("Energy / inflation shock", energy["label"], f"{energy_s:.0%}"),
         ("War persistence", war["label"], f"{war_s:.0%}"),
+        ("IWM euphoria / top risk", iwm_top["label"], f"{iwm_top_s:.0%}"),
         ("Bottom quality", bottom["label"], f"{bottom_s:.0%}"),
         ("DXY pressure", shock_word(-clamp01(-ddxy / 2.0) + clamp01(ddxy / 2.0)), f"{clamp01(ddxy / 2.0):.0%}"),
         ("Breadth decay", "Narrowing" if dbreadth < 0 else "Not worsening", f"{clamp01(-dbreadth / 4.0):.0%}"),
@@ -3524,7 +3602,7 @@ def build_crash_meter(state: MacroState, prices: pd.DataFrame, news_items: List[
         "families": family_probs,
         "family_df": pd.DataFrame(family_rows, columns=["Crash family", "Probability"]),
         "trigger_df": pd.DataFrame(trigger_rows, columns=["Trigger", "State", "Weight"]),
-        "read": f"Crash meter {crash_score:.0f}/100. Dominant family: {dominant_family} ({family_probs[dominant_family]:.0%}). Ini bukan prediksi crash pasti, tapi pengukur seberapa disorderly tape bisa berubah jika trigger berikutnya ikut confirm.",
+        "read": f"Crash meter {crash_score:.0f}/100. Dominant family: {dominant_family} ({family_probs[dominant_family]:.0%}). IWM euphoria sekarang dibaca sebagai topping filter tambahan: makin parabolik dan makin dekat ATH proxy, makin tinggi bobot ke disorder risk. Ini bukan prediksi crash pasti, tapi pengukur seberapa disorderly tape bisa berubah jika trigger berikutnya ikut confirm.",
     }
 
 def build_action_map(state: MacroState, prices: pd.DataFrame, current_quad: str, next_quad: str, news_items: List[Dict[str, str]], ihsg_overlay: Dict[str, object]) -> pd.DataFrame:
