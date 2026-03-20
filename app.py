@@ -2331,6 +2331,101 @@ def yahoo_chart(symbol: str, range_: str = "18mo", interval: str = "1d") -> pd.D
     return df.dropna().drop_duplicates("date").sort_values("date").reset_index(drop=True)
 
 
+
+
+def classify_cnn_fear_greed(score: float | None) -> Dict[str, object]:
+    if score is None or pd.isna(score):
+        return {
+            "available": False,
+            "score": 0.0,
+            "fear_bias": 0.0,
+            "greed_bias": 0.0,
+            "label": "Unavailable",
+            "read": "CNN Fear & Greed belum masuk atau gagal diambil, jadi tidak mempengaruhi crash meter.",
+            "value_text": "n/a",
+            "source": "none",
+        }
+    val = float(np.clip(score, 0.0, 100.0))
+    fear_bias = clamp01((30.0 - val) / 30.0)
+    greed_bias = clamp01((val - 70.0) / 30.0)
+    severity = max(0.85 * fear_bias, 0.80 * greed_bias)
+    if val <= 15:
+        label = "Extreme fear / liquidation stress"
+        read = "Sentiment sudah sangat takut. Ini sering muncul saat panic, deleveraging, atau forced selling sedang dominan. Bagus untuk contrarian nanti, tapi untuk crash meter justru menandakan disorder risk tinggi saat ini."
+    elif val <= 30:
+        label = "Fear / stress"
+        read = "Sentiment masih takut. Artinya tape masih rapuh dan risk premium belum benar-benar hilang."
+    elif val < 55:
+        label = "Neutral to mild fear"
+        read = "Sentiment tidak ekstrem, jadi kontribusinya ke crash meter kecil."
+    elif val < 75:
+        label = "Greed / warm risk appetite"
+        read = "Risk appetite sehat sampai hangat. Belum otomatis topping, tapi perlu dilihat bareng breadth dan IWM."
+    elif val < 90:
+        label = "High greed / late-cycle risk"
+        read = "Sentiment sudah panas. Untuk crash meter ini dibaca sebagai top-risk amplifier, apalagi kalau IWM, breadth, dan credit tidak mengkonfirmasi dengan sehat."
+    else:
+        label = "Extreme greed / euphoric top risk"
+        read = "Sentiment sangat panas. Ini bukan crash trigger tunggal, tapi sering muncul dekat fase chase, euphoria, dan topping risk."
+    return {
+        "available": True,
+        "score": severity,
+        "fear_bias": fear_bias,
+        "greed_bias": greed_bias,
+        "label": label,
+        "read": read,
+        "value_text": f"{val:.0f}",
+        "source": "cnn",
+    }
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def fetch_cnn_fear_greed_page(url: str = "https://edition.cnn.com/markets/fear-and-greed") -> Dict[str, object]:
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        r = requests.get(url, timeout=20, headers=headers)
+        r.raise_for_status()
+        text = r.text
+    except Exception as e:
+        return {"score": None, "error": str(e), "source": "cnn_page", "fetched_at_utc": pd.Timestamp.utcnow().isoformat()}
+
+    patterns = [
+        r'"score"\s*:\s*(\d{1,3})',
+        r'"fearGreedIndex"\s*:\s*(\d{1,3})',
+        r'"value"\s*:\s*(\d{1,3})\s*,\s*"rating"',
+        r'"current"\s*:\s*\{[^\}]*?"value"\s*:\s*(\d{1,3})',
+        r'Fear\s*&\s*Greed[^\d]{0,80}(\d{1,3})',
+    ]
+    for pat in patterns:
+        m = re.search(pat, text, flags=re.IGNORECASE | re.DOTALL)
+        if m:
+            try:
+                score = int(m.group(1))
+                if 0 <= score <= 100:
+                    return {"score": float(score), "error": None, "source": "cnn_page", "fetched_at_utc": pd.Timestamp.utcnow().isoformat()}
+            except Exception:
+                pass
+    return {"score": None, "error": "Could not parse Fear & Greed value from page", "source": "cnn_page", "fetched_at_utc": pd.Timestamp.utcnow().isoformat()}
+
+
+def resolve_cnn_fear_greed(use_feature: bool, manual_value: float | None = None, url: str = "https://edition.cnn.com/markets/fear-and-greed") -> Dict[str, object]:
+    if not use_feature:
+        out = classify_cnn_fear_greed(None)
+        out["note"] = "Feature off"
+        out["fetched_at_utc"] = None
+        return out
+    if manual_value is not None and not pd.isna(manual_value) and 0 <= manual_value <= 100:
+        out = classify_cnn_fear_greed(float(manual_value))
+        out["note"] = "Manual override"
+        out["fetched_at_utc"] = None
+        return out
+    raw = fetch_cnn_fear_greed_page(url)
+    out = classify_cnn_fear_greed(raw.get("score"))
+    out["note"] = raw.get("error") or "CNN page snapshot (daily cached)"
+    out["fetched_at_utc"] = raw.get("fetched_at_utc")
+    return out
+
+
 @st.cache_data(ttl=1800, show_spinner=False)
 def fetch_market_bundle() -> Dict[str, pd.DataFrame]:
     out: Dict[str, pd.DataFrame] = {}
@@ -3512,7 +3607,7 @@ def build_top_what_next_summary(engine: Dict[str, object]) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["Scenario", "Prob", "Path", "Big winners", "Main losers", "Action"])
 
 
-def build_crash_meter(state: MacroState, prices: pd.DataFrame, news_items: List[Dict[str, str]], ihsg_overlay: Dict[str, object]) -> Dict[str, object]:
+def build_crash_meter(state: MacroState, prices: pd.DataFrame, news_items: List[Dict[str, str]], ihsg_overlay: Dict[str, object], cnn_fg: Dict[str, object] | None = None) -> Dict[str, object]:
     front = classify_front_end_stress(state, news_items)
     pc = classify_private_credit_stress(state, prices, news_items)
     liq = classify_liquidity_event(state, prices)
@@ -3520,6 +3615,7 @@ def build_crash_meter(state: MacroState, prices: pd.DataFrame, news_items: List[
     war = classify_war_damage_persistence(state, prices, news_items)
     bottom = classify_bottom_quality(state, prices, news_items, next_likely_quad(state))
     iwm_top = classify_iwm_top_signal(prices)
+    cnn_fg = cnn_fg or classify_cnn_fear_greed(None)
 
     dy2 = delta(state.y2_now, state.y2_prev)
     ddxy = delta(state.dxy_now, state.dxy_prev)
@@ -3536,14 +3632,17 @@ def build_crash_meter(state: MacroState, prices: pd.DataFrame, news_items: List[
     bottom_s = float(bottom.get("score", 0.0))
     em_s = float(ihsg_overlay.get("em_stress", 0.0))
     iwm_top_s = float(iwm_top.get("score", 0.0))
+    fg_s = float(cnn_fg.get("score", 0.0))
+    fg_fear = float(cnn_fg.get("fear_bias", 0.0))
+    fg_greed = float(cnn_fg.get("greed_bias", 0.0))
 
-    deflation = max(0.05, 0.30 * liq_s + 0.15 * front_s + 0.12 * clamp01(-growth_delta / 0.55) + 0.11 * clamp01(-dbreadth / 4.0) + 0.10 * clamp01(ddxy / 2.0) + 0.10 * (1 - bottom_s) + 0.07 * clamp01(dcredit / 0.45) + 0.05 * iwm_top_s)
-    credit = max(0.05, 0.35 * pc_s + 0.17 * front_s + 0.13 * liq_s + 0.11 * clamp01(dcredit / 0.45) + 0.09 * clamp01(-dbreadth / 4.0) + 0.08 * em_s + 0.07 * iwm_top_s)
-    growth = max(0.05, 0.22 * clamp01(-growth_delta / 0.55) + 0.16 * clamp01(-doil_pct / 8.0) + 0.15 * liq_s + 0.11 * clamp01(dcredit / 0.45) + 0.14 * clamp01(-dbreadth / 4.0) + 0.14 * (1 - bottom_s) + 0.08 * iwm_top_s)
-    inflation = max(0.05, 0.22 * energy_s + 0.18 * clamp01(doil_pct / 8.0) + 0.13 * war_s + 0.13 * clamp01(dy2 / 0.35) + 0.13 * clamp01(ddxy / 2.0) + 0.13 * clamp01(-dbreadth / 4.0) + 0.08 * iwm_top_s)
-    policy = max(0.05, 0.38 * front_s + 0.15 * clamp01(dy2 / 0.35) + 0.13 * clamp01(ddxy / 2.0) + 0.10 * liq_s + 0.09 * clamp01(-dbreadth / 4.0) + 0.07 * clamp01(dcredit / 0.45) + 0.08 * iwm_top_s)
-    geopolitical = max(0.05, 0.32 * war_s + 0.22 * energy_s + 0.13 * clamp01(doil_pct / 8.0) + 0.10 * clamp01(ddxy / 2.0) + 0.09 * clamp01(-dbreadth / 4.0) + 0.08 * em_s + 0.06 * iwm_top_s)
-    systemic = max(0.05, 0.22 * liq_s + 0.20 * pc_s + 0.16 * front_s + 0.11 * clamp01(dcredit / 0.45) + 0.11 * clamp01(-dbreadth / 4.0) + 0.10 * clamp01(ddxy / 2.0) + 0.10 * iwm_top_s)
+    deflation = max(0.05, 0.28 * liq_s + 0.14 * front_s + 0.12 * clamp01(-growth_delta / 0.55) + 0.10 * clamp01(-dbreadth / 4.0) + 0.09 * clamp01(ddxy / 2.0) + 0.09 * (1 - bottom_s) + 0.07 * clamp01(dcredit / 0.45) + 0.05 * iwm_top_s + 0.08 * fg_fear)
+    credit = max(0.05, 0.33 * pc_s + 0.16 * front_s + 0.12 * liq_s + 0.10 * clamp01(dcredit / 0.45) + 0.08 * clamp01(-dbreadth / 4.0) + 0.08 * em_s + 0.06 * iwm_top_s + 0.07 * fg_fear + 0.04 * fg_greed)
+    growth = max(0.05, 0.21 * clamp01(-growth_delta / 0.55) + 0.15 * clamp01(-doil_pct / 8.0) + 0.14 * liq_s + 0.10 * clamp01(dcredit / 0.45) + 0.13 * clamp01(-dbreadth / 4.0) + 0.13 * (1 - bottom_s) + 0.07 * iwm_top_s + 0.07 * fg_greed)
+    inflation = max(0.05, 0.21 * energy_s + 0.17 * clamp01(doil_pct / 8.0) + 0.12 * war_s + 0.12 * clamp01(dy2 / 0.35) + 0.12 * clamp01(ddxy / 2.0) + 0.12 * clamp01(-dbreadth / 4.0) + 0.08 * iwm_top_s + 0.06 * fg_greed)
+    policy = max(0.05, 0.36 * front_s + 0.14 * clamp01(dy2 / 0.35) + 0.12 * clamp01(ddxy / 2.0) + 0.10 * liq_s + 0.08 * clamp01(-dbreadth / 4.0) + 0.07 * clamp01(dcredit / 0.45) + 0.08 * iwm_top_s + 0.07 * fg_greed)
+    geopolitical = max(0.05, 0.31 * war_s + 0.21 * energy_s + 0.12 * clamp01(doil_pct / 8.0) + 0.09 * clamp01(ddxy / 2.0) + 0.08 * clamp01(-dbreadth / 4.0) + 0.08 * em_s + 0.05 * iwm_top_s + 0.04 * fg_fear)
+    systemic = max(0.05, 0.20 * liq_s + 0.18 * pc_s + 0.15 * front_s + 0.10 * clamp01(dcredit / 0.45) + 0.10 * clamp01(-dbreadth / 4.0) + 0.09 * clamp01(ddxy / 2.0) + 0.09 * iwm_top_s + 0.09 * fg_fear + 0.05 * fg_greed)
 
     raw = {
         "Deflationary / liquidity crash": deflation,
@@ -3559,16 +3658,17 @@ def build_crash_meter(state: MacroState, prices: pd.DataFrame, news_items: List[
     dominant_family = max(family_probs, key=family_probs.get)
 
     crash_score = 100.0 * clamp01(
-        0.21 * front_s +
-        0.18 * pc_s +
-        0.16 * liq_s +
+        0.20 * front_s +
+        0.17 * pc_s +
+        0.15 * liq_s +
         0.09 * energy_s +
-        0.07 * war_s +
-        0.07 * em_s +
+        0.06 * war_s +
+        0.06 * em_s +
         0.07 * clamp01(dcredit / 0.45) +
         0.05 * clamp01(ddxy / 2.0) +
         0.03 * clamp01(-dbreadth / 4.0) +
-        0.07 * iwm_top_s
+        0.06 * iwm_top_s +
+        0.06 * fg_s
     )
     if crash_score >= 80:
         label = "Extreme"
@@ -3587,6 +3687,7 @@ def build_crash_meter(state: MacroState, prices: pd.DataFrame, news_items: List[
         ("Everything-down tape", liq["label"], f"{liq_s:.0%}"),
         ("Energy / inflation shock", energy["label"], f"{energy_s:.0%}"),
         ("War persistence", war["label"], f"{war_s:.0%}"),
+        ("CNN Fear & Greed", f"{cnn_fg.get('label', 'Unavailable')} ({cnn_fg.get('value_text', 'n/a')})", f"{fg_s:.0%}"),
         ("IWM euphoria / top risk", iwm_top["label"], f"{iwm_top_s:.0%}"),
         ("Bottom quality", bottom["label"], f"{bottom_s:.0%}"),
         ("DXY pressure", shock_word(-clamp01(-ddxy / 2.0) + clamp01(ddxy / 2.0)), f"{clamp01(ddxy / 2.0):.0%}"),
@@ -3602,7 +3703,7 @@ def build_crash_meter(state: MacroState, prices: pd.DataFrame, news_items: List[
         "families": family_probs,
         "family_df": pd.DataFrame(family_rows, columns=["Crash family", "Probability"]),
         "trigger_df": pd.DataFrame(trigger_rows, columns=["Trigger", "State", "Weight"]),
-        "read": f"Crash meter {crash_score:.0f}/100. Dominant family: {dominant_family} ({family_probs[dominant_family]:.0%}). IWM euphoria sekarang dibaca sebagai topping filter tambahan: makin parabolik dan makin dekat ATH proxy, makin tinggi bobot ke disorder risk. Ini bukan prediksi crash pasti, tapi pengukur seberapa disorderly tape bisa berubah jika trigger berikutnya ikut confirm.",
+        "read": f"Crash meter {crash_score:.0f}/100. Dominant family: {dominant_family} ({family_probs[dominant_family]:.0%}). CNN Fear & Greed masuk sebagai sentiment overlay: fear ekstrem dibaca sebagai liquidation stress, greed ekstrem dibaca sebagai top-risk amplifier. IWM euphoria tetap dipakai sebagai topping filter tambahan. Ini bukan prediksi crash pasti, tapi pengukur seberapa disorderly tape bisa berubah jika trigger berikutnya ikut confirm.",
     }
 
 def build_action_map(state: MacroState, prices: pd.DataFrame, current_quad: str, next_quad: str, news_items: List[Dict[str, str]], ihsg_overlay: Dict[str, object]) -> pd.DataFrame:
@@ -3689,6 +3790,13 @@ with st.sidebar:
     if refresh:
         fred_single.clear()
         fetch_news_rss.clear()
+        fetch_cnn_fear_greed_page.clear()
+
+    st.divider()
+    st.header("Optional sentiment")
+    st.caption("CNN Fear & Greed dipakai sebagai source of truth dengan cache harian. Kalau gagal parse, pakai manual override.")
+    use_cnn_fear_greed = st.toggle("Use CNN Fear & Greed in crash meter (daily)", value=True)
+    cnn_fear_greed_manual = st.number_input("Manual Fear & Greed override (-1 = auto)", min_value=-1.0, max_value=100.0, value=-1.0, step=1.0)
 
     st.divider()
     st.header("Main toggles")
@@ -3703,7 +3811,7 @@ with st.sidebar:
     show_raw = st.toggle("Show raw state in appendix", value=False)
     show_full_curves = st.toggle("Show full curves inside board", value=False)
 
-st.title("Macro Scenario Matrix — Decision Engine Final V7")
+st.title("Macro Scenario Matrix — Decision Engine Final V7.1")
 st.caption(
     "Versi ini nge-merge blok yang mirip jadi satu board yang lebih rapat: summary -> current vs next core -> context/stress -> scenario probability -> action map -> advanced detail. Di luar board cuma crash engine dan appendix."
 )
@@ -3738,6 +3846,10 @@ premium_label, premium_read = news_premium_status(state, news_items)
 exec_df = build_executive_summary_table(state, quad, next_quad, news_items)
 market_bundle = fetch_market_bundle()
 market_prices = build_market_price_frame(market_bundle)
+cnn_fear_greed = resolve_cnn_fear_greed(
+    use_cnn_fear_greed,
+    None if cnn_fear_greed_manual < 0 else float(cnn_fear_greed_manual),
+)
 current_compare_df = build_compare_board_table_v2(state, market_prices, quad, next_quad, news_items, mode="current")
 next_compare_df = build_compare_board_table_v2(state, market_prices, quad, next_quad, news_items, mode="next")
 current_signal_df = build_phase_signal_story_table(state, quad, next_quad, news_items, mode="current")
@@ -3770,7 +3882,7 @@ scenario_engine = build_what_next_scenario_engine(state, market_prices, quad, ne
 what_next_prob_df = build_what_next_probability_table(scenario_engine)
 what_next_cross_asset_df = build_what_next_cross_asset_table(scenario_engine, top_n=6)
 what_next_summary_df = build_top_what_next_summary(scenario_engine)
-crash_meter = build_crash_meter(state, market_prices, news_items, ihsg_overlay)
+crash_meter = build_crash_meter(state, market_prices, news_items, ihsg_overlay, cnn_fear_greed)
 
 if show_board:
     current_core_df = merge_field_tables(current_compare_df, current_stack_df)
@@ -3981,6 +4093,9 @@ if show_crash:
         with k3:
             compact_kpi("Dominant family", str(crash_meter['family']), f"Share {crash_meter['family_prob']:.0%}")
         st.write(crash_meter['read'])
+        fg_ts = cnn_fear_greed.get("fetched_at_utc")
+        fg_ts_text = pd.to_datetime(fg_ts).strftime("%Y-%m-%d %H:%M UTC") if fg_ts else "n/a"
+        st.caption(f"CNN Fear & Greed overlay: {cnn_fear_greed.get('label', 'Unavailable')} | value {cnn_fear_greed.get('value_text', 'n/a')} | source mode: daily | fetched: {fg_ts_text} | note: {cnn_fear_greed.get('note', 'n/a')}")
         st.write("Early signs: breadth sempit, credit rusak, dollar dominan, 2Y/front-end stress naik, proxy chain putus.")
         st.write("Mid signs: broad beta menyerah, EM/crypto/small caps rapuh, forced deleveraging terasa.")
         st.write("Late signs: correlation naik ke satu, forced selling / capitulation, lalu market fokus ke survival dan policy response.")
