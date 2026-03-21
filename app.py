@@ -1233,7 +1233,7 @@ def render_forecast_summary_row(current_quad: str, current_quad_score: float, va
     st.markdown(
         f"""
         <div class='section-note'>
-            <div style='font-weight:800;margin-bottom:8px'>If forecast benar → {escape_text(target_meta['name'])}: {escape_text(target_meta['phase'])}</div>
+            <div style='font-weight:800;margin-bottom:8px'>What If / Next Likely → {escape_text(target_meta['name'])}: {escape_text(target_meta['phase'])}</div>
             <div style='margin-bottom:6px'><b>Possible:</b> {escape_text(primary_path.get('possible', ''))}</div>
             <div style='margin-bottom:6px'><b>Likely strong:</b> {escape_text(primary_path.get('winners', ''))}</div>
             <div><b>Likely laggards:</b> {escape_text(primary_path.get('laggards', ''))}</div>
@@ -1366,7 +1366,7 @@ def render_phase_matrix(quad: str) -> None:
 def render_phase_guide(quad: str) -> None:
     st.markdown("### Current Phase")
     st.markdown(
-        f"<div class='section-note'><b>{escape_text(QUAD_META[quad]['name'])}:</b> {escape_text(CURRENT_PHASE_TEXT[quad])}</div>",
+        f"<div class='section-note'><b>{escape_text(QUAD_META[quad]['name'])}:</b> {escape_text(CURRENT_PHASE_TEXT[quad])}<br><br><b>Playbook lens:</b> Fokus ke winners quad ini, hindari losers yang paling sensitif, lalu monitor what-if / next likely quad sebelum ubah agresi.</div>",
         unsafe_allow_html=True,
     )
     render_phase_matrix(quad)
@@ -1566,8 +1566,8 @@ def render_quad_detail(quad: str, signals: Dict[str, float], current_quad: str) 
 
     st.markdown("### Positioning Prep")
     st.markdown(
-        f"<div class='section-note'><b>If {paths[0]['target']} confirms</b> → likely strong: {escape_text(paths[0]['winners'])}<br><br>"
-        f"<b>If {paths[1]['target']} confirms</b> → likely strong: {escape_text(paths[1]['winners'])}</div>",
+        f"<div class='section-note'><b>Risk management if {paths[0]['target']} confirms</b> → lean toward: {escape_text(paths[0]['winners'])}<br><br>"
+        f"<b>Alternate if {paths[1]['target']} confirms</b> → lean toward: {escape_text(paths[1]['winners'])}</div>",
         unsafe_allow_html=True,
     )
 
@@ -1767,7 +1767,7 @@ def main() -> None:
     inject_css()
     st.title("Macro Quad Transition Dashboard")
     st.caption(
-        "Arsitektur bersih: Macro Quad Engine (macro only), Transition Engine (macro only), lalu Market / Risk Engines terpisah untuk risk-on, risk-off, big crash, dan long risk-on."
+        "Arsitektur bersih: Macro Quad Engine (macro only), Transition Engine (macro only), lalu Market / Risk Engines terpisah untuk risk-on, risk-off, big crash, dan long risk-on. Cara baca dibuat lebih Hedgeye-style: Current Quad → Playbook → What If / Next Likely Quad → Risk Management, tanpa ubah visual utama."
     )
 
     st.sidebar.header("Settings")
