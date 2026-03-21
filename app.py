@@ -120,6 +120,13 @@ PHASE_GUIDE = {
                     "leveraged loans",
                 ],
             },
+            "FX Lens": {
+                "Prefer": [
+                    "pro-cyclical FX and growth-sensitive majors",
+                    "AUD, CAD, NOK when growth breadth and credit remain healthy",
+                    "selected EM FX only when dollar trend is soft and credit stress is contained",
+                ],
+            },
         },
         "losers": {
             "Worst Asset Classes": {
@@ -144,6 +151,12 @@ PHASE_GUIDE = {
                     "MBS",
                     "Treasury belly",
                     "long bond",
+                ],
+            },
+            "FX Lens": {
+                "Avoid / Weak": [
+                    "USD and defensive funding currencies when reflation breadth is broad",
+                    "pure safe-haven FX beta over cyclical FX",
                 ],
             },
         },
@@ -194,6 +207,13 @@ PHASE_GUIDE = {
                     "high-yield credit",
                 ],
             },
+            "FX Lens": {
+                "Prefer": [
+                    "commodity and cyclical FX rather than defensive funding currencies",
+                    "AUD, CAD, NOK when reflation is broad and commodities confirm",
+                    "selected exporter FX only if dollar trend is not dominant",
+                ],
+            },
         },
         "losers": {
             "Worst Asset Classes": {
@@ -224,6 +244,12 @@ PHASE_GUIDE = {
                     "munis",
                     "MBS",
                     "IG credit",
+                ],
+            },
+            "FX Lens": {
+                "Prefer": [
+                    "commodity and cyclical FX only when inflation breadth is broad and USD is not the leader",
+                    "tactical exporter FX, not generic broad EM beta",
                 ],
             },
         },
@@ -275,6 +301,13 @@ PHASE_GUIDE = {
                     "Treasury belly",
                 ],
             },
+            "FX Lens": {
+                "Use Selectively": [
+                    "USD is often the clean tactical expression when oil, inflation, and yields are all pressing higher",
+                    "major-pair expressions are cleaner than broad EM FX beta in stagflationary episodes",
+                    "commodity-exporter FX can work tactically, but only as exceptions rather than the default broad-EM playbook",
+                ],
+            },
         },
         "losers": {
             "Worst Asset Classes": {
@@ -305,6 +338,13 @@ PHASE_GUIDE = {
                     "convertibles",
                     "leveraged loans",
                     "high-yield credit",
+                ],
+            },
+            "FX Lens": {
+                "Avoid / Weak": [
+                    "broad EM FX beta",
+                    "EUR, GBP, and high-beta cyclical FX during USD-up episodes",
+                    "JPY when USD rates impulse dominates and trend breaks lower",
                 ],
             },
         },
@@ -349,6 +389,12 @@ PHASE_GUIDE = {
                     "MBS",
                 ],
             },
+            "FX Lens": {
+                "Prefer": [
+                    "USD and defensive reserve FX over cyclical beta",
+                    "long USD expressions rather than commodity / growth-sensitive FX",
+                ],
+            },
         },
         "losers": {
             "Worst Asset Classes": {
@@ -379,6 +425,12 @@ PHASE_GUIDE = {
                     "BDCs",
                     "leveraged loans",
                     "TIPS",
+                ],
+            },
+            "FX Lens": {
+                "Avoid / Weak": [
+                    "commodity FX and high-beta growth FX",
+                    "broad EM FX beta when global growth is decelerating",
                 ],
             },
         },
@@ -1483,13 +1535,91 @@ def render_phase_matrix(quad: str) -> None:
         render_buckets_column("Losers", guide["losers"])
 
 
-def render_phase_guide(quad: str) -> None:
+def current_fx_overlay(quad: str, signals: Dict[str, float]) -> List[str]:
+    oil_hot = float(signals.get("oil_z", 0.0)) > 0
+    usd_stress = float(signals.get("big_crash", 0.0)) > 0.50 or float(signals.get("short_risk_off", 0.0)) > 0.55
+
+    if quad == "Q1":
+        lines = [
+            "Base FX tilt: underweight USD; prefer pro-growth FX rather than safe havens.",
+            "Cleaner expressions: AUD, CAD, NOK, or other cyclical FX when breadth and credit are healthy.",
+            "Avoid leaning too hard into CHF/JPY-style defense while Q1 remains intact.",
+        ]
+        if usd_stress:
+            lines.append("If risk-off stress suddenly rises, reduce cyclical-FX aggression even if the macro map still says Q1.")
+        return lines
+
+    if quad == "Q2":
+        lines = [
+            "Base FX tilt: prefer commodity and cyclical FX over defensive reserve currencies.",
+            "Cleaner expressions: AUD, CAD, NOK, or exporter FX when commodities confirm the reflation pulse.",
+            "USD usually loses relative appeal versus broad reflation winners unless rates and stress re-tighten sharply.",
+        ]
+        if usd_stress:
+            lines.append("If dollar stress reappears through rates/credit, cut reflation-FX size and wait for cleaner confirmation.")
+        return lines
+
+    if quad == "Q3":
+        lines = [
+            "Base FX tilt now: long USD rather than broad EM FX beta.",
+            "Clean major-pair expressions: short EUR/USD, short GBP/USD, and long USD/JPY.",
+            "Broad EM FX is usually the fragile bucket; only selective commodity-exporter FX deserve tactical attention.",
+            "Proxy note: Q3 is a regime, not a promise that every proxy rises together every day.",
+            "Oil and USD can lead the move while gold pauses if yields and the dollar are rising faster than inflation-hedge demand.",
+        ]
+        if oil_hot:
+            lines.append("With oil pressure still positive, keep stagflation-sensitive FX expressions cleaner via USD majors instead of broad EM beta.")
+        return lines
+
+    lines = [
+        "Base FX tilt: prefer USD and reserve-currency defense over cyclical FX beta.",
+        "Cleaner expressions: long USD versus high-beta or commodity-sensitive FX.",
+        "Avoid broad EM FX and growth-sensitive currencies while global growth is decelerating.",
+    ]
+    if float(signals.get("long_risk_on", 0.0)) > 0.55:
+        lines.append("If long-risk-on starts to improve from depressed levels, prepare a watchlist for the next rotation but do not front-run it too early.")
+    return lines
+
+
+def current_proxy_note(quad: str, signals: Dict[str, float]) -> List[str]:
+    if quad == "Q3":
+        return [
+            "Quad maps are expected-value playbooks, not a requirement that oil, gold, bonds, and FX all move in lockstep every session.",
+            "A Q3 read stays valid as long as growth is rolling over while inflation pressure is sticky or re-accelerating.",
+            "Short-term divergence is normal: oil plus USD can be leading while gold consolidates under stronger dollar / yield pressure.",
+        ]
+    if quad == "Q4":
+        return [
+            "Q4 usually rewards duration, USD, and defense, but high-volatility bear-market rallies can still happen inside the regime.",
+            "Do not confuse a tactical bounce in beta with a confirmed regime change until growth and inflation trajectories actually turn.",
+        ]
+    if quad == "Q2":
+        return [
+            "Q2 usually rewards broad reflation, but not every cyclical pocket has to move together every day.",
+            "If commodities stop confirming and credit/vol worsen, reflation trades can fade before the macro quad fully changes.",
+        ]
+    return [
+        "Q1 supports risk-on with cooling inflation, but breadth and credit still matter for confirmation.",
+        "If defensives suddenly lead and growth breadth narrows, treat it as an early warning rather than a reason to instantly relabel the quad.",
+    ]
+
+
+def render_phase_guide(quad: str, signals: Dict[str, float]) -> None:
     st.markdown("### Current Phase")
     st.markdown(
         f"<div class='section-note'><b>{escape_text(QUAD_META[quad]['name'])}:</b> {escape_text(CURRENT_PHASE_TEXT[quad])}<br><br><b>Playbook lens:</b> Fokus ke winners quad ini, hindari losers yang paling sensitif, lalu monitor what-if / next likely quad sebelum ubah agresi.</div>",
         unsafe_allow_html=True,
     )
     render_phase_matrix(quad)
+    c1, c2 = st.columns(2)
+    with c1:
+        with st.expander("Current FX Overlay", expanded=False):
+            for line in current_fx_overlay(quad, signals):
+                st.write(f"• {line}")
+    with c2:
+        with st.expander("Proxy / Divergence Note", expanded=False):
+            for line in current_proxy_note(quad, signals):
+                st.write(f"• {line}")
 
 
 def render_requirement_row(requirement: Dict[str, object]) -> None:
@@ -1887,7 +2017,7 @@ def main() -> None:
     inject_css()
     st.title("Macro Quad Transition Dashboard")
     st.caption(
-        "Arsitektur bersih: Macro Quad Engine (macro only), Transition Engine (macro only), lalu Market / Risk Engines terpisah untuk risk-on, risk-off, big crash, dan long risk-on. Cara baca dibuat lebih Hedgeye-style: Current Quad → Playbook → What If / Next Likely Quad → Risk Management, tanpa ubah visual utama."
+        "Arsitektur bersih: Macro Quad Engine (macro only), Transition Engine (macro only), lalu Market / Risk Engines terpisah untuk risk-on, risk-off, big crash, dan long risk-on. Cara baca dibuat lebih Hedgeye-style: Current Quad → Playbook → What If / Next Likely Quad → Risk Management, plus FX / proxy overlay, tanpa ubah visual utama."
     )
 
     st.sidebar.header("Settings")
@@ -1954,7 +2084,7 @@ def main() -> None:
     render_countdown_cards(fred_key)
     st.markdown("---")
     render_hero(current_quad, current_quad_score, validity, primary_path, stage)
-    render_phase_guide(current_quad)
+    render_phase_guide(current_quad, signals)
 
     with st.expander(f"Open {QUAD_META[current_quad]['name']}", expanded=True):
         render_quad_detail(current_quad, signals, current_quad)
