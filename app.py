@@ -50,25 +50,25 @@ QUAD_META = {
         "name": "Quad 1",
         "phase": "Goldilocks",
         "logic": "Growth Up / Inflation Down",
-        "winners": "small caps, semis, emerging markets, hard metals",
+        "winners": "equities, credit, commodities, FX; tech, consumer discretionary, communication services, industrials, materials, REITs",
     },
     "Q2": {
         "name": "Quad 2",
         "phase": "Reflation",
         "logic": "Growth Up / Inflation Up",
-        "winners": "energy, hard metals, emerging markets, nominal-growth beta",
+        "winners": "commodities, equities, credit, FX; tech, industrials, financials, energy, consumer discretionary",
     },
     "Q3": {
         "name": "Quad 3",
         "phase": "Stagflation",
         "logic": "Growth Down / Inflation Up",
-        "winners": "energy, gold, hard assets, defensives, emerging markets",
+        "winners": "gold, commodities, fixed income; utilities, energy, REITs, tech, consumer staples, health care",
     },
     "Q4": {
         "name": "Quad 4",
         "phase": "Deflation",
         "logic": "Growth Down / Inflation Down",
-        "winners": "rates, duration, defensives, gold, recession hedges",
+        "winners": "fixed income, gold, USD; consumer staples, health care, utilities",
     },
 }
 
@@ -76,190 +76,310 @@ PHASE_GUIDE = {
     "Q1": {
         "meaning": {
             "Macro": [
-                "Growth improves while inflation cools.",
-                "The economy feels healthier without a major inflation scare.",
+                "Growth is accelerating while inflation is decelerating.",
+                "This is the Goldilocks regime in the Hedgeye framework.",
             ],
             "Market": [
-                "Breadth usually improves.",
-                "Risk assets can broaden beyond just mega caps.",
+                "Historically favorable for risk assets, especially equities and credit.",
+                "Fixed income and the USD tend to be the weaker major asset-class buckets in the playbook.",
             ],
             "Positioning": [
-                "Rotation into cyclicals, beta, and selected growth.",
-                "Cleaner risk-on works best if credit stays stable.",
+                "Favor offense through the actual Quad 1 winners rather than generic beta everywhere.",
+                "Hedgeye's backtests tilt toward high beta, momentum, leverage, secular growth, and mid caps—not toward bond proxies or deep defensives.",
             ],
         },
         "winners": {
-            "Small Caps": {
-                "Direct": ["IWM", "small-cap cyclicals", "equal-weight beta"],
-                "Correlated / Spillover": ["regional banks", "industrials", "consumer discretionary"],
-                "Confirmation": ["breadth improving", "credit stable", "inflation cooling"],
+            "Best Asset Classes": {
+                "Historically Favored": ["equities", "credit", "commodities", "FX"],
             },
-            "Semis / AI Infra": {
-                "Direct": ["SMH", "SOXX", "NVDA", "AVGO", "ANET"],
-                "Correlated / Spillover": ["networking", "power infra", "cooling / HVAC"],
-                "Confirmation": ["semis lead", "capex strong", "risk-on broadens"],
+            "Best Equity Sectors": {
+                "Historically Favored": [
+                    "tech",
+                    "consumer discretionary",
+                    "communication services",
+                    "industrials",
+                    "materials",
+                    "REITs",
+                ],
             },
-            "Emerging Markets": {
-                "Direct": ["EEM", "EM beta", "Asia cyclicals"],
-                "Correlated / Spillover": ["materials exporters", "internet platforms", "global cyclicals"],
-                "Confirmation": ["USD calmer", "global growth okay", "inflation cooling"],
+            "Best Equity Style Factors": {
+                "Historically Favored": [
+                    "high beta",
+                    "momentum",
+                    "leverage",
+                    "secular growth",
+                    "mid caps",
+                ],
             },
-            "Hard Metals": {
-                "Direct": ["copper beta", "silver beta", "selected miners"],
-                "Correlated / Spillover": ["industrial metals", "resource exporters"],
-                "Confirmation": ["growth improving", "China impulse better", "risk appetite healthy"],
+            "Best Fixed Income Sectors": {
+                "Historically Favored": [
+                    "BDCs",
+                    "convertibles",
+                    "high-yield credit",
+                    "EM dollar debt",
+                    "leveraged loans",
+                ],
             },
         },
         "losers": {
-            "Deep Defensives": {
-                "Direct": ["staples laggards", "utilities laggards", "slow defensive beta"],
-                "Correlated / Spillover": ["bond-proxy defensives", "low-beta hiding spots"],
-                "Pressure Signs": ["breadth broadens", "beta works", "fear fades"],
+            "Worst Asset Classes": {
+                "Historically Weak": ["fixed income", "USD"],
             },
-            "Pure Inflation Hedges": {
-                "Direct": ["energy leadership", "commodity beta", "inflation hedges"],
-                "Correlated / Spillover": ["refiners", "materials torque", "hard-asset only trades"],
-                "Pressure Signs": ["oil cooling", "breakevens softer", "inflation losing momentum"],
+            "Worst Equity Sectors": {
+                "Historically Weak": ["utilities", "consumer staples", "health care"],
+            },
+            "Worst Equity Style Factors": {
+                "Historically Weak": [
+                    "low beta",
+                    "defensives",
+                    "value",
+                    "dividend yield",
+                    "small caps",
+                ],
+            },
+            "Worst Fixed Income Sectors": {
+                "Historically Weak": [
+                    "TIPS",
+                    "short-duration Treasuries",
+                    "MBS",
+                    "Treasury belly",
+                    "long bond",
+                ],
             },
         },
     },
     "Q2": {
         "meaning": {
             "Macro": [
-                "Nominal growth is strong and inflation is still firm.",
-                "The market starts asking whether inflation cools first or growth cracks first.",
+                "Growth and inflation are both accelerating.",
+                "This is the Reflation regime and, in Hedgeye's public materials, often the most bullish environment for stocks.",
             ],
             "Market": [
-                "Reflation-sensitive groups usually lead while pure duration lags.",
-                "Hard assets and commodity beta stay relevant if inflation stays sticky.",
+                "Commodities, equities, credit, and FX are the strongest major asset-class buckets in the playbook.",
+                "Fixed income and the USD usually lag while nominal-growth-sensitive areas lead.",
             ],
             "Positioning": [
-                "Lean into strong nominal-growth winners, but watch for transition risk.",
-                "Need tighter risk management because this quad can flip into Goldilocks or stagflation.",
+                "Lean into cyclical offense and nominal-growth beta.",
+                "The historical winners tilt toward secular growth, high beta, small caps, cyclical growth, and momentum.",
             ],
         },
         "winners": {
-            "Energy": {
-                "Direct": ["XLE", "OIH", "oil names", "commodity producers"],
-                "Correlated / Spillover": ["refiners", "shipping", "energy services"],
-                "Confirmation": ["oil firm", "breakevens up", "inflation sticky"],
+            "Best Asset Classes": {
+                "Historically Favored": ["commodities", "equities", "credit", "FX"],
             },
-            "Hard Metals": {
-                "Direct": ["copper", "silver", "selected miners"],
-                "Correlated / Spillover": ["materials", "industrials", "resource exporters"],
-                "Confirmation": ["global growth okay", "hard-asset demand", "inflation pressure persistent"],
+            "Best Equity Sectors": {
+                "Historically Favored": [
+                    "tech",
+                    "industrials",
+                    "financials",
+                    "energy",
+                    "consumer discretionary",
+                ],
             },
-            "Emerging Markets": {
-                "Direct": ["EEM", "commodity EM", "resource-heavy EM"],
-                "Correlated / Spillover": ["Asia cyclicals", "LatAm beta", "global exporters"],
-                "Confirmation": ["commodities firm", "USD not too strong", "nominal growth strong"],
+            "Best Equity Style Factors": {
+                "Historically Favored": [
+                    "secular growth",
+                    "high beta",
+                    "small caps",
+                    "cyclical growth",
+                    "momentum",
+                ],
+            },
+            "Best Fixed Income Sectors": {
+                "Historically Favored": [
+                    "convertibles",
+                    "BDCs",
+                    "preferreds",
+                    "leveraged loans",
+                    "high-yield credit",
+                ],
             },
         },
         "losers": {
-            "Long-Duration Tech": {
-                "Direct": ["rate-sensitive software", "long-duration growth", "high-multiple tech"],
-                "Correlated / Spillover": ["profitless growth", "duration-heavy quality"],
-                "Pressure Signs": ["rates firm", "inflation sticky", "value / hard assets lead"],
+            "Worst Asset Classes": {
+                "Historically Weak": ["fixed income", "USD"],
+            },
+            "Worst Equity Sectors": {
+                "Historically Weak": [
+                    "utilities",
+                    "communication services",
+                    "consumer staples",
+                    "REITs",
+                    "health care",
+                ],
+            },
+            "Worst Equity Style Factors": {
+                "Historically Weak": [
+                    "low beta",
+                    "dividend yield",
+                    "value",
+                    "defensives",
+                    "size",
+                ],
+            },
+            "Worst Fixed Income Sectors": {
+                "Historically Weak": [
+                    "long bond",
+                    "Treasury belly",
+                    "munis",
+                    "MBS",
+                    "IG credit",
+                ],
             },
         },
     },
     "Q3": {
         "meaning": {
             "Macro": [
-                "Growth slows while inflation stays too firm.",
-                "Consumers and margins both feel pressure in this mix.",
+                "Growth is decelerating while inflation is accelerating.",
+                "This is the Stagflation regime in the Hedgeye framework.",
             ],
             "Market": [
-                "Hard assets and selective defensives tend to outperform broad beta.",
-                "Rally quality usually deteriorates and balance-sheet quality matters more.",
+                "The historical asset-class winners are gold, commodities, and fixed income—not broad credit.",
+                "Inside equities, leadership narrows toward utilities, energy, REITs, tech, staples, and health care while many cyclicals lag.",
             ],
             "Positioning": [
-                "Prefer inflation hedges, hard assets, and selective defense.",
-                "Avoid assuming every cyclical dip is a clean buy before growth truly bottoms.",
+                "Do not treat broad emerging markets or generic small-cap beta as default Quad 3 winners.",
+                "The historical style-factor winners tilt toward secular growth, momentum, mid caps, low beta, and quality, while financials, discretionary, industrials, and materials are weaker.",
             ],
         },
         "winners": {
-            "Energy": {
-                "Direct": ["XLE", "oil names", "commodity producers"],
-                "Correlated / Spillover": ["refiners", "shipping", "resource exporters"],
-                "Confirmation": ["oil firm", "breakevens firm", "inflation still sticky"],
+            "Best Asset Classes": {
+                "Historically Favored": ["gold", "commodities", "fixed income"],
             },
-            "Gold / Hard Assets": {
-                "Direct": ["GLD", "GDX", "hard-asset equities"],
-                "Correlated / Spillover": ["uranium", "silver", "select real assets"],
-                "Confirmation": ["real growth weak", "policy uncertainty", "inflation not breaking"],
+            "Best Equity Sectors": {
+                "Historically Favored": [
+                    "utilities",
+                    "energy",
+                    "REITs",
+                    "tech",
+                    "consumer staples",
+                    "health care",
+                ],
             },
-            "Defensives": {
-                "Direct": ["staples", "utilities", "healthcare"],
-                "Correlated / Spillover": ["quality balance sheets", "cash-flow growers"],
-                "Confirmation": ["growth rolls", "beta weakens", "credit worsens"],
+            "Best Equity Style Factors": {
+                "Historically Favored": [
+                    "secular growth",
+                    "momentum",
+                    "mid caps",
+                    "low beta",
+                    "quality",
+                ],
             },
-            "Emerging Markets": {
-                "Direct": ["commodity EM", "resource exporters", "select EM value"],
-                "Correlated / Spillover": ["LatAm beta", "energy-linked FX"],
-                "Confirmation": ["hard assets lead", "commodity complex firm", "USD not disorderly"],
+            "Best Fixed Income Sectors": {
+                "Historically Favored": [
+                    "munis",
+                    "EM dollar debt",
+                    "long bond",
+                    "TIPS",
+                    "Treasury belly",
+                ],
             },
         },
         "losers": {
-            "Weak Consumer": {
-                "Direct": ["low-end consumer", "discretionary laggards", "retail beta"],
-                "Correlated / Spillover": ["housing beta", "transport", "travel beta"],
-                "Pressure Signs": ["real income squeezed", "growth weak", "consumer stress rises"],
+            "Worst Asset Classes": {
+                "Historically Weak": ["credit"],
             },
-            "Long-Duration Tech": {
-                "Direct": ["rate-sensitive growth", "spec tech", "long-duration software"],
-                "Correlated / Spillover": ["profitless growth", "multiple-heavy tech"],
-                "Pressure Signs": ["inflation sticky", "rates volatile", "real growth weak"],
+            "Worst Equity Sectors": {
+                "Historically Weak": [
+                    "communication services",
+                    "financials",
+                    "consumer discretionary",
+                    "industrials",
+                    "materials",
+                ],
             },
-            "Junk Beta / Weak Balance Sheets": {
-                "Direct": ["weak balance-sheet beta", "junk rallies", "fragile cyclicals"],
-                "Correlated / Spillover": ["small-cap junk", "high-beta laggards"],
-                "Pressure Signs": ["credit worsens", "funding tightens", "risk appetite narrows"],
+            "Worst Equity Style Factors": {
+                "Historically Weak": [
+                    "small caps",
+                    "dividend yield",
+                    "value",
+                    "defensives",
+                    "size",
+                ],
+            },
+            "Worst Fixed Income Sectors": {
+                "Historically Weak": [
+                    "BDCs",
+                    "preferreds",
+                    "convertibles",
+                    "leveraged loans",
+                    "high-yield credit",
+                ],
             },
         },
     },
     "Q4": {
         "meaning": {
             "Macro": [
-                "Growth slows and inflation cools at the same time.",
-                "Recession risk starts to matter more than inflation fear.",
+                "Growth and inflation are both decelerating.",
+                "This is the Deflation regime in the Hedgeye framework.",
             ],
             "Market": [
-                "Defensives, quality, and duration usually matter more.",
-                "Broad beta needs clearer evidence of a new growth bottom before leading again.",
+                "Fixed income, gold, and USD are the main asset-class winners in the historical playbook.",
+                "Commodities, equities, credit, and FX are the broad losers while defensive sectors and quality factors outperform.",
             ],
             "Positioning": [
-                "Stay selective with risk and emphasize balance-sheet strength.",
-                "Watch for either a Q1 recovery turn or a Q3 re-heating inflation scare.",
+                "Favor defense, duration, and quality over aggressive beta.",
+                "The strongest equity style factors are low beta, dividend yield, quality, defensives, and value; the weakest are high beta, momentum, leverage, secular growth, and cyclical growth.",
             ],
         },
         "winners": {
-            "Rates / Duration": {
-                "Direct": ["TLT", "IEF", "duration-sensitive equities"],
-                "Correlated / Spillover": ["utilities", "REIT quality", "software quality"],
-                "Confirmation": ["inflation cooling", "growth slowing", "yields easing"],
+            "Best Asset Classes": {
+                "Historically Favored": ["fixed income", "gold", "USD"],
             },
-            "Defensives": {
-                "Direct": ["XLP", "XLV", "quality large caps"],
-                "Correlated / Spillover": ["cash-flow growers", "low-beta names"],
-                "Confirmation": ["claims worsen", "PMI soft", "recession risk rises"],
+            "Best Equity Sectors": {
+                "Historically Favored": ["consumer staples", "health care", "utilities"],
             },
-            "Gold": {
-                "Direct": ["GLD", "GDX", "select hard-asset protection"],
-                "Correlated / Spillover": ["macro hedges", "policy uncertainty trades"],
-                "Confirmation": ["real yields behave", "macro fear rises", "growth slows"],
+            "Best Equity Style Factors": {
+                "Historically Favored": [
+                    "low beta",
+                    "dividend yield",
+                    "quality",
+                    "defensives",
+                    "value",
+                ],
+            },
+            "Best Fixed Income Sectors": {
+                "Historically Favored": [
+                    "long bond",
+                    "Treasury belly",
+                    "IG credit",
+                    "munis",
+                    "MBS",
+                ],
             },
         },
         "losers": {
-            "High Beta / Weak Balance Sheets": {
-                "Direct": ["small-cap cyclicals", "deep value beta", "weak balance-sheet beta"],
-                "Correlated / Spillover": ["consumer discretionary", "transport", "banks"],
-                "Pressure Signs": ["growth slowing", "claims worsening", "PMI soft"],
+            "Worst Asset Classes": {
+                "Historically Weak": ["commodities", "equities", "credit", "FX"],
             },
-            "Cyclicals": {
-                "Direct": ["industrials lag", "financials lag", "consumer beta lag"],
-                "Correlated / Spillover": ["capex plays", "aggressive reflation trades"],
-                "Pressure Signs": ["recession risk up", "growth soft", "risk appetite weak"],
+            "Worst Equity Sectors": {
+                "Historically Weak": [
+                    "energy",
+                    "tech",
+                    "financials",
+                    "industrials",
+                    "consumer discretionary",
+                ],
+            },
+            "Worst Equity Style Factors": {
+                "Historically Weak": [
+                    "high beta",
+                    "momentum",
+                    "leverage",
+                    "secular growth",
+                    "cyclical growth",
+                ],
+            },
+            "Worst Fixed Income Sectors": {
+                "Historically Weak": [
+                    "preferreds",
+                    "EM local currency",
+                    "BDCs",
+                    "leveraged loans",
+                    "TIPS",
+                ],
             },
         },
     },
