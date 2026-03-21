@@ -666,7 +666,23 @@ def fear_greed_overlays(fg_value: int) -> Dict[str, float]:
     }
 
 
+def _quad_scores_from_probs(g_up: float, i_up: float) -> Dict[str, float]:
+    q1 = clamp01((g_up + (1.0 - i_up)) / 2.0)
+    q2 = clamp01((g_up + i_up) / 2.0)
+    q3 = clamp01(((1.0 - g_up) + i_up) / 2.0)
+    q4 = clamp01(((1.0 - g_up) + (1.0 - i_up)) / 2.0)
+    return {"Q1": q1 * 100.0, "Q2": q2 * 100.0, "Q3": q3 * 100.0, "Q4": q4 * 100.0}
+
+
 def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[str, float]:
+    """
+    Clean architecture:
+    1) Macro Quad Engine (macro only): growth RoC + inflation RoC
+       - monthly overlay
+       - quarterly / slower anchor
+    2) Macro Transition Engine (macro only)
+    3) Market / Risk Engines (IWM, VIX, HY, Fear & Greed)
+    """
     wei = bundle["WEI"]
     icsa = bundle["ICSA"]
     t10y2y = bundle["T10Y2Y"]
@@ -684,39 +700,62 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
     claims4 = icsa.rolling(4).mean()
     claims_yoy = claims4.pct_change(52) * 100.0
     claims_13w = pct_change(claims4, 13)
+    claims_26w = pct_change(claims4, 26)
+
+    wei4 = wei.diff(4)
+    wei13 = wei.diff(13)
+    sahm13 = sahm.diff(13)
+    recpro13 = recpro.diff(13)
 
     cpi3 = ann_roc(cpi, 3)
     cpi6 = ann_roc(cpi, 6)
     core3 = ann_roc(core_cpi, 3)
     core6 = ann_roc(core_cpi, 6)
+    cpi12 = pct_change(cpi, 12)
+    core12 = pct_change(core_cpi, 12)
     cpi_gap = cpi3 - cpi6
     core_gap = core3 - core6
+    cpi6_gap = cpi6 - cpi12
+    core6_gap = core6 - core12
 
     oil21 = pct_change(oil, 21)
     oil63 = pct_change(oil, 63)
     breakeven20 = breakeven.diff(20)
-    wei4 = wei.diff(4)
+    breakeven63 = breakeven.diff(63)
 
     signals: Dict[str, float] = {
+        # Growth raw features
         "wei_level_z": rolling_z_last(wei, 156),
         "wei_4w_z": rolling_z_last(wei4, 156),
+        "wei_13w_z": rolling_z_last(wei13, 156),
         "claims_yoy_z": rolling_z_last(claims_yoy, 156),
         "claims_13w_z": rolling_z_last(claims_13w, 156),
+        "claims_26w_z": rolling_z_last(claims_26w, 156),
         "curve_z": rolling_z_last(t10y2y, 252),
+        "sahm_z": rolling_z_last(sahm, 60),
+        "sahm_13w_z": rolling_z_last(sahm13, 60),
+        "recpro_z": rolling_z_last(recpro, 60),
+        "recpro_13w_z": rolling_z_last(recpro13, 60),
+        # Inflation raw features
         "cpi3_z": rolling_z_last(cpi3, 60),
+        "cpi6_z": rolling_z_last(cpi6, 60),
         "core3_z": rolling_z_last(core3, 60),
+        "core6_z": rolling_z_last(core6, 60),
         "cpi_gap_z": rolling_z_last(cpi_gap, 60),
         "core_gap_z": rolling_z_last(core_gap, 60),
+        "cpi6_gap_z": rolling_z_last(cpi6_gap, 60),
+        "core6_gap_z": rolling_z_last(core6_gap, 60),
         "breakeven_z": rolling_z_last(breakeven, 252),
         "breakeven20_z": rolling_z_last(breakeven20, 252),
+        "breakeven63_z": rolling_z_last(breakeven63, 252),
         "oil21_z": rolling_z_last(oil21, 252),
         "oil63_z": rolling_z_last(oil63, 252),
+        # Financial / market raw features
         "hy_z": rolling_z_last(hy, 252),
         "nfci_z": rolling_z_last(nfci, 156),
         "stlfsi_z": rolling_z_last(stlfsi, 156),
         "vix_z": rolling_z_last(vix, 252),
-        "sahm_z": rolling_z_last(sahm, 60),
-        "recpro_z": rolling_z_last(recpro, 60),
+        # Last values / dates
         "sahm_last": safe_last(sahm),
         "recpro_last": safe_last(recpro),
         "cpi3_last": safe_last(cpi3),
@@ -736,6 +775,7 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
         "last_VIX": last_date(vix),
     }
 
+    # Market overlays - separate from macro quad engine.
     yf_close = load_yf_close(("IWM", "SPY", "QQQ"))
     if not yf_close.empty and all(col in yf_close.columns for col in ["IWM", "SPY"]):
         ratio = (yf_close["IWM"] / yf_close["SPY"]).dropna()
@@ -768,138 +808,177 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
 
     signals.update(fear_greed_overlays(fg_value))
 
-    growth_level_raw = 0.50 * signals["wei_level_z"] + 0.20 * (-signals["claims_yoy_z"]) + 0.15 * signals["curve_z"]
-    growth_mom_raw = 0.55 * signals["wei_4w_z"] + 0.45 * (-signals["claims_13w_z"])
-    inflation_level = (
-        0.35 * signals["cpi3_z"]
-        + 0.25 * signals["core3_z"]
-        + 0.20 * signals["breakeven_z"]
-        + 0.20 * signals["oil63_z"]
+    # =========================
+    # 1) MACRO QUAD ENGINE ONLY
+    # =========================
+    growth_monthly_axis = (
+        0.32 * signals["wei_4w_z"]
+        + 0.28 * (-signals["claims_13w_z"])
+        - 0.18 * signals["sahm_13w_z"]
+        - 0.12 * signals["recpro_13w_z"]
+        + 0.10 * signals["curve_z"]
     )
-    inflation_mom = (
-        0.40 * signals["cpi_gap_z"]
-        + 0.30 * signals["core_gap_z"]
-        + 0.15 * signals["breakeven20_z"]
-        + 0.15 * signals["oil21_z"]
+    growth_quarterly_axis = (
+        0.25 * signals["wei_level_z"]
+        + 0.20 * (-signals["claims_yoy_z"])
+        + 0.15 * signals["wei_13w_z"]
+        + 0.10 * (-signals["claims_26w_z"])
+        - 0.15 * signals["sahm_z"]
+        - 0.10 * signals["recpro_z"]
+        + 0.05 * signals["curve_z"]
     )
-    credit_stress = 0.35 * signals["hy_z"] + 0.25 * signals["nfci_z"] + 0.20 * signals["stlfsi_z"] + 0.20 * signals["vix_z"]
-    labor_soft = 0.65 * signals["claims_yoy_z"] + 0.35 * signals["sahm_z"]
-    recession_risk = 0.40 * signals["sahm_z"] + 0.35 * signals["recpro_z"] + 0.25 * (-signals["curve_z"])
-    iwm_fragility = 0.45 * (-signals["iwm_rel63_z"]) + 0.35 * (-signals["iwm_dist_z"]) + 0.20 * (-signals["iwm_rel20_z"])
-    iwm_euphoria = 0.45 * signals["iwm_63_z"] + 0.35 * signals["iwm_20_z"] + 0.20 * signals["iwm_dist_z"]
-    breadth_health = 0.55 * signals["iwm_rel63_z"] + 0.25 * signals["iwm_rel20_z"] + 0.20 * signals["iwm_dist_z"]
-
-    # Make growth classification less "sticky Q2" by penalizing transition / slowdown risk.
-    growth_level = growth_level_raw - 0.18 * credit_stress - 0.15 * labor_soft
-    growth_mom = growth_mom_raw - 0.22 * labor_soft - 0.18 * recession_risk
-    growth_transition = sigmoid(
-        -1.15 * growth_mom_raw - 0.25 * growth_level_raw + 0.40 * labor_soft + 0.35 * recession_risk + 0.10 * credit_stress
+    inflation_monthly_axis = (
+        0.25 * signals["cpi_gap_z"]
+        + 0.20 * signals["core_gap_z"]
+        + 0.25 * signals["breakeven20_z"]
+        + 0.20 * signals["oil21_z"]
+        + 0.10 * signals["cpi3_z"]
     )
-
-    signals.update(
-        {
-            "growth_level_raw": growth_level_raw,
-            "growth_mom_raw": growth_mom_raw,
-            "growth_level": growth_level,
-            "growth_mom": growth_mom,
-            "growth_transition": growth_transition,
-            "inflation_level": inflation_level,
-            "inflation_mom": inflation_mom,
-            "credit_stress": credit_stress,
-            "labor_soft": labor_soft,
-            "recession_risk": recession_risk,
-            "iwm_fragility": iwm_fragility,
-            "iwm_euphoria": iwm_euphoria,
-            "breadth_health": breadth_health,
-        }
+    inflation_quarterly_axis = (
+        0.25 * signals["cpi6_z"]
+        + 0.25 * signals["core6_z"]
+        + 0.15 * signals["cpi6_gap_z"]
+        + 0.10 * signals["core6_gap_z"]
+        + 0.15 * signals["breakeven_z"]
+        + 0.10 * signals["oil63_z"]
     )
 
-    credit_prob = sigmoid(credit_stress)
-    labor_prob = sigmoid(labor_soft)
+    g_up_monthly = sigmoid(1.20 * growth_monthly_axis)
+    g_up_quarterly = sigmoid(1.10 * growth_quarterly_axis)
+    i_up_monthly = sigmoid(1.20 * inflation_monthly_axis)
+    i_up_quarterly = sigmoid(1.10 * inflation_quarterly_axis)
+
+    growth_blend_axis = 0.60 * growth_quarterly_axis + 0.40 * growth_monthly_axis
+    inflation_blend_axis = 0.60 * inflation_quarterly_axis + 0.40 * inflation_monthly_axis
+    g_up = sigmoid(1.15 * growth_blend_axis)
+    i_up = sigmoid(1.15 * inflation_blend_axis)
+    g_down = 1.0 - g_up
+
+    quad_scores_monthly = _quad_scores_from_probs(g_up_monthly, i_up_monthly)
+    quad_scores_quarterly = _quad_scores_from_probs(g_up_quarterly, i_up_quarterly)
+    quad_scores_blend = {
+        q: 0.65 * quad_scores_quarterly[q] + 0.35 * quad_scores_monthly[q] for q in ["Q1", "Q2", "Q3", "Q4"]
+    }
+
+    # Macro-only transition helpers.
+    labor_soft = 0.55 * signals["claims_yoy_z"] + 0.25 * signals["sahm_z"] + 0.20 * signals["recpro_z"]
+    recession_risk = 0.45 * signals["sahm_z"] + 0.35 * signals["recpro_z"] + 0.20 * (-growth_quarterly_axis)
+    growth_transition = sigmoid(-1.10 * growth_monthly_axis - 0.55 * growth_quarterly_axis)
+
+    # =========================
+    # 2) MARKET / RISK ENGINES
+    # =========================
+    credit_stress = 0.40 * signals["hy_z"] + 0.30 * signals["nfci_z"] + 0.20 * signals["stlfsi_z"] + 0.10 * signals["vix_z"]
+    breadth_health = 0.50 * signals["iwm_rel63_z"] + 0.30 * signals["iwm_rel20_z"] + 0.20 * signals["iwm_dist_z"]
+    iwm_fragility = 0.45 * (-signals["iwm_rel63_z"]) + 0.25 * (-signals["iwm_rel20_z"]) + 0.30 * (-signals["iwm_dist_z"])
+    iwm_euphoria = 0.50 * signals["iwm_63_z"] + 0.30 * signals["iwm_20_z"] + 0.20 * signals["iwm_dist_z"]
+
     recession_prob = sigmoid(recession_risk)
-    breadth_prob = sigmoid(breadth_health)
-
-    g_up = sigmoid(
-        0.75 * growth_level
-        + 0.95 * growth_mom
-        - 0.35 * credit_stress
-        - 0.15 * iwm_fragility
-        - 0.10 * np.maximum(inflation_mom, 0.0)
-    )
-    g_down = sigmoid(
-        -0.60 * growth_level
-        - 1.05 * growth_mom
-        + 0.65 * recession_risk
-        + 0.40 * labor_soft
-        + 0.20 * credit_stress
-        + 0.10 * iwm_fragility
-    )
-    i_up = sigmoid(0.65 * inflation_level + 1.10 * inflation_mom)
-    signals["g_up"] = g_up
-    signals["g_down"] = g_down
-    signals["i_up"] = i_up
+    labor_prob = sigmoid(labor_soft)
 
     short_risk_on = clamp01(
         sigmoid(
-            0.95 * breadth_health
-            - 0.75 * credit_stress
-            - 0.65 * signals["vix_z"]
-            - 0.35 * iwm_fragility
-            + 0.55 * (signals["fg_short_risk_on"] - 0.5)
+            0.70 * breadth_health
+            - 0.55 * credit_stress
+            - 0.45 * signals["vix_z"]
+            + 0.35 * (signals["fg_short_risk_on"] - 0.5)
         )
     )
     short_risk_off = clamp01(
         sigmoid(
-            0.85 * credit_stress
-            + 0.80 * signals["vix_z"]
-            + 0.70 * iwm_fragility
-            + 0.50 * signals["fg_fear"]
-            - 0.35 * growth_mom
+            0.55 * credit_stress
+            + 0.55 * signals["vix_z"]
+            + 0.45 * iwm_fragility
+            + 0.35 * signals["fg_fear"]
+            - 0.20 * breadth_health
         )
     )
     big_crash = clamp01(
         sigmoid(
-            0.95 * credit_stress
-            + 0.95 * recession_risk
-            + 0.55 * labor_soft
-            + 0.45 * iwm_fragility
-            + 0.35 * signals["fg_big_crash_overlay"]
-            - 0.20 * breadth_health
+            0.55 * credit_stress
+            + 0.35 * recession_risk
+            + 0.25 * labor_soft
+            + 0.15 * iwm_fragility
+            + 0.15 * signals["fg_big_crash_overlay"]
+            - 0.10 * breadth_health
         )
     )
     long_risk_on = clamp01(
         sigmoid(
-            0.85 * growth_level
-            + 0.95 * growth_mom
-            - 0.55 * credit_stress
-            - 0.55 * recession_risk
-            - 0.25 * np.maximum(inflation_level, 0)
-            + 0.40 * breadth_health
-            + 0.15 * (signals["fg_norm"] - 0.5 if not np.isnan(signals["fg_norm"]) else 0.0)
+            0.45 * growth_quarterly_axis
+            + 0.20 * growth_monthly_axis
+            + 0.20 * breadth_health
+            - 0.25 * credit_stress
+            - 0.20 * max(inflation_quarterly_axis, 0.0)
+            - 0.10 * recession_prob
         )
     )
+
     signals.update(
         {
+            # Macro axes
+            "growth_level": growth_quarterly_axis,
+            "growth_mom": growth_monthly_axis,
+            "inflation_level": inflation_quarterly_axis,
+            "inflation_mom": inflation_monthly_axis,
+            "growth_level_raw": growth_quarterly_axis,
+            "growth_mom_raw": growth_monthly_axis,
+            "growth_transition": growth_transition,
+            "labor_soft": labor_soft,
+            "recession_risk": recession_risk,
+            # Market / risk overlays
+            "credit_stress": credit_stress,
+            "breadth_health": breadth_health,
+            "iwm_fragility": iwm_fragility,
+            "iwm_euphoria": iwm_euphoria,
+            # Macro probabilities and quad scores
+            "g_up_monthly": g_up_monthly,
+            "g_up_quarterly": g_up_quarterly,
+            "i_up_monthly": i_up_monthly,
+            "i_up_quarterly": i_up_quarterly,
+            "g_up": g_up,
+            "g_down": g_down,
+            "i_up": i_up,
+            "quad_scores_monthly": quad_scores_monthly,
+            "quad_scores_quarterly": quad_scores_quarterly,
+            "quad_scores": quad_scores_blend,
+            "macro_quad_monthly": max(quad_scores_monthly, key=quad_scores_monthly.get),
+            "macro_quad_quarterly": max(quad_scores_quarterly, key=quad_scores_quarterly.get),
+            # Risk engines
             "short_risk_on": short_risk_on,
             "short_risk_off": short_risk_off,
             "big_crash": big_crash,
             "long_risk_on": long_risk_on,
+            # Components for UI transparency
+            "risk_on_components": {
+                "breadth_health": breadth_health,
+                "credit_stress_inv": -credit_stress,
+                "vix_inv": -signals["vix_z"],
+                "fear_greed_sweet": signals["fg_short_risk_on"] - 0.5,
+            },
+            "risk_off_components": {
+                "credit_stress": credit_stress,
+                "vix_z": signals["vix_z"],
+                "iwm_fragility": iwm_fragility,
+                "fg_fear": signals["fg_fear"],
+            },
+            "big_crash_components": {
+                "credit_stress": credit_stress,
+                "recession_risk": recession_risk,
+                "labor_soft": labor_soft,
+                "iwm_fragility": iwm_fragility,
+                "fg_big_crash_overlay": signals["fg_big_crash_overlay"],
+            },
+            "long_risk_on_components": {
+                "growth_quarterly": growth_quarterly_axis,
+                "growth_monthly": growth_monthly_axis,
+                "breadth_health": breadth_health,
+                "credit_stress_inv": -credit_stress,
+                "inflation_drag": -max(inflation_quarterly_axis, 0.0),
+            },
         }
     )
-
-    q1_score = clamp01((g_up + (1 - i_up)) / 2 + 0.08 * breadth_prob - 0.12 * growth_transition - 0.05 * credit_prob)
-    q2_score = clamp01((g_up + i_up) / 2 - 0.20 * growth_transition - 0.10 * recession_prob - 0.06 * labor_prob)
-    q3_score = clamp01((g_down + i_up) / 2 + 0.20 * growth_transition + 0.08 * labor_prob + 0.04 * credit_prob)
-    q4_score = clamp01((g_down + (1 - i_up)) / 2 + 0.10 * recession_prob + 0.06 * credit_prob - 0.04 * breadth_prob)
-
-    signals["quad_scores"] = {
-        "Q1": q1_score * 100,
-        "Q2": q2_score * 100,
-        "Q3": q3_score * 100,
-        "Q4": q4_score * 100,
-    }
     return signals
-
 
 def reason_lines(signals: Dict[str, float], quad: str) -> Tuple[List[str], List[str]]:
     gl = signals["growth_level"]
@@ -962,23 +1041,23 @@ def req(name: str, prob: float) -> Dict[str, object]:
 
 
 def build_paths(signals: Dict[str, float], quad: str) -> List[Dict[str, object]]:
+    # Macro transition engine only. No IWM / Fear & Greed inputs here.
     gl, gm = signals["growth_level"], signals["growth_mom"]
     il, im = signals["inflation_level"], signals["inflation_mom"]
-    cs, ls, rr = signals["credit_stress"], signals["labor_soft"], signals["recession_risk"]
-    iwm_f, iwm_e = signals["iwm_fragility"], signals["iwm_euphoria"]
+    ls, rr = signals["labor_soft"], signals["recession_risk"]
 
-    infl_roll = sigmoid(-1.15 * im - 0.20 * il + 0.05 * cs)
-    infl_reheat = sigmoid(1.15 * im + 0.20 * il + 0.10 * iwm_e)
-    growth_resilient = sigmoid(0.85 * gl + 0.55 * gm - 0.25 * ls - 0.15 * cs)
-    growth_roll = sigmoid(-1.20 * gm - 0.20 * gl + 0.25 * cs + 0.20 * iwm_f)
-    growth_bottom = sigmoid(1.00 * gm + 0.30 * gl - 0.20 * rr)
-    labor_soft = sigmoid(0.85 * ls + 0.20 * cs)
-    labor_stable = sigmoid(-0.85 * ls + 0.20 * growth_resilient)
-    infl_sticky = sigmoid(0.80 * il + 0.55 * im)
-    infl_cooling = sigmoid(-0.80 * il - 0.70 * im)
+    infl_roll = sigmoid(-1.15 * im - 0.55 * il)
+    infl_reheat = sigmoid(1.15 * im + 0.55 * il)
+    growth_resilient = sigmoid(1.00 * gm + 0.65 * gl - 0.25 * ls)
+    growth_roll = sigmoid(-1.10 * gm - 0.55 * gl + 0.35 * ls + 0.20 * rr)
+    growth_bottom = sigmoid(0.95 * gm - 0.35 * gl - 0.10 * ls)
+    labor_soft = sigmoid(0.90 * ls + 0.25 * rr)
+    labor_stable = sigmoid(-0.90 * ls + 0.25 * growth_resilient)
+    infl_sticky = sigmoid(0.85 * il + 0.75 * im)
+    infl_cooling = sigmoid(-0.85 * il - 0.75 * im)
     commodity_cool = sigmoid(-0.75 * signals["oil21_z"] - 0.75 * signals["breakeven20_z"])
     commodity_rise = sigmoid(0.75 * signals["oil21_z"] + 0.75 * signals["breakeven20_z"])
-    growth_weak = sigmoid(-0.85 * gm - 0.20 * gl + 0.20 * rr)
+    growth_weak = sigmoid(-0.85 * gm - 0.65 * gl + 0.25 * rr)
 
     if quad == "Q1":
         raw = [
@@ -1085,7 +1164,6 @@ def build_paths(signals: Dict[str, float], quad: str) -> List[Dict[str, object]]
         p.update(PATH_META.get((quad, p["target"]), {}))
     return raw
 
-
 def finalize_paths(paths: List[Dict[str, object]]) -> List[Dict[str, object]]:
     final = []
     for p in paths:
@@ -1114,16 +1192,25 @@ def forecast_summary(current_quad: str, current_score: float, paths: List[Dict[s
 
 
 def overview_metrics(signals: Dict[str, float], fg_info: Dict[str, object]) -> None:
+    st.markdown("### Macro Quad Engine")
+    c1, c2, c3, c4, c5, c6 = st.columns(6)
+    c1.metric("Effective Quad", str(max(signals["quad_scores"], key=signals["quad_scores"].get)))
+    c2.metric("Quarterly Quad", str(signals.get("macro_quad_quarterly", "N/A")))
+    c3.metric("Monthly Quad", str(signals.get("macro_quad_monthly", "N/A")))
+    c4.metric("Growth Axis (Q)", f"{signals['growth_level']:.2f}")
+    c5.metric("Inflation Axis (Q)", f"{signals['inflation_level']:.2f}")
+    c6.metric("Macro Roll Risk", f"{signals['growth_transition'] * 100:.0f}%")
+
     fg_text = "N/A" if np.isnan(signals["fg_norm"]) else f"{signals['fg_norm'] * 100:.0f}"
     fg_source = "CNN" if fg_info.get("status") == "ok" else "Manual / N.A."
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
-    c1.metric("Growth Up Prob", f"{signals['g_up'] * 100:.0f}%")
-    c2.metric("Inflation Up Prob", f"{signals['i_up'] * 100:.0f}%")
-    c3.metric("Credit Stress", f"{signals['credit_stress']:.2f}")
-    c4.metric("Recession Risk", f"{signals['recession_risk']:.2f}")
-    c5.metric("IWM Fragility", f"{signals['iwm_fragility']:.2f}")
-    c6.metric("Fear & Greed", fg_text, fg_source)
-
+    st.markdown("### Market / Risk Overlay")
+    d1, d2, d3, d4, d5, d6 = st.columns(6)
+    d1.metric("Credit Stress", f"{signals['credit_stress']:.2f}")
+    d2.metric("Breadth / IWM", f"{signals['breadth_health']:.2f}")
+    d3.metric("IWM Fragility", f"{signals['iwm_fragility']:.2f}")
+    d4.metric("VIX z-score", f"{signals['vix_z']:.2f}")
+    d5.metric("Fear & Greed", fg_text, fg_source)
+    d6.metric("Recession Risk", f"{signals['recession_risk']:.2f}")
 
 def render_forecast_summary_row(current_quad: str, current_quad_score: float, validity: str, primary_path: Dict[str, object]) -> None:
     target_quad = str(primary_path["target"])
@@ -1156,13 +1243,47 @@ def render_forecast_summary_row(current_quad: str, current_quad_score: float, va
     )
 
 
+def render_engine_components(signals: Dict[str, float]) -> None:
+    st.markdown("### Engine Components")
+    macro_left, macro_right = st.columns(2)
+    with macro_left:
+        with st.expander("Macro Quad Engine", expanded=False):
+            st.write("**Quarterly growth axis:**", round(float(signals["growth_level"]), 3))
+            st.write("**Monthly growth axis:**", round(float(signals["growth_mom"]), 3))
+            st.write("**Quarterly inflation axis:**", round(float(signals["inflation_level"]), 3))
+            st.write("**Monthly inflation axis:**", round(float(signals["inflation_mom"]), 3))
+            st.write("**Quarterly quad scores:**", {k: round(v, 1) for k, v in signals["quad_scores_quarterly"].items()})
+            st.write("**Monthly quad scores:**", {k: round(v, 1) for k, v in signals["quad_scores_monthly"].items()})
+            st.write("**Effective quad scores:**", {k: round(v, 1) for k, v in signals["quad_scores"].items()})
+    with macro_right:
+        with st.expander("Transition Engine (Macro Only)", expanded=False):
+            st.write("**Growth transition risk:**", round(float(signals["growth_transition"]), 3))
+            st.write("**Labor softening:**", round(float(signals["labor_soft"]), 3))
+            st.write("**Recession risk:**", round(float(signals["recession_risk"]), 3))
+            st.write("**Commodity impulse (oil21 z):**", round(float(signals["oil21_z"]), 3))
+            st.write("**Breakeven impulse (20d z):**", round(float(signals["breakeven20_z"]), 3))
+
+    risk_names = [
+        ("Short Risk-On Engine", signals.get("risk_on_components", {})),
+        ("Short Risk-Off Engine", signals.get("risk_off_components", {})),
+        ("Big Crash Engine", signals.get("big_crash_components", {})),
+        ("Long Risk-On Engine", signals.get("long_risk_on_components", {})),
+    ]
+    cols = st.columns(2)
+    for i, (title, comp) in enumerate(risk_names):
+        with cols[i % 2]:
+            with st.expander(title, expanded=False):
+                for k, v in comp.items():
+                    st.write(f"**{k.replace('_', ' ').title()}:** {float(v):.3f}")
+
+
 def render_meter_cards(signals: Dict[str, float]) -> None:
-    st.markdown("### Crash / Risk Meters")
+    st.markdown("### Separate Market / Risk Engines")
     cards = [
-        ("Risk-Off Jangka Pendek", signals["short_risk_off"] * 100, "buat baca panic / de-risking cepat"),
-        ("Risk-On Jangka Pendek", signals["short_risk_on"] * 100, "buat baca appetite ambil beta sekarang"),
-        ("BIG CRASH", signals["big_crash"] * 100, "buat baca kerusakan sistemik / recession / credit event"),
-        ("Risk-On Jangka Panjang", signals["long_risk_on"] * 100, "buat baca dukungan regime beberapa minggu-bulan"),
+        ("Risk-Off Jangka Pendek", signals["short_risk_off"] * 100, "panic / de-risking tactical; driven by credit, vol, IWM fragility, fear"),
+        ("Risk-On Jangka Pendek", signals["short_risk_on"] * 100, "breadth + sentiment + low vol / low credit stress tactical window"),
+        ("BIG CRASH", signals["big_crash"] * 100, "systemic stress / recession / credit break engine"),
+        ("Risk-On Jangka Panjang", signals["long_risk_on"] * 100, "multi-week to multi-month backdrop; macro growth + breadth - credit drag"),
     ]
     cols = st.columns(4)
     for col, (name, score, desc) in zip(cols, cards):
@@ -1180,7 +1301,6 @@ def render_meter_cards(signals: Dict[str, float]) -> None:
                 """,
                 unsafe_allow_html=True,
             )
-
 
 def render_hero(current_quad: str, quad_score: float, validity: str, primary_path: Dict[str, object], stage: str) -> None:
     meta = QUAD_META[current_quad]
@@ -1562,7 +1682,7 @@ def main() -> None:
     inject_css()
     st.title("Macro Quad Transition Dashboard")
     st.caption(
-        "Fokus: quad sekarang masih valid apa nggak, requirement pindah quad, crash meter, sama ancang-ancang positioning kalau transisi mulai confirm."
+        "Arsitektur bersih: Macro Quad Engine (macro only), Transition Engine (macro only), lalu Market / Risk Engines terpisah untuk risk-on, risk-off, big crash, dan long risk-on."
     )
 
     st.sidebar.header("Settings")
@@ -1607,6 +1727,7 @@ def main() -> None:
     stage = regime_stage(max_path_score)
 
     overview_metrics(signals, fg_info)
+    render_engine_components(signals)
     render_forecast_summary_row(current_quad, current_quad_score, validity, primary_path)
     st.markdown("---")
     render_meter_cards(signals)
@@ -1628,7 +1749,7 @@ def main() -> None:
 
     st.markdown("---")
     st.caption(
-        "Catatan: ini dashboard regime / transition, bukan alat timing intraday. Status requirement pakai multi-signal composite dan path score, jadi lebih susah flip-flop cuma karena satu print data."
+        "Catatan: quad inti sekarang dihitung dari macro-only (growth RoC vs inflation RoC) dengan quarterly anchor + monthly overlay. IWM, VIX, HY, dan Fear & Greed dipisah ke engine risk tersendiri, bukan penentu current macro quad."
     )
 
 
