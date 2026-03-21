@@ -1,6 +1,7 @@
 import html
 import math
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, List, Tuple, Optional
 
@@ -247,9 +248,9 @@ PHASE_GUIDE = {
                 ],
             },
             "FX Lens": {
-                "Prefer": [
-                    "commodity and cyclical FX only when inflation breadth is broad and USD is not the leader",
-                    "tactical exporter FX, not generic broad EM beta",
+                "Avoid / Weak": [
+                    "USD shorts when rates / credit are re-tightening and reflation breadth is narrow",
+                    "generic broad EM beta without commodity confirmation",
                 ],
             },
         },
@@ -508,6 +509,74 @@ UA = {
     "Accept": "text/html,application/json;q=0.9,*/*;q=0.8",
     "Referer": "https://edition.cnn.com/",
 }
+
+
+@dataclass
+class QuadSelectionState:
+    driver_label: str
+    active_scores: Dict[str, float]
+    current_quad: str
+    fit_score: float
+    source_key: str
+
+
+@dataclass
+class DashboardState:
+    signals: Dict[str, float]
+    fg_info: Dict[str, object]
+    quad: QuadSelectionState
+    current_paths: List[Dict[str, object]]
+    primary_path: Dict[str, object]
+    validity: str
+    stage: str
+
+
+def choose_quad_selection(signals: Dict[str, float], driver_label: str) -> QuadSelectionState:
+    if driver_label == "Monthly (Hedgeye-style current call)":
+        active_scores = signals["quad_scores_monthly"]
+        current_quad = str(signals["macro_quad_monthly"])
+        source_key = "monthly"
+    elif driver_label == "Quarterly Anchor":
+        active_scores = signals["quad_scores_quarterly"]
+        current_quad = str(signals["macro_quad_quarterly"])
+        source_key = "quarterly"
+    else:
+        active_scores = signals["quad_scores"]
+        current_quad = max(active_scores, key=active_scores.get)
+        source_key = "blend"
+    return QuadSelectionState(
+        driver_label=driver_label,
+        active_scores=active_scores,
+        current_quad=current_quad,
+        fit_score=float(active_scores[current_quad]),
+        source_key=source_key,
+    )
+
+
+def build_dashboard_state(signals: Dict[str, float], fg_info: Dict[str, object], driver_label: str) -> DashboardState:
+    quad = choose_quad_selection(signals, driver_label)
+    current_paths = finalize_paths(build_paths(signals, quad.current_quad))
+    primary_path = max(current_paths, key=lambda x: x["score"])
+    max_path_score = max(p["score"] for p in current_paths)
+    validity = classify_validity(quad.fit_score, max_path_score)
+    stage = regime_stage(max_path_score)
+    return DashboardState(
+        signals=signals,
+        fg_info=fg_info,
+        quad=quad,
+        current_paths=current_paths,
+        primary_path=primary_path,
+        validity=validity,
+        stage=stage,
+    )
+
+
+def quad_scores_for_source(signals: Dict[str, float], source_key: str) -> Dict[str, float]:
+    if source_key == "monthly":
+        return signals["quad_scores_monthly"]
+    if source_key == "quarterly":
+        return signals["quad_scores_quarterly"]
+    return signals["quad_scores"]
 
 
 def inject_css() -> None:
@@ -1384,7 +1453,7 @@ def overview_metrics(signals: Dict[str, float], fg_info: Dict[str, object]) -> N
     d5.metric("Fear & Greed", fg_text, fg_source)
     d6.metric("Recession Risk", f"{signals['recession_risk']:.2f}")
 
-def render_forecast_summary_row(current_quad: str, current_quad_score: float, validity: str, primary_path: Dict[str, object]) -> None:
+def render_forecast_summary_row(current_quad: str, current_quad_score: float, validity: str, primary_path: Dict[str, object], driver_label: str) -> None:
     target_quad = str(primary_path["target"])
     target_meta = QUAD_META[target_quad]
     st.markdown("### Forecast Snapshot")
@@ -1393,6 +1462,7 @@ def render_forecast_summary_row(current_quad: str, current_quad_score: float, va
         st.metric("Current Quad", current_quad)
     with c2:
         st.metric("Forecast Bias", current_quad)
+        st.caption(driver_label)
     with c3:
         st.metric("Current Validity", validity)
     with c4:
@@ -1536,7 +1606,7 @@ def render_phase_matrix(quad: str) -> None:
 
 
 def current_fx_overlay(quad: str, signals: Dict[str, float]) -> List[str]:
-    oil_hot = float(signals.get("oil_z", 0.0)) > 0
+    oil_hot = float(signals.get("oil21_z", 0.0)) > 0
     usd_stress = float(signals.get("big_crash", 0.0)) > 0.50 or float(signals.get("short_risk_off", 0.0)) > 0.55
 
     if quad == "Q1":
@@ -1773,11 +1843,11 @@ def render_market_action_summary(signals: Dict[str, float]) -> None:
         """,
         unsafe_allow_html=True,
     )
-def render_quad_detail(quad: str, signals: Dict[str, float], current_quad: str) -> None:
+def render_quad_detail(quad: str, signals: Dict[str, float], current_quad: str, active_scores: Dict[str, float]) -> None:
     meta = QUAD_META[quad]
-    paths = finalize_paths(build_paths(signals, quad))
-    quad_score = signals["quad_scores"][quad]
-    primary_path = max(paths, key=lambda x: x["score"])
+    paths = sorted(finalize_paths(build_paths(signals, quad)), key=lambda x: x["score"], reverse=True)
+    quad_score = float(active_scores[quad])
+    primary_path = paths[0]
     validity = classify_validity(quad_score, max(p["score"] for p in paths)) if quad == current_quad else "Watch"
     stage = regime_stage(max(p["score"] for p in paths))
     valid_lines, invalid_lines = reason_lines(signals, quad)
@@ -1822,7 +1892,8 @@ def render_quad_detail(quad: str, signals: Dict[str, float], current_quad: str) 
     )
 
 
-def build_forecast_tables(signals: Dict[str, float], current_quad: str) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def build_forecast_tables(signals: Dict[str, float], current_quad: str, active_scores: Dict[str, float]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    active_scores = signals["quad_scores"] if active_scores is None else active_scores
     current_paths = finalize_paths(build_paths(signals, current_quad))
     path_rows = []
     for p in sorted(current_paths, key=lambda x: x["score"], reverse=True):
@@ -1848,7 +1919,7 @@ def build_forecast_tables(signals: Dict[str, float], current_quad: str) -> Tuple
                 "Quad": q,
                 "Phase": QUAD_META[q]["phase"],
                 "Logic": QUAD_META[q]["logic"],
-                "Fit Score": round(float(signals["quad_scores"][q]), 1),
+                "Fit Score": round(float(active_scores[q]), 1),
                 "Primary Path": primary["target"],
                 "Transition Score": round(float(primary["score"]), 1),
                 "Likely If Right": primary["winners"],
@@ -1980,8 +2051,9 @@ def render_possible_next_playbook(quad: str) -> None:
             if info.get("laggards"):
                 st.write(f"**Likely laggards:** {info['laggards']}")
 
-def render_playbook_all_quads(signals: Dict[str, float], current_quad: str) -> None:
+def render_playbook_all_quads(signals: Dict[str, float], current_quad: str, active_scores: Optional[Dict[str, float]] = None) -> None:
     st.markdown("### Quad Playbook (All Quads)")
+    active_scores = signals["quad_scores"] if active_scores is None else active_scores
     current_paths = finalize_paths(build_paths(signals, current_quad))
     next_likely = max(current_paths, key=lambda x: x["score"])["target"]
 
@@ -2057,39 +2129,24 @@ def main() -> None:
     if fg_mode == "CNN Auto" and fg_info.get("status") != "ok":
         st.warning("CNN Fear & Greed lagi gagal kebaca. Dashboard sementara pakai manual fallback dari sidebar.")
 
-    if quad_driver == "Monthly (Hedgeye-style current call)":
-        quad_scores = signals["quad_scores_monthly"]
-        current_quad = str(signals["macro_quad_monthly"])
-    elif quad_driver == "Quarterly Anchor":
-        quad_scores = signals["quad_scores_quarterly"]
-        current_quad = str(signals["macro_quad_quarterly"])
-    else:
-        quad_scores = signals["quad_scores"]
-        current_quad = max(quad_scores, key=quad_scores.get)
-
-    current_paths = finalize_paths(build_paths(signals, current_quad))
-    primary_path = max(current_paths, key=lambda x: x["score"])
-    current_quad_score = quad_scores[current_quad]
-    max_path_score = max(p["score"] for p in current_paths)
-    validity = classify_validity(current_quad_score, max_path_score)
-    stage = regime_stage(max_path_score)
+    state = build_dashboard_state(signals, fg_info, quad_driver)
 
     overview_metrics(signals, fg_info)
     render_engine_components(signals)
-    render_forecast_summary_row(current_quad, current_quad_score, validity, primary_path)
+    render_forecast_summary_row(state.quad.current_quad, state.quad.fit_score, state.validity, state.primary_path, state.quad.driver_label)
     st.markdown("---")
     render_market_action_summary(signals)
     render_meter_cards(signals)
     st.markdown("---")
     render_countdown_cards(fred_key)
     st.markdown("---")
-    render_hero(current_quad, current_quad_score, validity, primary_path, stage)
-    render_phase_guide(current_quad, signals)
+    render_hero(state.quad.current_quad, state.quad.fit_score, state.validity, state.primary_path, state.stage)
+    render_phase_guide(state.quad.current_quad, signals)
 
-    with st.expander(f"Open {QUAD_META[current_quad]['name']}", expanded=True):
-        render_quad_detail(current_quad, signals, current_quad)
+    with st.expander(f"Open {QUAD_META[state.quad.current_quad]['name']}", expanded=True):
+        render_quad_detail(state.quad.current_quad, signals, state.quad.current_quad, state.quad.active_scores)
 
-    render_playbook_all_quads(signals, current_quad)
+    render_playbook_all_quads(signals, state.quad.current_quad, state.quad.active_scores)
 
 
     if show_raw:
