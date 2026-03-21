@@ -48,25 +48,25 @@ RELEASE_WATCH = {
 QUAD_META = {
     "Q1": {
         "name": "Quad 1",
-        "phase": "Goldilocks / Early Recovery",
+        "phase": "Goldilocks",
         "logic": "Growth Up / Inflation Down",
         "winners": "small caps, semis, emerging markets, hard metals",
     },
     "Q2": {
         "name": "Quad 2",
-        "phase": "Reflation / Strong Nominal Growth",
+        "phase": "Reflation",
         "logic": "Growth Up / Inflation Up",
         "winners": "energy, hard metals, emerging markets, nominal-growth beta",
     },
     "Q3": {
         "name": "Quad 3",
-        "phase": "Stagflation Stress",
+        "phase": "Stagflation",
         "logic": "Growth Down / Inflation Up",
         "winners": "energy, gold, hard assets, defensives, emerging markets",
     },
     "Q4": {
         "name": "Quad 4",
-        "phase": "Disinflation Slowdown / Recession Risk",
+        "phase": "Deflation",
         "logic": "Growth Down / Inflation Down",
         "winners": "rates, duration, defensives, gold, recession hedges",
     },
@@ -266,10 +266,10 @@ PHASE_GUIDE = {
 }
 
 PLAYBOOK_NEXT = {
-    "Q1": ["Q2"],
-    "Q2": ["Q3"],
-    "Q3": ["Q4", "Q1"],
-    "Q4": ["Q1"],
+    "Q1": ["Q2", "Q4"],
+    "Q2": ["Q1", "Q3"],
+    "Q3": ["Q4", "Q2"],
+    "Q4": ["Q1", "Q3"],
 }
 
 PATH_META = {
@@ -1194,7 +1194,7 @@ def forecast_summary(current_quad: str, current_score: float, paths: List[Dict[s
 def overview_metrics(signals: Dict[str, float], fg_info: Dict[str, object]) -> None:
     st.markdown("### Macro Quad Engine")
     c1, c2, c3, c4, c5, c6 = st.columns(6)
-    c1.metric("Effective Quad", str(max(signals["quad_scores"], key=signals["quad_scores"].get)))
+    c1.metric("Blended Regime", str(max(signals["quad_scores"], key=signals["quad_scores"].get)))
     c2.metric("Quarterly Quad", str(signals.get("macro_quad_quarterly", "N/A")))
     c3.metric("Monthly Quad", str(signals.get("macro_quad_monthly", "N/A")))
     c4.metric("Growth Axis (Q)", f"{signals['growth_level']:.2f}")
@@ -1254,7 +1254,7 @@ def render_engine_components(signals: Dict[str, float]) -> None:
             st.write("**Monthly inflation axis:**", round(float(signals["inflation_mom"]), 3))
             st.write("**Quarterly quad scores:**", {k: round(v, 1) for k, v in signals["quad_scores_quarterly"].items()})
             st.write("**Monthly quad scores:**", {k: round(v, 1) for k, v in signals["quad_scores_monthly"].items()})
-            st.write("**Effective quad scores:**", {k: round(v, 1) for k, v in signals["quad_scores"].items()})
+            st.write("**Blended regime scores:**", {k: round(v, 1) for k, v in signals["quad_scores"].items()})
     with macro_right:
         with st.expander("Transition Engine (Macro Only)", expanded=False):
             st.write("**Growth transition risk:**", round(float(signals["growth_transition"]), 3))
@@ -1280,14 +1280,15 @@ def render_engine_components(signals: Dict[str, float]) -> None:
 def render_meter_cards(signals: Dict[str, float]) -> None:
     st.markdown("### Separate Market / Risk Engines")
     cards = [
-        ("Risk-Off Jangka Pendek", signals["short_risk_off"] * 100, "panic / de-risking tactical; driven by credit, vol, IWM fragility, fear"),
-        ("Risk-On Jangka Pendek", signals["short_risk_on"] * 100, "breadth + sentiment + low vol / low credit stress tactical window"),
-        ("BIG CRASH", signals["big_crash"] * 100, "systemic stress / recession / credit break engine"),
-        ("Risk-On Jangka Panjang", signals["long_risk_on"] * 100, "multi-week to multi-month backdrop; macro growth + breadth - credit drag"),
+        ("Risk-Off Jangka Pendek", signals["short_risk_off"] * 100, "panic / de-risking tactical; driven by credit, vol, IWM fragility, fear", "short_risk_off"),
+        ("Risk-On Jangka Pendek", signals["short_risk_on"] * 100, "breadth + sentiment + low vol / low credit stress tactical window", "short_risk_on"),
+        ("BIG CRASH", signals["big_crash"] * 100, "systemic stress / recession / credit break engine", "big_crash"),
+        ("Risk-On Jangka Panjang", signals["long_risk_on"] * 100, "multi-week to multi-month backdrop; macro growth + breadth - credit drag", "long_risk_on"),
     ]
     cols = st.columns(4)
-    for col, (name, score, desc) in zip(cols, cards):
+    for col, (name, score, desc, engine) in zip(cols, cards):
         label = meter_label(score)
+        action, action_desc = risk_action(score, engine)
         color = "#22c55e" if score < 35 else "#eab308" if score < 60 else "#f97316" if score < 80 else "#ef4444"
         with col:
             st.markdown(
@@ -1296,7 +1297,9 @@ def render_meter_cards(signals: Dict[str, float]) -> None:
                     <div style='font-size:14px;opacity:.9;margin-bottom:8px'>{escape_text(name)}</div>
                     <div style='font-size:30px;font-weight:900;margin-bottom:8px'>{score:.0f}/100</div>
                     <div style='display:inline-block;padding:4px 10px;border-radius:999px;background:{color};color:#07110f;font-weight:800;font-size:12px;margin-bottom:10px'>{escape_text(label)}</div>
-                    <div style='font-size:12px;opacity:.8'>{escape_text(desc)}</div>
+                    <div style='font-size:12px;font-weight:800;margin-bottom:8px'>{escape_text(action)}</div>
+                    <div style='font-size:12px;opacity:.8;margin-bottom:8px'>{escape_text(action_desc)}</div>
+                    <div style='font-size:12px;opacity:.75'>{escape_text(desc)}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -1438,6 +1441,88 @@ def render_path_tree(paths: List[Dict[str, object]]) -> None:
                 st.write(f"**Likely laggards:** {path.get('laggards', '-')}")
 
 
+
+
+def risk_action(score: float, engine: str) -> Tuple[str, str]:
+    if engine == "short_risk_off":
+        if score >= 75:
+            return "RISK OFF NOW", "Kurangi beta agresif, tighten stop, hedge, dan fokus defense."
+        if score >= 60:
+            return "DE-RISK", "Kurangi size, hindari tambah exposure agresif, pilih quality saja."
+        if score >= 45:
+            return "WATCH", "Belum full risk-off, tapi jangan terlalu agresif."
+        return "NOT DOMINANT", "Risk-off belum dominan."
+    if engine == "short_risk_on":
+        if score >= 70:
+            return "TACTICAL BUY", "Window trading long jangka pendek terbuka; cari entry, bukan FOMO chase."
+        if score >= 55:
+            return "SELECTIVE BUY", "Boleh nibble / trading long selektif."
+        if score >= 45:
+            return "NEUTRAL", "Belum ada edge risk-on jangka pendek yang kuat."
+        return "STAND DOWN", "Jangan paksa long tactical."
+    if engine == "big_crash":
+        if score >= 80:
+            return "EXIT MARKET / MAX DEFENSE", "Lindungi modal; hindari tambah beta, fokus cash / hedge / defense."
+        if score >= 65:
+            return "CRASH RISK HIGH", "Jangan treat dip as easy buy; utamakan defense dan likuiditas."
+        if score >= 50:
+            return "CRASH WATCH", "Belum full crash, tapi market sudah rapuh."
+        return "NO CRASH REGIME", "Belum ada sinyal crash dominan."
+    if engine == "long_risk_on":
+        if score >= 70:
+            return "BUY & HOLD WINDOW", "Backdrop mendukung bangun posisi swing / position bertahap."
+        if score >= 55:
+            return "START ACCUMULATING", "Boleh mulai beli bertahap dan hold selektif."
+        if score >= 45:
+            return "WAIT / BUILD LIST", "Belum ideal untuk buy & hold agresif."
+        return "AVOID HOLDING AGGRESSIVE BETA", "Belum saatnya bangun hold besar."
+    return "WATCH", "-"
+
+
+def overall_market_call(signals: Dict[str, float]) -> Dict[str, str]:
+    sro = float(signals["short_risk_on"] * 100.0)
+    srf = float(signals["short_risk_off"] * 100.0)
+    bc = float(signals["big_crash"] * 100.0)
+    lro = float(signals["long_risk_on"] * 100.0)
+
+    if bc >= 80 or (bc >= 70 and srf >= 65):
+        return {
+            "headline": "KELUAR / MAX DEFENSE",
+            "detail": "Probabilitas stress besar sudah terlalu tinggi. Prioritas utama: jaga modal, kecilkan beta, tahan agresi beli.",
+        }
+    if srf >= 65 or bc >= 60:
+        return {
+            "headline": "SAATNYA RISK OFF",
+            "detail": "Ini fase de-risk: kurangi posisi rapuh, hindari nambah beta agresif, fokus quality / hedge / cash buffer.",
+        }
+    if lro >= 65 and bc < 40 and srf < 50:
+        return {
+            "headline": "MULAI BELI & HOLD",
+            "detail": "Backdrop multi-week / multi-month cukup sehat untuk akumulasi bertahap dan tahan posisi lebih lama.",
+        }
+    if sro >= 65 and bc < 45 and srf < 50:
+        return {
+            "headline": "SAATNYA BELI TACTICAL",
+            "detail": "Window risk-on jangka pendek terbuka. Fokus entry taktis dan tetap disiplin karena ini belum tentu buy & hold regime.",
+        }
+    return {
+        "headline": "NETRAL / SELECTIVE",
+        "detail": "Belum ada sinyal dominan untuk all-in risk-on atau full risk-off. Pilih setup terbaik dan jaga size.",
+    }
+
+
+def render_market_action_summary(signals: Dict[str, float]) -> None:
+    call = overall_market_call(signals)
+    st.markdown("### Market Action Summary")
+    st.markdown(
+        f"""
+        <div class='section-note'>
+            <div style='font-size:18px;font-weight:900;margin-bottom:8px'>{escape_text(call['headline'])}</div>
+            <div>{escape_text(call['detail'])}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 def render_quad_detail(quad: str, signals: Dict[str, float], current_quad: str) -> None:
     meta = QUAD_META[quad]
     paths = finalize_paths(build_paths(signals, quad))
@@ -1695,6 +1780,11 @@ def main() -> None:
     fg_mode = st.sidebar.radio("Fear & Greed Source", ["CNN Auto", "Manual Override"], index=0)
     manual_fg = st.sidebar.number_input("Manual Fear & Greed (0-100)", min_value=0, max_value=100, value=50)
     show_raw = st.sidebar.checkbox("Show raw signal table", value=False)
+    quad_driver = st.sidebar.selectbox(
+        "Current Quad Driver",
+        ["Monthly (Hedgeye-style current call)", "Blended Regime", "Quarterly Anchor"],
+        index=0,
+    )
     st.sidebar.caption("Fear & Greed default-nya auto dari CNN. Kalau gagal kebaca, fallback pakai manual override.")
 
     if not fred_key:
@@ -1717,8 +1807,16 @@ def main() -> None:
     if fg_mode == "CNN Auto" and fg_info.get("status") != "ok":
         st.warning("CNN Fear & Greed lagi gagal kebaca. Dashboard sementara pakai manual fallback dari sidebar.")
 
-    quad_scores = signals["quad_scores"]
-    current_quad = max(quad_scores, key=quad_scores.get)
+    if quad_driver == "Monthly (Hedgeye-style current call)":
+        quad_scores = signals["quad_scores_monthly"]
+        current_quad = str(signals["macro_quad_monthly"])
+    elif quad_driver == "Quarterly Anchor":
+        quad_scores = signals["quad_scores_quarterly"]
+        current_quad = str(signals["macro_quad_quarterly"])
+    else:
+        quad_scores = signals["quad_scores"]
+        current_quad = max(quad_scores, key=quad_scores.get)
+
     current_paths = finalize_paths(build_paths(signals, current_quad))
     primary_path = max(current_paths, key=lambda x: x["score"])
     current_quad_score = quad_scores[current_quad]
@@ -1730,6 +1828,7 @@ def main() -> None:
     render_engine_components(signals)
     render_forecast_summary_row(current_quad, current_quad_score, validity, primary_path)
     st.markdown("---")
+    render_market_action_summary(signals)
     render_meter_cards(signals)
     st.markdown("---")
     render_countdown_cards(fred_key)
@@ -1749,7 +1848,7 @@ def main() -> None:
 
     st.markdown("---")
     st.caption(
-        "Catatan: quad inti sekarang dihitung dari macro-only (growth RoC vs inflation RoC) dengan quarterly anchor + monthly overlay. IWM, VIX, HY, dan Fear & Greed dipisah ke engine risk tersendiri, bukan penentu current macro quad."
+        "Catatan: quad inti sekarang dihitung dari macro-only (growth RoC vs inflation RoC). Driver current quad bisa dipilih: Monthly, Blended Regime, atau Quarterly Anchor. IWM, VIX, HY, dan Fear & Greed dipisah ke engine risk tersendiri, bukan penentu macro quad inti."
     )
 
 
