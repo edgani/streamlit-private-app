@@ -4611,11 +4611,180 @@ def render_live_news_overlay(signals: Dict[str, float], current_quad: str, news_
 
 
 
+def driver_short_label(driver: str) -> str:
+    if driver.startswith("Monthly"):
+        return "Current Phase (Monthly)"
+    if driver.startswith("Quarterly"):
+        return "Current Phase (Quarterly)"
+    return "Blended Phase"
+
+
+def driver_compare_note(driver: str, states_by_driver: Dict[str, DashboardState]) -> str:
+    if driver.startswith("Blended"):
+        m = states_by_driver["Monthly (Hedgeye-style current call)"].quad.current_quad
+        q = states_by_driver["Quarterly Anchor"].quad.current_quad
+        if m == q:
+            return f"Blend sekarang hampir sama dengan monthly/quarterly karena keduanya sama-sama {m}."
+        return f"Blend sekarang beda karena monthly = {m} sementara quarterly = {q}; blended menjelaskan titik tengah / handoff di antara dua source itu."
+    if driver.startswith("Monthly"):
+        return "Ini baca cuaca/taktikal sekarang ala monthly call — paling cepat nangkep perubahan jangka pendek."
+    return "Ini anchor iklim dominan / backdrop yang lebih lambat berubah dan dipakai buat cek apakah monthly cuma noise atau benar-benar handoff." 
+
+
+def render_compact_playbook_buckets(quad: str, which: str) -> None:
+    direction = "winner" if which.lower().startswith("winner") else "loser"
+    buckets = PHASE_GUIDE[quad]["winners" if direction == "winner" else "losers"]
+    buckets = filter_playbook_buckets(which, buckets, official_only=True)
+    for bucket, content in buckets.items():
+        with st.expander(bucket, expanded=False):
+            for subhead, items in content.items():
+                with st.expander(subhead, expanded=False):
+                    for idx, item in enumerate(items):
+                        with st.expander(item, expanded=(idx == 0)):
+                            render_item_tree(quad, item, direction)
+
+
+def render_phase_consistency_bundle(driver: str, state: DashboardState, signals: Dict[str, float], states_by_driver: Dict[str, DashboardState]) -> None:
+    quad = state.quad.current_quad
+    stage = state.stage
+    with st.expander("Open consist (meaning / winners / losers / proxy / overlays)", expanded=False):
+        st.caption(driver_compare_note(driver, states_by_driver))
+        for section, items in PHASE_GUIDE[quad]["meaning"].items():
+            with st.expander(section, expanded=(section == "Macro")):
+                for item in items:
+                    st.write(f"• {item}")
+        with st.expander("Winners", expanded=False):
+            render_compact_playbook_buckets(quad, "Winners")
+        with st.expander("Losers", expanded=False):
+            render_compact_playbook_buckets(quad, "Losers")
+        with st.expander("Rates / Policy Lens", expanded=False):
+            for line in current_rates_note(quad, signals):
+                st.write(f"• {line}")
+        with st.expander("Current FX Overlay", expanded=False):
+            for line in current_fx_overlay(quad, signals):
+                st.write(f"• {line}")
+        with st.expander("Current Emerging Markets Overlay", expanded=False):
+            for line in current_em_overlay(quad, signals):
+                st.write(f"• {line}")
+            render_ranked_overlay_matrix("EM / IHSG Matrix (strongest → spillover)", EM_IHSG_MATRIX[quad])
+        with st.expander("Current Crypto Overlay", expanded=False):
+            for line in current_crypto_overlay(quad, signals):
+                st.write(f"• {line}")
+            render_ranked_overlay_matrix("Crypto Matrix (strongest → spillover)", CRYPTO_MATRIX[quad])
+        with st.expander("Proxy / Divergence Note", expanded=False):
+            for line in current_proxy_note(quad, signals):
+                st.write(f"• {line}")
+            for line in current_proxy_strength_ladder(quad, signals):
+                st.write(f"• {line}")
+            render_ranked_overlay_matrix("Proxy Impact Ladder (strongest → spillover)", PROXY_IMPACT_MATRIX[quad])
+        with st.expander("Winner / Loser Ladder (strongest → spillover)", expanded=False):
+            render_ranked_overlay_matrix("Quad Long / Short Ladder", QUAD_LONG_SHORT_LADDER[quad])
+        with st.expander(f"Stage Rotation — {stage}", expanded=False):
+            render_ranked_overlay_matrix("Stage Winner / Loser / Rotation Map", STAGE_ROTATION_GUIDE[quad][stage])
+        with st.expander(f"Leadership / Handoff Map — {stage}", expanded=False):
+            render_ranked_overlay_matrix("Who usually moves first → who takes over → who moves last", LEADERSHIP_ROTATION_MAP[quad][stage])
+
+
+def render_driver_triptych(states_by_driver: Dict[str, DashboardState], signals: Dict[str, float], active_driver: str) -> None:
+    st.markdown("### Current Phase Compare")
+    order = [
+        "Monthly (Hedgeye-style current call)",
+        "Quarterly Anchor",
+        "Blended Regime",
+    ]
+    cols = st.columns(3)
+    for col, driver in zip(cols, order):
+        s = states_by_driver[driver]
+        q = s.quad.current_quad
+        meta = QUAD_META[q]
+        is_active = driver == active_driver
+        tag_bg = "#19e68c" if is_active else "#20304d"
+        tag_fg = "#07110f" if is_active else "#dbeafe"
+        with col:
+            st.markdown(
+                f"""
+                <div class='main-card' style='padding:18px'>
+                    <div style='display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap'>
+                        <div>
+                            <div style='font-size:15px;font-weight:800;margin-bottom:10px'>{escape_text(driver_short_label(driver))}</div>
+                            <div style='display:inline-block;padding:5px 9px;border-radius:999px;background:{tag_bg};color:{tag_fg};font-weight:800;font-size:11px;margin-bottom:10px'>{'ACTIVE' if is_active else 'COMPARE'}</div>
+                            <div style='font-size:28px;font-weight:900;line-height:1'>{escape_text(q)}</div>
+                            <div style='margin-top:8px;font-weight:700'>{escape_text(meta['phase'])}</div>
+                            <div style='margin-top:8px'><b>Stage:</b> {escape_text(s.stage)}</div>
+                            <div style='margin-top:6px'><b>Logic:</b> {escape_text(meta['logic'])}</div>
+                        </div>
+                        <div style='min-width:150px'>
+                            <div style='margin-bottom:8px'><span style='opacity:.8'>Validity</span><br>{state_chip_html(s.validity)}</div>
+                            <div style='margin-bottom:6px'><span style='opacity:.8'>Primary Transition</span><br><b>{escape_text(s.primary_path['target'])} Watch</b></div>
+                            <div style='margin-bottom:6px'><span style='opacity:.8'>Transition</span><br><span style='font-size:22px;font-weight:900'>{s.primary_path['score']:.0f}/100</span></div>
+                            <div style='opacity:.8'>Quad Fit: <b>{s.quad.fit_score:.0f}/100</b></div>
+                        </div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            render_phase_consistency_bundle(driver, s, signals, states_by_driver)
+
+
+def render_driver_path_compare(states_by_driver: Dict[str, DashboardState]) -> None:
+    st.markdown("### Path to Q?")
+    order = [
+        "Monthly (Hedgeye-style current call)",
+        "Quarterly Anchor",
+        "Blended Regime",
+    ]
+    cols = st.columns(3)
+    for col, driver in zip(cols, order):
+        s = states_by_driver[driver]
+        ordered = sorted(s.current_paths, key=lambda x: x['score'], reverse=True)
+        primary = ordered[0]
+        alt = ordered[1]
+        with col:
+            st.markdown(f"**{driver_short_label(driver)}**")
+            st.markdown(
+                f"""
+                <div class='soft-card'>
+                    <div style='font-size:12px;font-weight:800;margin-bottom:8px'>Primary</div>
+                    <div style='font-size:24px;font-weight:900;line-height:1'>{escape_text(primary['target'])}</div>
+                    <div style='margin-top:8px'><b>Score:</b> {primary['score']:.0f}/100</div>
+                    <div style='margin-top:6px'><b>Possible:</b> {escape_text(primary.get('possible','-'))}</div>
+                    <div style='margin-top:6px'><b>Likely strong:</b> {escape_text(primary.get('winners','-'))}</div>
+                    <div style='margin-top:6px'><b>Likely laggards:</b> {escape_text(primary.get('laggards','-'))}</div>
+                    <hr style='border:0;border-top:1px solid rgba(255,255,255,.08);margin:12px 0'>
+                    <div style='font-size:12px;font-weight:800;margin-bottom:8px'>Alternate</div>
+                    <div style='font-size:18px;font-weight:900;line-height:1'>{escape_text(alt['target'])}</div>
+                    <div style='margin-top:6px'><b>Score:</b> {alt['score']:.0f}/100</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            with st.expander("Open path detail", expanded=False):
+                for path in ordered[:2]:
+                    with st.expander(f"{path['title']} — {path['score']:.0f}/100", expanded=(path is primary)):
+                        for req in path['requirements']:
+                            st.write(f"• {req['name']} — {req['icon']} {req['label']}")
+                        st.write(f"**Possible:** {path.get('possible','-')}")
+                        st.write(f"**If forecast benar:** {path.get('if_right','-')}")
+                        st.write(f"**Likely strong:** {path.get('winners','-')}")
+                        st.write(f"**Likely laggards:** {path.get('laggards','-')}")
+
+
+def render_bottom_toggle_sections(signals: Dict[str, float], state: DashboardState, news_query: str) -> None:
+    st.markdown("### Bottom Toggles")
+    with st.expander("Open selected-driver quad detail", expanded=False):
+        render_quad_detail(state.quad.current_quad, signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
+    render_playbook_all_quads(signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
+    render_live_news_overlay(signals, state.quad.current_quad, news_query)
+    with st.expander("Open advanced process overlay", expanded=False):
+        render_advanced_process_overlay(signals, state.quad.current_quad)
+
+
 def main() -> None:
     inject_css()
     st.title("Macro Quad Transition Dashboard")
     st.caption(
-        "Arsitektur bersih: Macro Quad Engine (macro only), Transition Engine (macro only), lalu Market / Risk Engines terpisah untuk risk-on, risk-off, big crash, dan long risk-on. Matrix Q1–Q4 kini dipisah tegas antara official public Hedgeye matrix versus overlay inference (FX / EM / IHSG / crypto / rates). Overlay matrix dan proxy ladder diurutkan dari dampak paling kuat sampai spillover paling kecil, tanpa ubah visual utama."
+        "Struktur sekarang dipisah seperti engine map: Macro Quad Engine → Separate Market / Risk Engines → Condition Sekarang Bagusnya? → Current Phase Compare (Monthly / Quarterly / Blended) → Path to Q? → bottom toggles untuk playbook, live news, dan overlay proses."
     )
 
     st.sidebar.header("Settings")
@@ -4634,7 +4803,7 @@ def main() -> None:
         index=0,
     )
     news_query = st.sidebar.text_input("Live News Query", value=DEFAULT_NEWS_QUERY)
-    st.sidebar.caption("Fear & Greed default-nya auto dari CNN. Kalau gagal kebaca, fallback pakai manual override. Live news dipakai sebagai overlay, bukan penentu quad inti.")
+    st.sidebar.caption("Current Quad Driver tetap dipakai untuk selected-detail dan bottom overlays; compare 3 driver sekarang sudah muncul langsung di area Current Phase.")
 
     if not fred_key:
         st.warning("Masukin FRED API key dulu di sidebar.")
@@ -4660,24 +4829,30 @@ def main() -> None:
     states_by_driver = {driver: build_dashboard_state(signals, fg_info, driver) for driver in driver_order}
     state = states_by_driver[quad_driver]
 
+    # 1) Macro Quad Engine
     overview_metrics(signals, fg_info)
-    render_engine_components(signals)
-    render_forecast_summary_row(state.quad.current_quad, state.quad.fit_score, state.validity, state.primary_path, state.quad.driver_label)
-    st.markdown("---")
-    render_market_action_summary(signals)
-    render_meter_cards(signals)
-    st.markdown("---")
     render_countdown_cards(fred_key)
     st.markdown("---")
-    render_hero(state.quad.current_quad, state.quad.fit_score, state.validity, state.primary_path, state.stage)
-    render_phase_guide(state.quad.current_quad, signals, state.stage, states_by_driver, quad_driver)
 
-    with st.expander(f"Open {QUAD_META[state.quad.current_quad]['name']}", expanded=True):
-        render_quad_detail(state.quad.current_quad, signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
+    # 2) Separate market / risk engines
+    render_meter_cards(signals)
+    st.markdown("---")
 
-    render_playbook_all_quads(signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
-    render_live_news_overlay(signals, state.quad.current_quad, news_query)
-    render_advanced_process_overlay(signals, state.quad.current_quad)
+    # 3) Condition sekarang bagusnya?
+    st.markdown("### Condition Sekarang Bagusnya?")
+    render_market_action_summary(signals)
+    st.markdown("---")
+
+    # 4) Current phase compare (monthly / quarterly / blended)
+    render_driver_triptych(states_by_driver, signals, quad_driver)
+    st.markdown("---")
+
+    # 5) Path to Q?
+    render_driver_path_compare(states_by_driver)
+    st.markdown("---")
+
+    # 6) Bottom toggles only
+    render_bottom_toggle_sections(signals, state, news_query)
 
     if show_raw:
         st.markdown("### Raw Signal Table")
@@ -4685,7 +4860,7 @@ def main() -> None:
 
     st.markdown("---")
     st.caption(
-        "Catatan: quad inti sekarang dihitung dari GDP nowcast RoC vs CPI nowcast RoC. Driver current quad bisa dipilih: Monthly, Blended Regime, atau Quarterly Anchor. Matrix Q1–Q4 menampilkan official public Hedgeye buckets; FX / EM / IHSG / crypto / rates dipisah sebagai overlay inference. Winner / loser ladder dan stage rotation kini diurutkan dari dampak paling direct sampai spillover paling kecil. 2Y / 5Y / 10Y / 30Y hidup di policy / rates lens; IWM, VIX, HY, Fear & Greed, FX complex, commodity breadth, style factors, EM / IHSG local baskets, dan crypto-quality-vs-alt-beta hidup di signal / risk engines, bukan penentu macro quad inti. V17 menambah Bayesian-lite out-quarter module, formal signal states, behavioral/topping process overlay, secular commodity-vs-duration layer, dan global/country engine agar flow model lebih dekat ke public-process Hedgeye sambil tetap usable untuk crypto dan IHSG."
+        "Catatan: current phase sekarang dibandingkan langsung untuk Monthly, Quarterly, dan Blended. Dropdown driver di sidebar tetap dipakai untuk selected detail dan bottom overlays. Forecast Snapshot dan Engine Components lama dibuang dari area utama karena informasinya sudah ter-cover di structure compare yang baru."
     )
 
 
