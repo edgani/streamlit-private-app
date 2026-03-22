@@ -2701,7 +2701,204 @@ def render_hero(current_quad: str, quad_score: float, validity: str, primary_pat
     )
 
 
-def render_buckets_column(title: str, buckets: Dict[str, Dict[str, List[str]]], expand_first: bool = True) -> None:
+
+
+def _normalize_item_key(item: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", item.lower()).strip()
+
+
+def _fallback_item_tree(item: str, direction: str) -> Dict[str, List[str]]:
+    if direction == "winner":
+        return {
+            "Most Direct": [f"the cleanest, most liquid {item} leaders", f"the names with the strongest relative strength inside {item}"],
+            "Secondary / Confirm": [f"high-quality second-line names inside {item}", f"related proxies only after the direct leaders confirm"],
+            "Spillover / Late": [f"lower-liquidity and late-chasing names around {item}", f"only the small spillover beneficiaries after the main move is already working"],
+            "If leaders cool, watch rotation to": [f"the next quality bucket next to {item}", "broader spillover only if breadth keeps improving"],
+        }
+    return {
+        "Most Direct Shorts / Weakness": [f"the weakest, most crowded, or most rate-sensitive names inside {item}", f"the names already losing relative strength inside {item}"],
+        "Secondary Shorts": [f"second-line names that usually weaken after the leaders crack", f"related proxies only after the direct weak leaders confirm"],
+        "Spillover / Late Weakness": [f"lower-liquidity names around {item} that often get hit later", "late spillover after the main downside trend is already established"],
+        "If downside cools, watch rotation to": ["the next weakest adjacent bucket", "a squeeze first in the most crowded shorts before broader weakness resumes"],
+    }
+
+
+def _specific_item_tree(quad: str, key: str, direction: str) -> Optional[Dict[str, List[str]]]:
+    # Winners
+    if direction == "winner":
+        if key == "energy":
+            if quad == "Q3":
+                return {
+                    "Most Direct": ["upstream oil & gas E&P", "oil-linked exporters / direct crude beta", "integrated majors when oil and USD stay firm"],
+                    "Secondary / Confirm": ["refiners and selected oil services after crude leadership is confirmed", "shipping / tanker only if route stress and freight also confirm"],
+                    "Spillover / Late": ["coal / metals / local resource spillover", "second-order industrial names that only catch a small energy tailwind"],
+                    "If leaders cool, watch rotation to": ["gold and exporter cash-flow names if inflation-hedge demand broadens", "duration / defensives only if growth fear begins to dominate"],
+                }
+            return {
+                "Most Direct": ["upstream oil & gas E&P", "integrated majors", "oil services once crude strength is confirmed"],
+                "Secondary / Confirm": ["refiners and fuel logistics", "selected exporter EM / resource-linked local names"],
+                "Spillover / Late": ["adjacent resource proxies and lower-liquidity local names", "second-order industrial beneficiaries"],
+                "If leaders cool, watch rotation to": ["financials / industrials in Q2", "defensive cash-flow names in Q3"],
+            }
+        if key == "commodities":
+            if quad == "Q3":
+                return {
+                    "Most Direct": ["oil / direct energy beta", "gold once inflation-hedge demand broadens", "hard-asset exporters"],
+                    "Secondary / Confirm": ["industrial metals and selected ags only if breadth confirms", "commodity-linked currencies / exporters"],
+                    "Spillover / Late": ["shipping, dry bulk, and second-order resource names", "local resource beta that only gets partial spillover"],
+                    "If leaders cool, watch rotation to": ["defensives and duration if growth fear starts to dominate", "stay selective rather than assuming broad EM must join"],
+                }
+            return {
+                "Most Direct": ["the cleanest liquid commodity futures / ETFs", "energy and industrial-metals producers", "resource exporters"],
+                "Secondary / Confirm": ["materials, miners, and commodity FX", "selected transport / logistics only after the core move confirms"],
+                "Spillover / Late": ["second-order commodity-sensitive local names", "weaker resource beta that only moves after the leaders"],
+                "If leaders cool, watch rotation to": ["financials / cyclicals if the reflation move broadens", "gold / defensives if the move turns more stagflationary"],
+            }
+        if key == "gold":
+            return {
+                "Most Direct": ["spot / front-month gold exposure", "large liquid gold miners", "royalty / streaming names when the move is clean"],
+                "Secondary / Confirm": ["silver and precious-metals miners only after gold leadership confirms", "defensive cash-flow hard-asset equities"],
+                "Spillover / Late": ["smaller miners and lower-liquidity precious-metals beta", "country-specific gold proxies that only catch a partial spillover"],
+                "If leaders cool, watch rotation to": ["duration if real yields are falling", "energy / exporters if oil is becoming the dominant inflation leg"],
+            }
+        if key == "fixed income":
+            return {
+                "Most Direct": ["the part of the Treasury curve that matches the regime first", "liquid duration expressions before lower-quality spread products"],
+                "Secondary / Confirm": ["investment grade duration and high-quality rate-sensitive proxies", "only selected spread sectors after Treasuries confirm"],
+                "Spillover / Late": ["lower-quality spread products and residual credit beta", "weaker duration-adjacent equities"],
+                "If leaders cool, watch rotation to": ["defensives in Q4", "equity beta only when yields and credit both confirm a handoff"],
+            }
+        if key == "equities":
+            return {
+                "Most Direct": ["the official best sectors for the active quad", "liquid index leadership and highest-quality sector leaders"],
+                "Secondary / Confirm": ["style-factor winners that fit the quad", "country / EM beta only after the US core leaders confirm"],
+                "Spillover / Late": ["lower-liquidity sector laggards", "local spillover names that only move after the main equity leadership is obvious"],
+                "If leaders cool, watch rotation to": ["the next-best official sector bucket for the same quad", "or toward the next quad's early leaders if the regime is fading"],
+            }
+        if key == "credit":
+            return {
+                "Most Direct": ["highest-quality spread products that fit the regime", "liquid credit beta before lower-quality tails"],
+                "Secondary / Confirm": ["convertibles / HY / loans only after spreads and rates both confirm", "EM dollar debt only if USD pressure is calm"],
+                "Spillover / Late": ["lower-liquidity spread beta", "the weakest carry chasers late in the move"],
+                "If leaders cool, watch rotation to": ["equities in risk-on regimes", "Treasuries / cash-flow defensives when stress rises"],
+            }
+        if key == "fx":
+            return {
+                "Most Direct": ["the clearest major-currency expression of the active regime", "liquid developed-market FX before EMFX"],
+                "Secondary / Confirm": ["selected EMFX only after the dollar and rates backdrop confirms", "commodity FX when commodities are truly leading"],
+                "Spillover / Late": ["narrower country-specific FX themes", "the weakest spillover currencies that only move after the majors"],
+                "If leaders cool, watch rotation to": ["the next-strongest major cross", "stay selective on EMFX until credit and USD both confirm"],
+            }
+        if key == "usd":
+            return {
+                "Most Direct": ["DXY and the clearest USD-major crosses", "USD vs the weakest cyclical / EMFX expressions"],
+                "Secondary / Confirm": ["USD vs commodity importers and fragile balance-sheet currencies", "country-specific weak FX only after the broad USD move is confirmed"],
+                "Spillover / Late": ["narrow local FX themes", "late spillover to already-weak EMFX"],
+                "If leaders cool, watch rotation to": ["duration and defensives in Q4", "selected pro-cyclical FX only when rates and credit both improve"],
+            }
+        if key == "utilities":
+            return {
+                "Most Direct": ["regulated utilities and defensive cash-flow names", "high-quality yield defensives"],
+                "Secondary / Confirm": ["adjacent defensives and infrastructure-like proxies", "higher-duration utilities only if yields behave"],
+                "Spillover / Late": ["smaller / lower-liquidity defensive names", "local defensive utility proxies"],
+                "If leaders cool, watch rotation to": ["staples / health care if defense is still needed", "duration if the market shifts harder into Q4"],
+            }
+        if key == "reit s" or key == "reits":
+            return {
+                "Most Direct": ["large liquid REITs with clean balance sheets", "property cash-flow vehicles that match the rates backdrop"],
+                "Secondary / Confirm": ["higher-beta REIT sub-industries only after the leaders confirm", "rate-sensitive property names with improving liquidity"],
+                "Spillover / Late": ["smaller / weaker property beta", "local property names that only catch partial spillover"],
+                "If leaders cool, watch rotation to": ["utilities / staples if the move gets more defensive", "banks / cyclicals only when rates and credit clearly improve"],
+            }
+        if key == "tech":
+            return {
+                "Most Direct": ["large liquid quality tech", "software / semis only when rates are not fighting the move"],
+                "Secondary / Confirm": ["mid-cap growth and platform names after large-cap leadership confirms", "selected quality crypto-beta equities only after tech breadth expands"],
+                "Spillover / Late": ["lower-quality growth and narrative beta", "smaller speculative tech only after the quality leaders already worked"],
+                "If leaders cool, watch rotation to": ["other official growth winners if the regime still supports risk", "defensives or duration if rates start to dominate against growth"],
+            }
+        if key == "consumer staples":
+            return {
+                "Most Direct": ["large liquid staples with pricing power", "cash-flow defensives with stable margins"],
+                "Secondary / Confirm": ["household / food / beverage leaders after the primary defensive move is confirmed", "quality dividend defensives"],
+                "Spillover / Late": ["smaller and lower-liquidity staples", "local defensive names with only partial spillover"],
+                "If leaders cool, watch rotation to": ["health care / utilities if defense remains needed", "quality growth only when a genuine recovery handoff develops"],
+            }
+        if key == "health care":
+            return {
+                "Most Direct": ["large liquid health-care defensives", "pharma / managed-care / resilient cash-flow names"],
+                "Secondary / Confirm": ["medtech and broader defensive health-care buckets once the main move confirms", "quality biotech only very selectively"],
+                "Spillover / Late": ["small / lower-liquidity health-care beta", "story-driven names that only catch late spillover"],
+                "If leaders cool, watch rotation to": ["staples / utilities if the regime remains defensive", "quality growth if a clean Q4→Q1 handoff appears"],
+            }
+        if key == "industrials":
+            return {
+                "Most Direct": ["large liquid machinery / transports / capital-goods leaders", "cyclical industrials with strong operating leverage"],
+                "Secondary / Confirm": ["logistics / rails / selective defense-related industry after the core leaders confirm", "selected local industrial beta"],
+                "Spillover / Late": ["lower-liquidity industrial names", "second-order suppliers that only move after the leaders"],
+                "If leaders cool, watch rotation to": ["materials / financials in a clean reflation broadening", "defensives if the cycle starts rolling over"],
+            }
+        if key == "materials":
+            return {
+                "Most Direct": ["diversified miners and chemicals / materials leaders", "industrial metals producers"],
+                "Secondary / Confirm": ["specialty materials and exporter proxies after base metals confirm", "selected local commodity processors"],
+                "Spillover / Late": ["weaker small-cap materials beta", "downstream spillover names"],
+                "If leaders cool, watch rotation to": ["energy if inflation pressure broadens", "industrials / financials if the growth leg is cleaner"],
+            }
+        if key == "financials":
+            return {
+                "Most Direct": ["money-center banks and liquid financial beta", "insurers / brokers when the rates backdrop confirms"],
+                "Secondary / Confirm": ["regional / local banks and lender proxies after the primary leaders confirm", "selected IHSG banks on improving domestic risk appetite"],
+                "Spillover / Late": ["weaker lenders and lower-quality local financial beta", "property-adjacent finance spillover"],
+                "If leaders cool, watch rotation to": ["industrials / materials if reflation is broadening", "defensives if the rates backdrop turns less friendly"],
+            }
+        if key == "consumer discretionary":
+            return {
+                "Most Direct": ["large liquid discretionary leaders", "retail / travel / consumer-beta winners with clear earnings leverage"],
+                "Secondary / Confirm": ["autos / leisure / domestic-beta names after the leaders confirm", "selected local consumer cyclicals"],
+                "Spillover / Late": ["lower-liquidity discretionary beta", "weak-quality consumer names that only squeeze late"],
+                "If leaders cool, watch rotation to": ["communication services / tech if risk appetite stays firm", "staples if the consumer cycle weakens"],
+            }
+        if key == "communication services":
+            return {
+                "Most Direct": ["large liquid internet / media / platform names", "the communication-services names that behave like quality growth leaders"],
+                "Secondary / Confirm": ["advertising / entertainment beta after the primary leaders confirm", "selected mid-cap growth comms names"],
+                "Spillover / Late": ["smaller narrative-driven names", "local media spillover"],
+                "If leaders cool, watch rotation to": ["tech / discretionary if the growth leg broadens", "defensives if rates begin to bite"],
+            }
+        if key in {"high beta","momentum","leverage","secular growth","mid caps","bdcs","convertibles","high yield credit","em dollar debt","leveraged loans"}:
+            return _fallback_item_tree(item=key, direction=direction)
+    else:
+        if key in {"fixed income", "usd", "utilities", "consumer staples", "health care", "low beta", "defensives", "value", "dividend yield", "tips", "short duration treasuries", "mbs", "treasury belly", "long bond"}:
+            return {
+                "Most Direct Shorts / Weakness": [f"the cleanest liquid expressions of weak {key}", f"the names already losing relative strength inside {key}"],
+                "Secondary Shorts": [f"second-line {key} proxies after the leaders crack", "adjacent lower-liquidity names after the core move confirms"],
+                "Spillover / Late Weakness": ["crowded laggards and smaller names after the core downside is established", "residual late weakness rather than the first clean short"],
+                "If downside cools, watch rotation to": ["the active quad's real winners rather than forcing stale shorts", "a squeeze first in the most crowded weak names"],
+            }
+        if key in {"equities","credit","tech","consumer discretionary","communication services","industrials","materials","financials","energy","commodities","small caps"}:
+            return {
+                "Most Direct Shorts / Weakness": [f"the most rate-sensitive / cyclically-exposed {key} leaders that have rolled over", f"the crowded prior winners inside {key} once relative strength breaks"],
+                "Secondary Shorts": [f"second-line and lower-quality {key} names after the liquid leaders weaken", "adjacent spillover beta once the main downside trend is proven"],
+                "Spillover / Late Weakness": ["illiquid and residual beta", "the names that only get hit after broad selling is already obvious"],
+                "If downside cools, watch rotation to": ["the next weakest adjacent bucket", "or a handoff into the next regime's winners if macro conditions are changing"],
+            }
+    return None
+
+
+def _playbook_item_tree(quad: str, item: str, direction: str) -> Dict[str, List[str]]:
+    key = _normalize_item_key(item)
+    tree = _specific_item_tree(quad, key, direction)
+    return tree if tree is not None else _fallback_item_tree(item, direction)
+
+
+def render_item_tree(quad: str, item: str, direction: str) -> None:
+    tree = _playbook_item_tree(quad, item, direction)
+    for section, lines in tree.items():
+        st.markdown(f"<div class='small-muted' style='margin-top:6px;margin-bottom:4px'><b>{escape_text(section)}</b></div>", unsafe_allow_html=True)
+        for line in lines:
+            st.write(f"• {line}")
+def render_buckets_column(title: str, buckets: Dict[str, Dict[str, List[str]]], quad: str, direction: str, expand_first: bool = True) -> None:
     st.markdown(f"#### {title}")
     first_bucket = True
     for bucket, content in buckets.items():
@@ -2709,8 +2906,9 @@ def render_buckets_column(title: str, buckets: Dict[str, Dict[str, List[str]]], 
             first_sub = True
             for subhead, items in content.items():
                 with st.expander(subhead, expanded=first_sub):
-                    for item in items:
-                        st.write(f"• {item}")
+                    for idx, item in enumerate(items):
+                        with st.expander(item, expanded=(idx == 0)):
+                            render_item_tree(quad, item, direction)
                 first_sub = False
         first_bucket = False
 
@@ -2725,9 +2923,9 @@ def render_phase_matrix(quad: str) -> None:
                 for item in items:
                     st.write(f"• {item}")
     with c2:
-        render_buckets_column("Winners", filter_playbook_buckets("Winners", guide["winners"], official_only=True))
+        render_buckets_column("Winners", filter_playbook_buckets("Winners", guide["winners"], official_only=True), quad, "winner")
     with c3:
-        render_buckets_column("Losers", filter_playbook_buckets("Losers", guide["losers"], official_only=True))
+        render_buckets_column("Losers", filter_playbook_buckets("Losers", guide["losers"], official_only=True), quad, "loser")
 
 
 def current_fx_overlay(quad: str, signals: Dict[str, float]) -> List[str]:
@@ -3381,15 +3579,17 @@ def filter_playbook_buckets(title: str, buckets: Dict[str, Dict[str, List[str]]]
     return {k: v for k, v in buckets.items() if k in keep}
 
 
-def render_playbook_section(title: str, buckets: Dict[str, Dict[str, List[str]]], official_only: bool = False) -> None:
+def render_playbook_section(title: str, quad: str, buckets: Dict[str, Dict[str, List[str]]], official_only: bool = False) -> None:
     st.markdown(f"### {title}")
+    direction = "winner" if title.lower().startswith("winner") else "loser"
     buckets = filter_playbook_buckets(title, buckets, official_only=official_only)
     for bucket, content in buckets.items():
         with st.expander(bucket, expanded=False):
             for subhead, items in content.items():
-                st.write(f"**{subhead}**")
-                for item in items:
-                    st.write(f"• {item}")
+                with st.expander(subhead, expanded=False):
+                    for idx, item in enumerate(items):
+                        with st.expander(item, expanded=(idx == 0)):
+                            render_item_tree(quad, item, direction)
 
 
 def render_possible_next_playbook(quad: str) -> None:
@@ -3436,8 +3636,8 @@ def render_playbook_all_quads(signals: Dict[str, float], current_quad: str, acti
                 unsafe_allow_html=True,
             )
             render_playbook_meaning(q)
-            render_playbook_section("Winners", PHASE_GUIDE[q]["winners"], official_only=True)
-            render_playbook_section("Losers", PHASE_GUIDE[q]["losers"], official_only=True)
+            render_playbook_section("Winners", q, PHASE_GUIDE[q]["winners"], official_only=True)
+            render_playbook_section("Losers", q, PHASE_GUIDE[q]["losers"], official_only=True)
             render_ranked_overlay_matrix("EM / IHSG Matrix (strongest → spillover)", EM_IHSG_MATRIX[q])
             render_ranked_overlay_matrix("Crypto Matrix (strongest → spillover)", CRYPTO_MATRIX[q])
             render_ranked_overlay_matrix("Proxy Impact Ladder (strongest → spillover)", PROXY_IMPACT_MATRIX[q])
