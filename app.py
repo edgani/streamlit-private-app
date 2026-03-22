@@ -4732,49 +4732,54 @@ def render_driver_path_compare(states_by_driver: Dict[str, DashboardState]) -> N
         "Quarterly Anchor",
         "Blended Regime",
     ]
+
+    def _path_card(path: Dict[str, object], compact: bool = False) -> str:
+        status_html = ""
+        reqs = list(path.get("requirements", []))[:3]
+        for req in reqs:
+            icon = escape_text(req.get("icon", "•"))
+            label = escape_text(req.get("label", "-"))
+            name = escape_text(req.get("name", "-"))
+            status_html += f"<div style='display:flex;justify-content:space-between;gap:8px;margin-top:8px'><div style='font-size:13px'>{name}</div><div style='font-weight:800;font-size:12px;opacity:.95'>{icon} {label}</div></div>"
+        score = float(path.get("score", 0))
+        winners = escape_text(path.get("winners", "-"))
+        laggards = escape_text(path.get("laggards", "-"))
+        possible = escape_text(path.get("possible", "-"))
+        title = escape_text(path.get("title", path.get("target", "Path")))
+        if_right = escape_text(path.get("if_right", "-"))
+        bar_w = max(6, min(100, int(round(score))))
+        extra = f"<div style='margin-top:10px'><b>Possible:</b> {possible}</div><div style='margin-top:8px'><b>If forecast benar:</b> {if_right}</div><div style='margin-top:8px'><b>Likely strong:</b> {winners}</div><div style='margin-top:8px'><b>Likely laggards:</b> {laggards}</div>"
+        if compact:
+            extra = f"<div style='margin-top:10px'><b>Possible:</b> {possible}</div><div style='margin-top:8px'><b>Strong:</b> {winners}</div><div style='margin-top:8px'><b>Laggards:</b> {laggards}</div>"
+        return f"""
+        <div class='main-card' style='padding:16px 16px 14px 16px;margin-top:12px'>
+            <div style='display:flex;justify-content:space-between;gap:12px;align-items:flex-start'>
+                <div style='font-size:17px;font-weight:900;line-height:1.25'>{title}</div>
+                <div style='font-size:13px;font-weight:900;white-space:nowrap'>{score:.0f}/100</div>
+            </div>
+            {status_html}
+            <div style='margin-top:12px;font-size:13px;opacity:.78'>Path Score {score:.0f}/100</div>
+            <div style='margin-top:8px;width:100%;height:8px;background:rgba(255,255,255,.08);border-radius:999px;overflow:hidden'>
+                <div style='height:100%;width:{bar_w}%;background:linear-gradient(90deg,#29a3ff,#3b82f6);border-radius:999px'></div>
+            </div>
+            {extra}
+        </div>
+        """
+
     cols = st.columns(3)
     for col, driver in zip(cols, order):
         s = states_by_driver[driver]
         ordered = sorted(s.current_paths, key=lambda x: x['score'], reverse=True)
         primary = ordered[0]
-        alt = ordered[1] if len(ordered) > 1 else ordered[0]
+        alt = ordered[1] if len(ordered) > 1 else None
         with col:
-            st.markdown(
-                f"""
-                <div class='main-card' style='padding:16px 16px 14px 16px'>
-                    <div style='font-size:14px;font-weight:800;margin-bottom:10px'>{escape_text(driver_short_label(driver))}</div>
-                    <div style='display:flex;justify-content:space-between;gap:12px;align-items:flex-start'>
-                        <div>
-                            <div style='font-size:12px;opacity:.78;font-weight:800'>PRIMARY PATH</div>
-                            <div style='font-size:30px;font-weight:900;line-height:1;margin-top:4px'>{escape_text(primary['target'])}</div>
-                            <div style='margin-top:8px'><b>Score:</b> {primary['score']:.0f}/100</div>
-                        </div>
-                        <div style='min-width:118px;text-align:right'>
-                            <div style='font-size:12px;opacity:.78;font-weight:800'>ALT</div>
-                            <div style='font-size:22px;font-weight:900;line-height:1;margin-top:4px'>{escape_text(alt['target'])}</div>
-                            <div style='margin-top:8px'><b>{alt['score']:.0f}/100</b></div>
-                        </div>
-                    </div>
-                    <div style='margin-top:12px'><b>Possible:</b> {escape_text(primary.get('possible','-'))}</div>
-                    <div style='margin-top:8px'><b>Likely strong:</b> {escape_text(primary.get('winners','-'))}</div>
-                    <div style='margin-top:8px'><b>Likely laggards:</b> {escape_text(primary.get('laggards','-'))}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            toggle_key = f"toggle_path_{re.sub(r'[^a-z0-9]+', '_', driver.lower())}"
-            if st.toggle("Open path detail", value=False, key=toggle_key):
-                for path in ordered[:2]:
-                    st.markdown(f"**{escape_text(path['title'])} — {path['score']:.0f}/100**")
-                    for req in path['requirements']:
-                        st.write(f"• {req['name']} — {req['icon']} {req['label']}")
-                    st.write(f"**Possible:** {path.get('possible','-')}")
-                    st.write(f"**If forecast benar:** {path.get('if_right','-')}")
-                    st.write(f"**Likely strong:** {path.get('winners','-')}")
-                    st.write(f"**Likely laggards:** {path.get('laggards','-')}")
-                    st.markdown("---")
+            st.markdown(f"**{escape_text(driver_short_label(driver))}**")
+            st.markdown(_path_card(primary), unsafe_allow_html=True)
+            if alt is not None:
+                with st.expander(f"Alt path: {escape_text(alt['target'])}", expanded=False):
+                    st.markdown(_path_card(alt, compact=True), unsafe_allow_html=True)
 
-def render_bottom_toggle_sections(signals: Dict[str, float], state: DashboardState, news_query: str) -> None:
+def render_bottom_toggle_sections(signals: Dict[str, float], state: DashboardState, news_query: str, states_by_driver: Optional[Dict[str, DashboardState]] = None) -> None:
     st.markdown("### Bottom Toggles")
     t1, t2, t3, t4 = st.columns(4)
     with t1:
@@ -4787,7 +4792,15 @@ def render_bottom_toggle_sections(signals: Dict[str, float], state: DashboardSta
         show_advanced = st.toggle("Advanced process", value=False, key="bottom_advanced_process")
 
     if show_selected:
-        render_quad_detail(state.quad.current_quad, signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
+        if states_by_driver:
+            with st.expander("Current Phase Compare Detail (Monthly / Quarterly / Blended)", expanded=False):
+                for driver in ["Monthly (Hedgeye-style current call)", "Quarterly Anchor", "Blended Regime"]:
+                    s = states_by_driver[driver]
+                    st.markdown(f"#### {escape_text(driver_short_label(driver))} — {escape_text(s.quad.current_quad)} / {escape_text(QUAD_META[s.quad.current_quad]['phase'])}")
+                    render_quad_detail(s.quad.current_quad, signals, s.quad.current_quad, s.quad.active_scores, s.quad.source_key)
+                    st.markdown("---")
+        else:
+            render_quad_detail(state.quad.current_quad, signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
     if show_playbook:
         render_playbook_all_quads(signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
     if show_news:
@@ -4884,7 +4897,7 @@ def main() -> None:
     render_market_action_summary(signals)
     st.markdown("---")
 
-    render_driver_triptych(states_by_driver, quad_driver)
+    render_driver_triptych(states_by_driver, signals, quad_driver)
     st.markdown("---")
 
     render_driver_path_compare(states_by_driver)
