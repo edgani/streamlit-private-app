@@ -3858,13 +3858,47 @@ def render_ranked_overlay_matrix(title: str, matrix: Dict[str, List[str]]) -> No
                 st.write(f"{idx}. {item}")
 
 
-def render_phase_guide(quad: str, signals: Dict[str, float], stage: str) -> None:
-    st.markdown("### Current Phase")
-    st.markdown(
-        f"<div class='section-note'><b>{escape_text(QUAD_META[quad]['name'])}:</b> {escape_text(CURRENT_PHASE_TEXT[quad])}<br><br><b>Playbook lens:</b> Fokus ke winners quad ini, hindari losers yang paling sensitif, lalu monitor what-if / next likely quad sebelum ubah agresi.</div>",
-        unsafe_allow_html=True,
-    )
-    render_phase_matrix(quad)
+def render_compact_driver_compare(states_by_driver: Dict[str, DashboardState], active_driver: str) -> None:
+    order = [
+        "Monthly (Hedgeye-style current call)",
+        "Blended Regime",
+        "Quarterly Anchor",
+    ]
+    st.markdown("**Current Phase Driver Compare**")
+    cols = st.columns(3)
+    for col, driver in zip(cols, order):
+        s = states_by_driver[driver]
+        is_active = driver == active_driver
+        tone_bg = "#19e68c" if is_active else "#1f2937"
+        tone_fg = "#07110f" if is_active else "#d1d5db"
+        with col:
+            st.markdown(
+                f"""
+                <div class='soft-card'>
+                    <div style='display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px'>
+                        <div style='font-size:12px;font-weight:800'>{escape_text(driver)}</div>
+                        <div style='display:inline-block;padding:3px 8px;border-radius:999px;background:{tone_bg};color:{tone_fg};font-weight:800;font-size:10px'>{'ACTIVE' if is_active else 'COMPARE'}</div>
+                    </div>
+                    <div style='display:flex;justify-content:space-between;gap:10px;align-items:flex-end;margin-bottom:8px'>
+                        <div>
+                            <div style='font-size:22px;font-weight:900;line-height:1'>{escape_text(s.quad.current_quad)}</div>
+                            <div style='font-size:11px;opacity:.8;margin-top:6px'>{escape_text(QUAD_META[s.quad.current_quad]['phase'])}</div>
+                        </div>
+                        <div style='text-align:right'>
+                            <div style='font-size:11px;opacity:.75'>Fit</div>
+                            <div style='font-size:18px;font-weight:900'>{s.quad.fit_score:.0f}</div>
+                        </div>
+                    </div>
+                    <div style='font-size:11px;margin-bottom:3px'><b>Stage:</b> {escape_text(s.stage)}</div>
+                    <div style='font-size:11px;margin-bottom:3px'><b>Validity:</b> {escape_text(s.validity)}</div>
+                    <div style='font-size:11px'><b>Next:</b> {escape_text(s.primary_path['target'])} ({s.primary_path['score']:.0f})</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
+def render_phase_overlay_bundle(quad: str, signals: Dict[str, float], stage: str) -> None:
     c1, c2 = st.columns(2)
     with c1:
         with st.expander("Current FX Overlay", expanded=False):
@@ -3891,6 +3925,32 @@ def render_phase_guide(quad: str, signals: Dict[str, float], stage: str) -> None
             render_ranked_overlay_matrix("Stage Winner / Loser / Rotation Map", STAGE_ROTATION_GUIDE[quad][stage])
         with st.expander(f"Leadership / Handoff Map — {stage}", expanded=False):
             render_ranked_overlay_matrix("Who usually moves first → who takes over → who moves last", LEADERSHIP_ROTATION_MAP[quad][stage])
+
+
+def render_driver_playbook_compare(states_by_driver: Dict[str, DashboardState], active_driver: str, signals: Dict[str, float]) -> None:
+    order = [
+        "Monthly (Hedgeye-style current call)",
+        "Blended Regime",
+        "Quarterly Anchor",
+    ]
+    with st.expander("Compare driver playbooks / overlays", expanded=False):
+        for driver in order:
+            s = states_by_driver[driver]
+            label = f"{driver} — {s.quad.current_quad} | {QUAD_META[s.quad.current_quad]['phase']} | Fit {s.quad.fit_score:.0f} | Next {s.primary_path['target']} ({s.primary_path['score']:.0f})"
+            with st.expander(label, expanded=(driver == active_driver)):
+                render_phase_matrix(s.quad.current_quad)
+                render_phase_overlay_bundle(s.quad.current_quad, signals, s.stage)
+
+def render_phase_guide(quad: str, signals: Dict[str, float], stage: str, states_by_driver: Dict[str, DashboardState], active_driver: str) -> None:
+    st.markdown("### Current Phase")
+    render_compact_driver_compare(states_by_driver, active_driver)
+    st.markdown(
+        f"<div class='section-note'><b>{escape_text(QUAD_META[quad]['name'])}:</b> {escape_text(CURRENT_PHASE_TEXT[quad])}<br><br><b>Playbook lens:</b> Fokus ke winners quad ini, hindari losers yang paling sensitif, lalu monitor what-if / next likely quad sebelum ubah agresi.</div>",
+        unsafe_allow_html=True,
+    )
+    render_phase_matrix(quad)
+    render_phase_overlay_bundle(quad, signals, stage)
+    render_driver_playbook_compare(states_by_driver, active_driver, signals)
 
 
 def render_requirement_row(requirement: Dict[str, object]) -> None:
@@ -4549,48 +4609,6 @@ def render_live_news_overlay(signals: Dict[str, float], current_quad: str, news_
             st.dataframe(pd.DataFrame(CRASH_TYPES, columns=['Crash type', 'Read']), use_container_width=True, hide_index=True)
             st.dataframe(build_static_reference_df(CRASH_RECOVERY_ORDER, ('Crash family', 'Recovery order')), use_container_width=True, hide_index=True)
 
-def render_driver_comparison(states_by_driver: Dict[str, DashboardState], active_driver: str) -> None:
-    st.markdown("### Driver Comparison")
-    order = [
-        "Monthly (Hedgeye-style current call)",
-        "Blended Regime",
-        "Quarterly Anchor",
-    ]
-    cards = st.columns(3)
-    rows = []
-    for col, driver in zip(cards, order):
-        s = states_by_driver[driver]
-        active_badge = "<span style='display:inline-block;padding:4px 10px;border-radius:999px;background:#19e68c;color:#07110f;font-weight:800;font-size:11px'>ACTIVE</span>" if driver == active_driver else "<span style='display:inline-block;padding:4px 10px;border-radius:999px;background:#1f2937;color:#d1d5db;font-weight:800;font-size:11px'>COMPARE</span>"
-        with col:
-            st.markdown(
-                f"""
-                <div class='soft-card'>
-                    <div style='display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px'>
-                        <div style='font-size:13px;font-weight:800'>{escape_text(driver)}</div>
-                        <div>{active_badge}</div>
-                    </div>
-                    <div style='font-size:22px;font-weight:900;margin-bottom:6px'>{escape_text(s.quad.current_quad)}</div>
-                    <div style='font-size:12px;opacity:.8;margin-bottom:8px'>{escape_text(QUAD_META[s.quad.current_quad]['phase'])}</div>
-                    <div style='font-size:12px;margin-bottom:4px'><b>Fit:</b> {s.quad.fit_score:.0f}/100</div>
-                    <div style='font-size:12px;margin-bottom:4px'><b>Stage:</b> {escape_text(s.stage)}</div>
-                    <div style='font-size:12px;margin-bottom:4px'><b>Validity:</b> {escape_text(s.validity)}</div>
-                    <div style='font-size:12px'><b>Primary next:</b> {escape_text(s.primary_path['target'])} ({s.primary_path['score']:.0f})</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        rows.append({
-            "Driver": driver,
-            "Current Quad": s.quad.current_quad,
-            "Phase": QUAD_META[s.quad.current_quad]["phase"],
-            "Fit": round(float(s.quad.fit_score), 1),
-            "Stage": s.stage,
-            "Validity": s.validity,
-            "Primary Next": s.primary_path["target"],
-            "Path Score": round(float(s.primary_path["score"]), 1),
-        })
-    with st.expander("Open compact driver matrix", expanded=False):
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
 def main() -> None:
@@ -4643,7 +4661,6 @@ def main() -> None:
     state = states_by_driver[quad_driver]
 
     overview_metrics(signals, fg_info)
-    render_driver_comparison(states_by_driver, quad_driver)
     render_engine_components(signals)
     render_forecast_summary_row(state.quad.current_quad, state.quad.fit_score, state.validity, state.primary_path, state.quad.driver_label)
     st.markdown("---")
@@ -4653,7 +4670,7 @@ def main() -> None:
     render_countdown_cards(fred_key)
     st.markdown("---")
     render_hero(state.quad.current_quad, state.quad.fit_score, state.validity, state.primary_path, state.stage)
-    render_phase_guide(state.quad.current_quad, signals, state.stage)
+    render_phase_guide(state.quad.current_quad, signals, state.stage, states_by_driver, quad_driver)
 
     with st.expander(f"Open {QUAD_META[state.quad.current_quad]['name']}", expanded=True):
         render_quad_detail(state.quad.current_quad, signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
