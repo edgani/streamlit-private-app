@@ -1,6 +1,7 @@
 import html
 import math
 import re
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, List, Tuple, Optional
@@ -44,6 +45,71 @@ RELEASE_WATCH = {
     "GDP": "GDP",
     "Retail Sales": "RSAFS",
 }
+
+DEFAULT_NEWS_QUERY = "Iran war oil Strait of Hormuz private credit treasury auction rollover"
+
+WHAT_IF_SCENARIO_MATRIX = [
+    ("Oil up + USD up + 2Y up", "Stagflationary / geopolitical shock", "Direct oil, pure upstream, integrated majors, selective IHSG resource names", "Broad EM, alt beta, weak duration growth"),
+    ("Oil up + gold down + 2Y up", "Front-end hawkish shock dominates safe-haven bid", "Oil chain first; treat gold weakness as rates/dollar pressure, not automatic negation of Quad 3", "Do not force broad-beta risk-on just because gold is soft"),
+    ("Oil spikes but tanker / second-order names do not confirm", "Chain incomplete", "Stick to first-order commodity winners", "Avoid assuming every spillover proxy must immediately follow"),
+    ("USD down + 2Y down + real yields down", "Risk-on relief / duration relief", "Nasdaq, BTC, selective EM, quality cyclicals", "Oil-shock winners usually lose relative edge"),
+    ("Dollar down but EM still weak", "Local / credit / growth problem still dominates", "Prefer selective exporters or US quality over broad EM", "Avoid treating EM as automatic winner"),
+    ("Real yields down but crypto breadth stays weak", "Quality-led relief only", "BTC first, then ETH, then alt beta only if breadth expands", "Avoid forcing alt rotation too early"),
+    ("30Y up faster than 2Y", "Long-end term-premium pressure", "Hard assets / pricing-power / selective value", "Long-duration valuation-sensitive names"),
+    ("Credit worsens while oil stays high", "War + funding stress", "Direct commodity proxies and safest defensives only", "Broad beta, weak EM, low-quality junk rallies"),
+]
+
+DIVERGENCE_RULES = [
+    ("Oil naik tapi gold turun", "Bukan otomatis kontradiksi quad. Sering artinya dollar dan yields naik lebih dominan daripada safe-haven bid ke gold."),
+    ("Oil naik tapi broad EM tidak ikut", "Biasanya dollar terlalu kuat atau flow ke EM masih jelek. Fokus ke selective exporters, bukan broad EM."),
+    ("Oil naik tapi tanker tidak ikut", "Harga crude saja tidak cukup. Freight, route stress, dan shipping supply juga harus mendukung."),
+    ("Coal / metals naik tapi dry bulk tidak ikut", "Supply shock / price shock bisa terjadi tanpa volume shipping yang benar-benar pulih."),
+    ("Real yields turun tapi crypto belum ikut", "Dollar, liquidity, atau breadth crypto belum confirm. Biasanya BTC duluan, alt paling belakang."),
+    ("Dollar turun tapi IHSG / EM tetap lemah", "Masih bisa ada masalah lokal, growth global lemah, atau credit belum membaik."),
+]
+
+CORRELATION_TRANSMISSION_PRIORS = [
+    ("Oil -> WTI/Brent", "Very High", "Underlying paling murni untuk war/oil shock."),
+    ("Oil -> pure upstream oil", "Very High", "Producer upstream paling cepat menyerap harga crude."),
+    ("Oil -> integrated majors", "High", "Masih direct, tapi lebih defensif dari upstream murni."),
+    ("Oil -> IHSG resource proxies", "Medium-High", "Nama lokal berbasis resource bisa ikut, tapi kena drag FX/flow lokal."),
+    ("Oil -> broad EM", "Low / conditional", "Oil naik tidak otomatis bikin broad EM bullish."),
+    ("2Y naik keras -> front-end stress", "Very High", "Paling cepat menekan duration, crypto beta, dan broad risk appetite."),
+    ("30Y naik keras -> long-end pressure", "High", "Valuation duration-heavy dan long bonds biasanya paling sensitif."),
+    ("Real yields turun -> Nasdaq", "Very High", "Duration asset paling sensitif ke relief real yields."),
+    ("Real yields turun -> BTC", "High", "BTC biasanya crypto leader saat conditions membaik."),
+    ("Dollar naik -> broad EM / IDR", "Very High negative", "Salah satu jalur transmisi terpenting ke EM dan IHSG."),
+]
+
+REGIME_SWITCH_ARCHETYPES = [
+    ("Quad 4 -> Quad 3 -> Quad 1", "Shock inflasi mereda, lalu disinflation stabil, lalu duration/risk-on menang."),
+    ("Quad 2 overheating -> Quad 3", "Growth masih oke, tapi inflasi terlalu keras dan broad beta mulai capek."),
+    ("Quad 3 relief -> false Quad 1 -> back to Quad 3", "Yield relief ada, tapi breadth/credit tidak confirm sehingga risk-on gagal lanjut."),
+    ("War / oil shock -> selective commodity leadership -> failure", "Direct commodity proxy menang, tapi second-order / broad beta tidak confirm lalu move kehilangan tenaga."),
+]
+
+FALSE_RECOVERY_MAP = [
+    ("2Y belum relief", "Risk-on bounce sering belum tahan lama kalau front-end stress masih keras."),
+    ("Dollar tetap kuat", "EM / crypto / small caps sering gagal confirm walau ada pantulan."),
+    ("Credit tetap jelek", "Broad beta bisa memantul, tapi kualitasnya rendah dan rawan gagal lanjut."),
+    ("Breadth tidak ikut", "Kalau hanya old winners atau short covering, itu sering dead-cat bounce."),
+    ("Second-order proxies belum ikut", "Kalau hanya first-order winner hidup, regime belum tentu sehat menyebar."),
+]
+
+CRASH_TYPES = [
+    ("Liquidity shock", "Semua dijual karena market cari cash. Correlation naik cepat."),
+    ("Credit shock", "Spread melebar, trust turun, balance-sheet stress jadi pusat."),
+    ("Growth collapse", "Commodity dan cyclicals bisa turun bareng karena demand fear."),
+    ("Inflation / commodity shock", "Hard assets bisa naik duluan, tapi broad beta sering rapuh."),
+    ("Policy shock", "2Y / front-end repricing bikin duration dan beta sesak."),
+    ("Geopolitical shock", "Oil, tanker, direct commodity proxies bisa menang, broad EM belum tentu."),
+]
+
+CRASH_RECOVERY_ORDER = [
+    ("Deflationary / liquidity crash", "Bonds -> defensives -> Nasdaq -> BTC -> EM -> small caps -> alt beta"),
+    ("Inflation / oil shock", "Direct commodity -> pricing-power defensives -> selective exporters -> broad beta belakangan"),
+    ("Credit shock", "Treasuries / safest duration -> gold / defensives -> quality equities -> broad beta jauh belakangan"),
+]
 
 # User-preferred quad numbering from the screenshots:
 # Q1 = Growth Up / Inflation Down
@@ -3382,6 +3448,236 @@ def render_playbook_all_quads(signals: Dict[str, float], current_quad: str, acti
             render_possible_next_playbook(q)
 
 
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def fetch_news_rss(query: str, max_items: int = 8) -> List[Dict[str, str]]:
+    url = f"https://news.google.com/rss/search?q={requests.utils.quote(query)}&hl=en-US&gl=US&ceid=US:en"
+    r = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
+    r.raise_for_status()
+    root = ET.fromstring(r.text)
+    items: List[Dict[str, str]] = []
+    for item in root.findall('.//item')[:max_items]:
+        title = item.findtext('title', default='')
+        link = item.findtext('link', default='')
+        pub = item.findtext('pubDate', default='')
+        desc = re.sub(r'<[^>]+>', '', item.findtext('description', default=''))
+        items.append({'title': title, 'link': link, 'published': pub, 'desc': desc})
+    return items
+
+def infer_news_case(title: str, desc: str) -> Tuple[str, str, str]:
+    text = f"{title} {desc}".lower()
+    if any(k in text for k in ["iran", "israel", "hormuz", "middle east", "war", "missile", "gulf", "gas hub"]):
+        return (
+            "Geopolitical energy shock",
+            "Baca sebagai war/oil-risk premium dulu, bukan otomatis broad risk-off tunggal. Direct oil proxies bisa naik sementara gold bisa tertahan kalau dollar dan yields dominan.",
+            "Prefer first-order commodity proxies dan hindari broad EM / alt beta kalau USD + 2Y ikut naik.",
+        )
+    if any(k in text for k in ["private credit", "bdc", "direct lending", "spread", "stress", "default"]):
+        return (
+            "Credit / funding stress",
+            "Ini lebih dekat ke spread / balance-sheet shock. Broad beta bisa kelihatan murah terlalu cepat.",
+            "Prioritaskan defense, quality, dan tunggu credit relief sebelum agresif risk-on.",
+        )
+    if any(k in text for k in ["auction", "refund", "bill issuance", "treasury issuance", "rollover"]):
+        return (
+            "Funding / auction shock",
+            "Front-end dan term funding bisa lebih penting daripada headline growth biasa.",
+            "Kalau 2Y naik lebih cepat daripada long-end, treat as front-end stress bukan risk-on setup.",
+        )
+    if any(k in text for k in ["fed", "powell", "yield", "2-year", "treasury", "rate"]):
+        return (
+            "Policy / yield shock",
+            "2Y, real yields, dan dollar menentukan napas duration, crypto, dan EM.",
+            "Kalau 2Y naik cepat, hati-hati duration beta; kalau 2Y turun, lihat relief ladder.",
+        )
+    if any(k in text for k in ["china", "stimulus", "copper", "iron ore", "steel", "property"]):
+        return (
+            "China / commodity-demand shock",
+            "Biasanya paling kena ke miners, bulk metals, dry bulk, commodity EM, lalu second-order equipment.",
+            "Mulai dari first-order miners dulu, baru lihat spillover second-order jika volume confirm.",
+        )
+    return (
+        "General macro headline",
+        "Perlu dibaca bareng quad, 2Y, dollar, oil, liquidity, dan credit; jangan trade headline sendirian.",
+        "Sinkronkan headline dengan current quad dan current signal families.",
+    )
+
+def build_live_news_table(news_items: List[Dict[str, str]]) -> pd.DataFrame:
+    rows = []
+    for item in news_items:
+        case, read, action = infer_news_case(item.get('title', ''), item.get('desc', ''))
+        rows.append({
+            'Published': item.get('published', ''),
+            'Headline': item.get('title', ''),
+            'Case': case,
+            'Read': read,
+            'Positioning hint': action,
+            'Link': item.get('link', ''),
+        })
+    return pd.DataFrame(rows)
+
+def build_dynamic_war_overlay(signals: Dict[str, float], current_quad: str, news_items: List[Dict[str, str]]) -> Dict[str, object]:
+    text_blob = ' '.join([(x.get('title','') + ' ' + x.get('desc','')) for x in news_items]).lower()
+    geo_news = any(k in text_blob for k in ['iran', 'israel', 'hormuz', 'war', 'missile', 'gulf', 'middle east'])
+    oil_up = max(signals.get('oil21_z', 0.0), signals.get('oil63_z', 0.0))
+    usd_up = max(signals.get('usd_signal', 0.0), 0.0)
+    front_up = max(signals.get('front_end_policy', 0.0), 0.0)
+    long_up = max(signals.get('long_end_pressure', 0.0), 0.0)
+    gold_breadth = signals.get('hard_asset_breadth', 0.0)
+    crash = max(signals.get('big_crash', 0.0), 0.0)
+    shock_score = float(np.clip((0.35 if geo_news else 0.0) + 0.20 * max(oil_up, 0.0) + 0.15 * usd_up + 0.15 * front_up + 0.05 * long_up + 0.10 * crash, 0.0, 1.0))
+    if shock_score >= 0.70:
+        label = 'HIGH WAR PREMIUM'
+    elif shock_score >= 0.45:
+        label = 'ACTIVE WAR PREMIUM'
+    elif shock_score >= 0.25:
+        label = 'WATCH WAR PREMIUM'
+    else:
+        label = 'LOW WAR PREMIUM'
+
+    if oil_up > 0 and (usd_up > 0 or front_up > 0):
+        read = 'Oil-up plus dollar/front-end repricing means the war shock is transmitting through inflation and financial conditions, not just through classic safe-haven channels.'
+    elif oil_up > 0 and gold_breadth > 0:
+        read = 'Oil and hard-asset breadth are confirming together; this is the cleaner hard-asset shock expression.'
+    else:
+        read = 'War headlines exist, but transmission into oil / dollar / yields is still incomplete or fading.'
+
+    lines = [
+        f'Current quad tetap {QUAD_META[current_quad]["name"]}; war headline tidak otomatis mengganti quad inti.',
+        'Kalau oil naik sementara gold turun, itu masih konsisten dengan stagflationary / hawkish shock bila dollar dan yields memimpin.',
+        'Gunakan headline perang sebagai overlay premium dan transmission test, bukan pengganti GDP/CPI nowcast engine.',
+    ]
+    if geo_news and oil_up > 0 and (usd_up > 0 or front_up > 0):
+        lines.append('Cleanest leadership biasanya: WTI/Brent -> pure upstream -> integrated majors -> selective IHSG resource names; broad EM dan alt beta biasanya tertinggal.')
+    elif geo_news and oil_up > 0:
+        lines.append('Kalau cuma direct commodity proxies yang hidup, treat second-order names sebagai wait-for-confirmation.')
+    else:
+        lines.append('Kalau premium perang memudar dan 2Y/USD ikut reda, window rotasi bisa pindah ke duration, Nasdaq, BTC, lalu EM.')
+    return {'score': shock_score, 'label': label, 'read': read, 'lines': lines}
+
+def build_active_transmission_df(signals: Dict[str, float]) -> pd.DataFrame:
+    oil_imp = max(signals.get('oil21_z', 0.0), signals.get('oil63_z', 0.0), 0.0)
+    usd_imp = max(signals.get('usd_signal', 0.0), 0.0)
+    fe_imp = max(signals.get('front_end_policy', 0.0), 0.0)
+    le_imp = max(signals.get('long_end_pressure', 0.0), 0.0)
+    dur_relief = max(signals.get('duration_tailwind', 0.0), 0.0)
+    em_imp = max(signals.get('broad_em_equity_signal', 0.0), 0.0)
+    ihsg_com = max(signals.get('ihsg_commodity_signal', 0.0), 0.0)
+    btc = max(signals.get('btc_signal', 0.0), 0.0)
+    rows = [
+        ('Oil -> WTI/Brent', oil_imp * 1.25, 'First-order', 'Underlying paling murni untuk oil shock.'),
+        ('Oil -> pure upstream oil', oil_imp * 1.10, 'First-order', 'Producer upstream paling cepat menyerap perubahan crude.'),
+        ('Oil -> integrated majors', oil_imp * 0.90, 'Strong second-order', 'Masih direct, tapi lebih defensif dari upstream murni.'),
+        ('Oil -> IHSG resource proxies', max(oil_imp * 0.55, ihsg_com * 0.95), 'Selective spillover', 'Bisa ikut, tapi tetap kena drag FX/flow lokal.'),
+        ('Dollar / front-end -> broad EM negative', max(usd_imp, fe_imp) * 1.10, 'Very high negative', 'Dollar dan front-end stress paling cepat menekan broad EM / IDR.'),
+        ('2Y up -> front-end stress', fe_imp * 1.05, 'Very high', 'Paling cepat terasa ke duration, crypto beta, dan risk appetite.'),
+        ('30Y up -> long-end pressure', le_imp * 0.95, 'High', 'Long-end pressure sering menekan valuation duration-heavy.'),
+        ('Real-yield / duration relief -> Nasdaq', dur_relief * 1.00, 'Very high', 'Nasdaq biasanya paling sensitif ke relief real yields / duration.'),
+        ('Real-yield / duration relief -> BTC', max(dur_relief * 0.75, btc * 0.60), 'High', 'BTC sering jadi crypto leader saat conditions membaik.'),
+        ('Commodity breadth -> selective EM exporters', max(signals.get('commodity_breadth', 0.0), em_imp * 0.60), 'Conditional', 'Valid hanya jika dollar tidak terlalu dominan.'),
+    ]
+    df = pd.DataFrame(rows, columns=['Transmission', 'Active Score', 'Rank', 'Why'])
+    df['Active Score'] = df['Active Score'].clip(lower=0.0)
+    return df.sort_values('Active Score', ascending=False).reset_index(drop=True)
+
+def build_dynamic_what_if_df(signals: Dict[str, float], current_quad: str) -> pd.DataFrame:
+    oil_up = max(signals.get('oil21_z', 0.0), signals.get('oil63_z', 0.0)) > 0
+    usd_up = signals.get('usd_signal', 0.0) > 0
+    front_up = signals.get('front_end_policy', 0.0) > 0
+    duration_relief = signals.get('duration_tailwind', 0.0) > 0
+    credit_bad = signals.get('credit_stress', 0.0) > 0
+    rows = []
+    rows.append({
+        'What-if': 'War escalates / Strait risk stays tight',
+        'Signal combo': 'oil up + USD up + 2Y up',
+        'Read': 'Treat as hard-inflation / stagflation overlay, not automatic broad-beta crash.',
+        'Works best': 'WTI/Brent, pure upstream, integrated majors, selective IHSG resource names',
+        'Usually struggles': 'Broad EM, IDR-sensitive beta, alt beta, weak duration growth',
+        'Now': 'Active' if oil_up and (usd_up or front_up) else 'Watch',
+    })
+    rows.append({
+        'What-if': 'War premium fades',
+        'Signal combo': 'oil down + USD down + 2Y down',
+        'Read': 'Classic relief ladder toward duration and cleaner risk-on.',
+        'Works best': 'Nasdaq, BTC, selective EM, quality cyclicals',
+        'Usually struggles': 'Late hard-asset chasers and stale war-premium trades',
+        'Now': 'Active' if duration_relief and not oil_up and not usd_up else 'Watch',
+    })
+    rows.append({
+        'What-if': 'Oil up but gold soft',
+        'Signal combo': 'oil up + front-end stress + strong USD',
+        'Read': 'Still logically consistent with shock quad behavior; dollar/yields can suppress gold short-term.',
+        'Works best': 'Direct oil chain first, then selective hard assets if breadth widens',
+        'Usually struggles': 'Narratives that require every hedge proxy to rise together',
+        'Now': 'Active' if oil_up and front_up else 'Watch',
+    })
+    rows.append({
+        'What-if': 'Broad beta tries to bounce without credit relief',
+        'Signal combo': 'duration relief but credit still bad',
+        'Read': 'Dead-cat / false recovery risk remains high.',
+        'Works best': 'Quality over junk; BTC before alt beta; selective over broad EM',
+        'Usually struggles': 'Small-cap junk, weak balance sheets, alt basket',
+        'Now': 'Active' if duration_relief and credit_bad else 'Watch',
+    })
+    return pd.DataFrame(rows)
+
+def build_static_reference_df(rows: List[Tuple[str, str]], cols: Tuple[str, str]) -> pd.DataFrame:
+    return pd.DataFrame(rows, columns=list(cols))
+
+def render_live_news_overlay(signals: Dict[str, float], current_quad: str, news_query: str) -> None:
+    st.markdown('### Live News / What-If / Correlation Engine')
+    with st.expander('Open live news + what-if + correlation overlay', expanded=False):
+        try:
+            news_items = fetch_news_rss(news_query, max_items=8)
+        except Exception as e:
+            news_items = []
+            st.warning(f'Live news feed gagal kebaca: {e}')
+
+        overlay = build_dynamic_war_overlay(signals, current_quad, news_items)
+        st.markdown(
+            f"""
+            <div class='section-note'>
+                <div style='font-size:18px;font-weight:900;margin-bottom:8px'>{escape_text(overlay['label'])}</div>
+                <div>{escape_text(overlay['read'])}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        for line in overlay['lines']:
+            st.write(f'• {line}')
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown('**Live News Feed**')
+            news_df = build_live_news_table(news_items)
+            if not news_df.empty:
+                st.dataframe(news_df.drop(columns=['Link']), use_container_width=True, hide_index=True)
+                for idx, row in news_df.head(5).iterrows():
+                    st.markdown(f"[{escape_text(row['Headline'])}]({row['Link']})")
+            else:
+                st.caption('Belum ada headline yang kebaca sekarang.')
+            st.markdown('**Dynamic What-If Scenarios**')
+            st.dataframe(build_dynamic_what_if_df(signals, current_quad), use_container_width=True, hide_index=True)
+        with c2:
+            st.markdown('**Current Transmission / Correlation Map**')
+            st.dataframe(build_active_transmission_df(signals), use_container_width=True, hide_index=True)
+            st.markdown('**Static Scenario Reference**')
+            st.dataframe(pd.DataFrame(WHAT_IF_SCENARIO_MATRIX, columns=['Case', 'Read', 'Direct winners', 'Likely strugglers']), use_container_width=True, hide_index=True)
+
+        d1, d2 = st.columns(2)
+        with d1:
+            st.markdown('**Divergence Rules**')
+            st.dataframe(build_static_reference_df(DIVERGENCE_RULES, ('Case', 'Why')), use_container_width=True, hide_index=True)
+            st.markdown('**Regime Switch Archetypes**')
+            st.dataframe(build_static_reference_df(REGIME_SWITCH_ARCHETYPES, ('Archetype', 'Read')), use_container_width=True, hide_index=True)
+        with d2:
+            st.markdown('**Correlation / Transmission Priors**')
+            st.dataframe(pd.DataFrame(CORRELATION_TRANSMISSION_PRIORS, columns=['Chain', 'Impact', 'Why']), use_container_width=True, hide_index=True)
+            st.markdown('**False Recovery / Crash Map**')
+            st.dataframe(build_static_reference_df(FALSE_RECOVERY_MAP, ('Trap', 'Why')), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(CRASH_TYPES, columns=['Crash type', 'Read']), use_container_width=True, hide_index=True)
+            st.dataframe(build_static_reference_df(CRASH_RECOVERY_ORDER, ('Crash family', 'Recovery order')), use_container_width=True, hide_index=True)
+
 def main() -> None:
     inject_css()
     st.title("Macro Quad Transition Dashboard")
@@ -3404,7 +3700,8 @@ def main() -> None:
         ["Monthly (Hedgeye-style current call)", "Blended Regime", "Quarterly Anchor"],
         index=0,
     )
-    st.sidebar.caption("Fear & Greed default-nya auto dari CNN. Kalau gagal kebaca, fallback pakai manual override.")
+    news_query = st.sidebar.text_input("Live News Query", value=DEFAULT_NEWS_QUERY)
+    st.sidebar.caption("Fear & Greed default-nya auto dari CNN. Kalau gagal kebaca, fallback pakai manual override. Live news dipakai sebagai overlay, bukan penentu quad inti.")
 
     if not fred_key:
         st.warning("Masukin FRED API key dulu di sidebar.")
@@ -3444,7 +3741,7 @@ def main() -> None:
         render_quad_detail(state.quad.current_quad, signals, state.quad.current_quad, state.quad.active_scores)
 
     render_playbook_all_quads(signals, state.quad.current_quad, state.quad.active_scores)
-
+    render_live_news_overlay(signals, state.quad.current_quad, news_query)
 
     if show_raw:
         st.markdown("### Raw Signal Table")
