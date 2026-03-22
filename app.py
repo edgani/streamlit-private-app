@@ -4700,32 +4700,31 @@ def render_driver_triptych(states_by_driver: Dict[str, DashboardState], signals:
         is_active = driver == active_driver
         tag_bg = "#19e68c" if is_active else "#20304d"
         tag_fg = "#07110f" if is_active else "#dbeafe"
+        border = "1.5px solid rgba(0,255,200,.85)" if is_active else "1px solid rgba(255,255,255,.10)"
         with col:
             st.markdown(
                 f"""
-                <div class='main-card' style='padding:18px'>
-                    <div style='display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap'>
-                        <div>
-                            <div style='font-size:15px;font-weight:800;margin-bottom:10px'>{escape_text(driver_short_label(driver))}</div>
-                            <div style='display:inline-block;padding:5px 9px;border-radius:999px;background:{tag_bg};color:{tag_fg};font-weight:800;font-size:11px;margin-bottom:10px'>{'ACTIVE' if is_active else 'COMPARE'}</div>
-                            <div style='font-size:28px;font-weight:900;line-height:1'>{escape_text(q)}</div>
-                            <div style='margin-top:8px;font-weight:700'>{escape_text(meta['phase'])}</div>
-                            <div style='margin-top:8px'><b>Stage:</b> {escape_text(s.stage)}</div>
-                            <div style='margin-top:6px'><b>Logic:</b> {escape_text(meta['logic'])}</div>
-                        </div>
-                        <div style='min-width:150px'>
-                            <div style='margin-bottom:8px'><span style='opacity:.8'>Validity</span><br>{state_chip_html(s.validity)}</div>
-                            <div style='margin-bottom:6px'><span style='opacity:.8'>Primary Transition</span><br><b>{escape_text(s.primary_path['target'])} Watch</b></div>
-                            <div style='margin-bottom:6px'><span style='opacity:.8'>Transition</span><br><span style='font-size:22px;font-weight:900'>{s.primary_path['score']:.0f}/100</span></div>
-                            <div style='opacity:.8'>Quad Fit: <b>{s.quad.fit_score:.0f}/100</b></div>
-                        </div>
+                <div style='border:{border};border-radius:18px;padding:16px 16px 14px 16px;background:linear-gradient(135deg, rgba(3,20,18,0.96), rgba(6,16,33,0.96));min-height:218px'>
+                    <div style='display:flex;justify-content:space-between;gap:10px;align-items:flex-start'>
+                        <div style='font-size:14px;font-weight:800;line-height:1.25'>{escape_text(driver_short_label(driver))}</div>
+                        <div style='display:inline-block;padding:4px 8px;border-radius:999px;background:{tag_bg};color:{tag_fg};font-weight:800;font-size:10px'>{'ACTIVE' if is_active else 'COMPARE'}</div>
                     </div>
+                    <div style='margin-top:14px;font-size:34px;font-weight:900;line-height:1'>{escape_text(q)}</div>
+                    <div style='margin-top:6px;font-weight:700'>{escape_text(meta['phase'])}</div>
+                    <div style='margin-top:12px;display:grid;grid-template-columns:1fr auto;gap:8px 12px;font-size:13px'>
+                        <div><b>Stage:</b> {escape_text(s.stage)}</div>
+                        <div style='text-align:right'><span style='opacity:.75'>Fit</span> <b>{s.quad.fit_score:.0f}</b></div>
+                        <div><b>Validity:</b> {escape_text(s.validity)}</div>
+                        <div style='text-align:right'><span style='opacity:.75'>Next</span> <b>{escape_text(s.primary_path['target'])} ({s.primary_path['score']:.0f})</b></div>
+                    </div>
+                    <div style='margin-top:12px;font-size:12px;opacity:.82'>{escape_text(meta['logic'])}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
-            render_phase_consistency_bundle(driver, s, signals, states_by_driver)
-
+            toggle_key = f"toggle_consist_{re.sub(r'[^a-z0-9]+', '_', driver.lower())}"
+            if st.toggle("Open consist", value=False, key=toggle_key):
+                render_phase_consistency_bundle(driver, s, signals, states_by_driver)
 
 def render_driver_path_compare(states_by_driver: Dict[str, DashboardState]) -> None:
     st.markdown("### Path to Q?")
@@ -4739,74 +4738,120 @@ def render_driver_path_compare(states_by_driver: Dict[str, DashboardState]) -> N
         s = states_by_driver[driver]
         ordered = sorted(s.current_paths, key=lambda x: x['score'], reverse=True)
         primary = ordered[0]
-        alt = ordered[1]
+        alt = ordered[1] if len(ordered) > 1 else ordered[0]
         with col:
-            st.markdown(f"**{driver_short_label(driver)}**")
             st.markdown(
                 f"""
-                <div class='soft-card'>
-                    <div style='font-size:12px;font-weight:800;margin-bottom:8px'>Primary</div>
-                    <div style='font-size:24px;font-weight:900;line-height:1'>{escape_text(primary['target'])}</div>
-                    <div style='margin-top:8px'><b>Score:</b> {primary['score']:.0f}/100</div>
-                    <div style='margin-top:6px'><b>Possible:</b> {escape_text(primary.get('possible','-'))}</div>
-                    <div style='margin-top:6px'><b>Likely strong:</b> {escape_text(primary.get('winners','-'))}</div>
-                    <div style='margin-top:6px'><b>Likely laggards:</b> {escape_text(primary.get('laggards','-'))}</div>
-                    <hr style='border:0;border-top:1px solid rgba(255,255,255,.08);margin:12px 0'>
-                    <div style='font-size:12px;font-weight:800;margin-bottom:8px'>Alternate</div>
-                    <div style='font-size:18px;font-weight:900;line-height:1'>{escape_text(alt['target'])}</div>
-                    <div style='margin-top:6px'><b>Score:</b> {alt['score']:.0f}/100</div>
+                <div class='main-card' style='padding:16px 16px 14px 16px'>
+                    <div style='font-size:14px;font-weight:800;margin-bottom:10px'>{escape_text(driver_short_label(driver))}</div>
+                    <div style='display:flex;justify-content:space-between;gap:12px;align-items:flex-start'>
+                        <div>
+                            <div style='font-size:12px;opacity:.78;font-weight:800'>PRIMARY PATH</div>
+                            <div style='font-size:30px;font-weight:900;line-height:1;margin-top:4px'>{escape_text(primary['target'])}</div>
+                            <div style='margin-top:8px'><b>Score:</b> {primary['score']:.0f}/100</div>
+                        </div>
+                        <div style='min-width:118px;text-align:right'>
+                            <div style='font-size:12px;opacity:.78;font-weight:800'>ALT</div>
+                            <div style='font-size:22px;font-weight:900;line-height:1;margin-top:4px'>{escape_text(alt['target'])}</div>
+                            <div style='margin-top:8px'><b>{alt['score']:.0f}/100</b></div>
+                        </div>
+                    </div>
+                    <div style='margin-top:12px'><b>Possible:</b> {escape_text(primary.get('possible','-'))}</div>
+                    <div style='margin-top:8px'><b>Likely strong:</b> {escape_text(primary.get('winners','-'))}</div>
+                    <div style='margin-top:8px'><b>Likely laggards:</b> {escape_text(primary.get('laggards','-'))}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
-            with st.expander("Open path detail", expanded=False):
+            toggle_key = f"toggle_path_{re.sub(r'[^a-z0-9]+', '_', driver.lower())}"
+            if st.toggle("Open path detail", value=False, key=toggle_key):
                 for path in ordered[:2]:
-                    with st.expander(f"{path['title']} — {path['score']:.0f}/100", expanded=(path is primary)):
-                        for req in path['requirements']:
-                            st.write(f"• {req['name']} — {req['icon']} {req['label']}")
-                        st.write(f"**Possible:** {path.get('possible','-')}")
-                        st.write(f"**If forecast benar:** {path.get('if_right','-')}")
-                        st.write(f"**Likely strong:** {path.get('winners','-')}")
-                        st.write(f"**Likely laggards:** {path.get('laggards','-')}")
-
+                    st.markdown(f"**{escape_text(path['title'])} — {path['score']:.0f}/100**")
+                    for req in path['requirements']:
+                        st.write(f"• {req['name']} — {req['icon']} {req['label']}")
+                    st.write(f"**Possible:** {path.get('possible','-')}")
+                    st.write(f"**If forecast benar:** {path.get('if_right','-')}")
+                    st.write(f"**Likely strong:** {path.get('winners','-')}")
+                    st.write(f"**Likely laggards:** {path.get('laggards','-')}")
+                    st.markdown("---")
 
 def render_bottom_toggle_sections(signals: Dict[str, float], state: DashboardState, news_query: str) -> None:
     st.markdown("### Bottom Toggles")
-    with st.expander("Open selected-driver quad detail", expanded=False):
-        render_quad_detail(state.quad.current_quad, signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
-    render_playbook_all_quads(signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
-    render_live_news_overlay(signals, state.quad.current_quad, news_query)
-    with st.expander("Open advanced process overlay", expanded=False):
-        render_advanced_process_overlay(signals, state.quad.current_quad)
+    t1, t2, t3, t4 = st.columns(4)
+    with t1:
+        show_selected = st.toggle("Selected-driver detail", value=False, key="bottom_selected_driver")
+    with t2:
+        show_playbook = st.toggle("Quad playbook", value=False, key="bottom_quad_playbook")
+    with t3:
+        show_news = st.toggle("Live news / what-if / correlation", value=False, key="bottom_live_news")
+    with t4:
+        show_advanced = st.toggle("Advanced process", value=False, key="bottom_advanced_process")
 
+    if show_selected:
+        render_quad_detail(state.quad.current_quad, signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
+    if show_playbook:
+        render_playbook_all_quads(signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
+    if show_news:
+        render_live_news_overlay(signals, state.quad.current_quad, news_query)
+    if show_advanced:
+        render_advanced_process_overlay(signals, state.quad.current_quad)
 
 def main() -> None:
     inject_css()
     st.title("Macro Quad Transition Dashboard")
     st.caption(
-        "Struktur sekarang dipisah seperti engine map: Macro Quad Engine → Separate Market / Risk Engines → Condition Sekarang Bagusnya? → Current Phase Compare (Monthly / Quarterly / Blended) → Path to Q? → bottom toggles untuk playbook, live news, dan overlay proses."
+        "Struktur utama: Macro Quad Engine → Separate Market / Risk Engines → Condition Sekarang Bagusnya? → Current Phase Compare (Monthly / Quarterly / Blended) → Path to Q? → bottom toggles."
     )
 
     st.sidebar.header("Settings")
-    default_key = ""
     try:
         default_key = st.secrets.get("FRED_API_KEY", "")
     except Exception:
         default_key = ""
-    fred_key = st.sidebar.text_input("FRED API Key", value=default_key, type="password")
-    fg_mode = st.sidebar.radio("Fear & Greed Source", ["CNN Auto", "Manual Override"], index=0)
-    manual_fg = st.sidebar.number_input("Manual Fear & Greed (0-100)", min_value=0, max_value=100, value=50)
-    show_raw = st.sidebar.checkbox("Show raw signal table", value=False)
-    quad_driver = st.sidebar.selectbox(
-        "Current Quad Driver",
-        ["Monthly (Hedgeye-style current call)", "Blended Regime", "Quarterly Anchor"],
-        index=0,
-    )
-    news_query = st.sidebar.text_input("Live News Query", value=DEFAULT_NEWS_QUERY)
-    st.sidebar.caption("Current Quad Driver tetap dipakai untuk selected-detail dan bottom overlays; compare 3 driver sekarang sudah muncul langsung di area Current Phase.")
+
+    defaults = {
+        "cfg_fred_key": default_key,
+        "cfg_fg_mode": "CNN Auto",
+        "cfg_manual_fg": 50,
+        "cfg_show_raw": False,
+        "cfg_quad_driver": "Monthly (Hedgeye-style current call)",
+        "cfg_news_query": DEFAULT_NEWS_QUERY,
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+    with st.sidebar.form("settings_form", clear_on_submit=False):
+        fred_key_in = st.text_input("FRED API Key", value=st.session_state["cfg_fred_key"], type="password")
+        fg_mode_in = st.radio("Fear & Greed Source", ["CNN Auto", "Manual Override"], index=0 if st.session_state["cfg_fg_mode"] == "CNN Auto" else 1)
+        manual_fg_in = st.number_input("Manual Fear & Greed (0-100)", min_value=0, max_value=100, value=int(st.session_state["cfg_manual_fg"]))
+        show_raw_in = st.checkbox("Show raw signal table", value=bool(st.session_state["cfg_show_raw"]))
+        quad_driver_in = st.selectbox(
+            "Current Quad Driver",
+            ["Monthly (Hedgeye-style current call)", "Blended Regime", "Quarterly Anchor"],
+            index=["Monthly (Hedgeye-style current call)", "Blended Regime", "Quarterly Anchor"].index(st.session_state["cfg_quad_driver"]),
+        )
+        news_query_in = st.text_input("Live News Query", value=st.session_state["cfg_news_query"])
+        applied = st.form_submit_button("Apply settings")
+
+    if applied:
+        st.session_state["cfg_fred_key"] = fred_key_in
+        st.session_state["cfg_fg_mode"] = fg_mode_in
+        st.session_state["cfg_manual_fg"] = int(manual_fg_in)
+        st.session_state["cfg_show_raw"] = bool(show_raw_in)
+        st.session_state["cfg_quad_driver"] = quad_driver_in
+        st.session_state["cfg_news_query"] = news_query_in
+
+    fred_key = st.session_state["cfg_fred_key"]
+    fg_mode = st.session_state["cfg_fg_mode"]
+    manual_fg = int(st.session_state["cfg_manual_fg"])
+    show_raw = bool(st.session_state["cfg_show_raw"])
+    quad_driver = st.session_state["cfg_quad_driver"]
+    news_query = st.session_state["cfg_news_query"]
+    st.sidebar.caption("Sidebar sekarang pakai Apply settings supaya nggak rerun tiap kali ketik/ganti opsi.")
 
     if not fred_key:
-        st.warning("Masukin FRED API key dulu di sidebar.")
+        st.warning("Masukin FRED API key dulu di sidebar, lalu klik Apply settings.")
         st.stop()
 
     if fg_mode == "CNN Auto":
@@ -4829,29 +4874,23 @@ def main() -> None:
     states_by_driver = {driver: build_dashboard_state(signals, fg_info, driver) for driver in driver_order}
     state = states_by_driver[quad_driver]
 
-    # 1) Macro Quad Engine
     overview_metrics(signals, fg_info)
     render_countdown_cards(fred_key)
     st.markdown("---")
 
-    # 2) Separate market / risk engines
     render_meter_cards(signals)
     st.markdown("---")
 
-    # 3) Condition sekarang bagusnya?
     st.markdown("### Condition Sekarang Bagusnya?")
     render_market_action_summary(signals)
     st.markdown("---")
 
-    # 4) Current phase compare (monthly / quarterly / blended)
     render_driver_triptych(states_by_driver, signals, quad_driver)
     st.markdown("---")
 
-    # 5) Path to Q?
     render_driver_path_compare(states_by_driver)
     st.markdown("---")
 
-    # 6) Bottom toggles only
     render_bottom_toggle_sections(signals, state, news_query)
 
     if show_raw:
@@ -4860,9 +4899,6 @@ def main() -> None:
 
     st.markdown("---")
     st.caption(
-        "Catatan: current phase sekarang dibandingkan langsung untuk Monthly, Quarterly, dan Blended. Dropdown driver di sidebar tetap dipakai untuk selected detail dan bottom overlays. Forecast Snapshot dan Engine Components lama dibuang dari area utama karena informasinya sudah ter-cover di structure compare yang baru."
+        "Performa dibenerin dengan Apply-settings form di sidebar dan bottom sections yang sekarang benar-benar lazy-render lewat toggle, jadi playbook/news/advanced overlay nggak ikut dirender kalau belum dibuka."
     )
 
-
-if __name__ == "__main__":
-    main()
