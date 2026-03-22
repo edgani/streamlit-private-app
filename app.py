@@ -4647,42 +4647,41 @@ def render_compact_playbook_buckets(quad: str, which: str) -> None:
 def render_phase_consistency_bundle(driver: str, state: DashboardState, signals: Dict[str, float], states_by_driver: Dict[str, DashboardState]) -> None:
     quad = state.quad.current_quad
     stage = state.stage
-    with st.expander("Open consist (meaning / winners / losers / proxy / overlays)", expanded=False):
-        st.caption(driver_compare_note(driver, states_by_driver))
-        for section, items in PHASE_GUIDE[quad]["meaning"].items():
-            with st.expander(section, expanded=(section == "Macro")):
-                for item in items:
-                    st.write(f"• {item}")
-        with st.expander("Winners", expanded=False):
-            render_compact_playbook_buckets(quad, "Winners")
-        with st.expander("Losers", expanded=False):
-            render_compact_playbook_buckets(quad, "Losers")
-        with st.expander("Rates / Policy Lens", expanded=False):
-            for line in current_rates_note(quad, signals):
-                st.write(f"• {line}")
-        with st.expander("Current FX Overlay", expanded=False):
-            for line in current_fx_overlay(quad, signals):
-                st.write(f"• {line}")
-        with st.expander("Current Emerging Markets Overlay", expanded=False):
-            for line in current_em_overlay(quad, signals):
-                st.write(f"• {line}")
-            render_ranked_overlay_matrix("EM / IHSG Matrix (strongest → spillover)", EM_IHSG_MATRIX[quad])
-        with st.expander("Current Crypto Overlay", expanded=False):
-            for line in current_crypto_overlay(quad, signals):
-                st.write(f"• {line}")
-            render_ranked_overlay_matrix("Crypto Matrix (strongest → spillover)", CRYPTO_MATRIX[quad])
-        with st.expander("Proxy / Divergence Note", expanded=False):
-            for line in current_proxy_note(quad, signals):
-                st.write(f"• {line}")
-            for line in current_proxy_strength_ladder(quad, signals):
-                st.write(f"• {line}")
-            render_ranked_overlay_matrix("Proxy Impact Ladder (strongest → spillover)", PROXY_IMPACT_MATRIX[quad])
-        with st.expander("Winner / Loser Ladder (strongest → spillover)", expanded=False):
-            render_ranked_overlay_matrix("Quad Long / Short Ladder", QUAD_LONG_SHORT_LADDER[quad])
-        with st.expander(f"Stage Rotation — {stage}", expanded=False):
-            render_ranked_overlay_matrix("Stage Winner / Loser / Rotation Map", STAGE_ROTATION_GUIDE[quad][stage])
-        with st.expander(f"Leadership / Handoff Map — {stage}", expanded=False):
-            render_ranked_overlay_matrix("Who usually moves first → who takes over → who moves last", LEADERSHIP_ROTATION_MAP[quad][stage])
+    st.caption(driver_compare_note(driver, states_by_driver))
+    for section, items in PHASE_GUIDE[quad]["meaning"].items():
+        with st.expander(section, expanded=(section == "Macro")):
+            for item in items:
+                st.write(f"• {item}")
+    with st.expander("Winners", expanded=False):
+        render_compact_playbook_buckets(quad, "Winners")
+    with st.expander("Losers", expanded=False):
+        render_compact_playbook_buckets(quad, "Losers")
+    with st.expander("Rates / Policy Lens", expanded=False):
+        for line in current_rates_note(quad, signals):
+            st.write(f"• {line}")
+    with st.expander("Current FX Overlay", expanded=False):
+        for line in current_fx_overlay(quad, signals):
+            st.write(f"• {line}")
+    with st.expander("Current Emerging Markets Overlay", expanded=False):
+        for line in current_em_overlay(quad, signals):
+            st.write(f"• {line}")
+        render_ranked_overlay_matrix("EM / IHSG Matrix (strongest → spillover)", EM_IHSG_MATRIX[quad])
+    with st.expander("Current Crypto Overlay", expanded=False):
+        for line in current_crypto_overlay(quad, signals):
+            st.write(f"• {line}")
+        render_ranked_overlay_matrix("Crypto Matrix (strongest → spillover)", CRYPTO_MATRIX[quad])
+    with st.expander("Proxy / Divergence Note", expanded=False):
+        for line in current_proxy_note(quad, signals):
+            st.write(f"• {line}")
+        for line in current_proxy_strength_ladder(quad, signals):
+            st.write(f"• {line}")
+        render_ranked_overlay_matrix("Proxy Impact Ladder (strongest → spillover)", PROXY_IMPACT_MATRIX[quad])
+    with st.expander("Winner / Loser Ladder (strongest → spillover)", expanded=False):
+        render_ranked_overlay_matrix("Quad Long / Short Ladder", QUAD_LONG_SHORT_LADDER[quad])
+    with st.expander(f"Stage Rotation — {stage}", expanded=False):
+        render_ranked_overlay_matrix("Stage Winner / Loser / Rotation Map", STAGE_ROTATION_GUIDE[quad][stage])
+    with st.expander(f"Leadership / Handoff Map — {stage}", expanded=False):
+        render_ranked_overlay_matrix("Who usually moves first → who takes over → who moves last", LEADERSHIP_ROTATION_MAP[quad][stage])
 
 
 def render_driver_triptych(states_by_driver: Dict[str, DashboardState], signals: Dict[str, float], active_driver: str) -> None:
@@ -4885,13 +4884,13 @@ def main() -> None:
     render_market_action_summary(signals)
     st.markdown("---")
 
-    render_driver_triptych(states_by_driver, signals, quad_driver)
+    render_driver_triptych(states_by_driver, quad_driver)
     st.markdown("---")
 
     render_driver_path_compare(states_by_driver)
     st.markdown("---")
 
-    render_bottom_toggle_sections(signals, state, news_query)
+    render_bottom_toggle_sections(signals, state, news_query, states_by_driver)
 
     if show_raw:
         st.markdown("### Raw Signal Table")
@@ -4899,6 +4898,6 @@ def main() -> None:
 
     st.markdown("---")
     st.caption(
-        "Performa dibenerin dengan Apply-settings form di sidebar dan bottom sections yang sekarang benar-benar lazy-render lewat toggle, jadi playbook/news/advanced overlay nggak ikut dirender kalau belum dibuka."
+        "Performa dibenerin dengan Apply-settings form di sidebar dan detail compare/playbook/news/advanced overlay yang sekarang benar-benar lazy-render lewat expander, jadi bagian berat nggak ikut dirender kalau belum dibuka."
     )
 
