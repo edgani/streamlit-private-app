@@ -48,6 +48,23 @@ RELEASE_WATCH = {
 
 DEFAULT_NEWS_QUERY = "Iran war oil Strait of Hormuz private credit treasury auction rollover"
 
+YF_SYMBOLS = (
+    "IWM", "SPY", "QQQ",
+    "UUP", "FXE", "FXB", "FXY", "CEW",
+    "GLD", "DBC", "DBB", "DBA", "UNG",
+    "SPHB", "SPLV", "MTUM", "QUAL", "IWF", "IWD",
+    "EEM", "EIDO", "^JKSE",
+    "TLT", "HYG",
+    "BLOK", "WGMI", "BTC-USD", "ETH-USD", "SOL-USD",
+    "FXI", "MCHI", "EWJ", "EZU", "VGK", "INDA", "EPI", "EWZ", "EWA",
+    "BBCA.JK", "BBRI.JK",
+    "TLKM.JK", "ICBP.JK",
+    "ADRO.JK", "ANTM.JK", "UNTR.JK",
+    "CTRA.JK", "PWON.JK",
+    "AKRA.JK", "ASII.JK",
+    "AMRT.JK", "ACES.JK",
+)
+
 WHAT_IF_SCENARIO_MATRIX = [
     ("Oil up + USD up + 2Y up", "Stagflationary / geopolitical shock", "Direct oil, pure upstream, integrated majors, selective IHSG resource names", "Broad EM, alt beta, weak duration growth"),
     ("Oil up + gold down + 2Y up", "Front-end hawkish shock dominates safe-haven bid", "Oil chain first; treat gold weakness as rates/dollar pressure, not automatic negation of Quad 3", "Do not force broad-beta risk-on just because gold is soft"),
@@ -2228,7 +2245,7 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
     }
 
     # Market overlays - separate from macro quad engine.
-    yf_close = load_yf_close(("IWM", "SPY", "QQQ", "UUP", "FXE", "FXB", "FXY", "CEW", "GLD", "DBC", "DBB", "DBA", "UNG", "SPHB", "SPLV", "MTUM", "QUAL", "IWF", "IWD", "EEM", "EIDO", "^JKSE", "TLT", "HYG", "BLOK", "WGMI", "BTC-USD", "ETH-USD", "SOL-USD", "FXI", "MCHI", "EWJ", "EZU", "VGK", "INDA", "EPI", "EWZ", "EWA", "BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "KLBF.JK", "ADRO.JK", "ITMG.JK", "PGAS.JK", "ANTM.JK", "MDKA.JK", "PWON.JK", "SMRA.JK", "CTRA.JK", "AKRA.JK", "UNTR.JK", "ASII.JK", "AMRT.JK", "ACES.JK", "MAPI.JK"))
+    yf_close = load_yf_close(YF_SYMBOLS)
     if not yf_close.empty and all(col in yf_close.columns for col in ["IWM", "SPY"]):
         ratio = (yf_close["IWM"] / yf_close["SPY"]).dropna()
         rel63 = pct_change(ratio, 63)
@@ -4001,7 +4018,6 @@ def render_path_card(path: Dict[str, object]) -> None:
         st.write(f"**If forecast benar:** {path.get('if_right', '-')}")
         st.write(f"**Likely strong:** {path.get('winners', '-')}")
         st.write(f"**Likely laggards:** {path.get('laggards', '-')}")
-        render_target_quad_snapshot(path["target"])
 
 
 def render_path_tree(paths: List[Dict[str, object]]) -> None:
@@ -4644,6 +4660,35 @@ def render_compact_playbook_buckets(quad: str, which: str) -> None:
                             render_item_tree(quad, item, direction)
 
 
+def render_integrated_overlay_families(quad: str, signals: Dict[str, float]) -> None:
+    st.markdown("**FX / Rates / Proxy**")
+    for line in current_rates_note(quad, signals):
+        st.write(f"• {line}")
+    for line in current_fx_overlay(quad, signals):
+        st.write(f"• {line}")
+    for line in current_proxy_note(quad, signals):
+        st.write(f"• {line}")
+    for line in current_proxy_strength_ladder(quad, signals):
+        st.write(f"• {line}")
+    render_ranked_overlay_matrix("Proxy Impact Ladder (strongest → spillover)", PROXY_IMPACT_MATRIX[quad])
+
+    st.markdown("**EM / IHSG**")
+    for line in current_em_overlay(quad, signals):
+        st.write(f"• {line}")
+    render_ranked_overlay_matrix("EM / IHSG Matrix (strongest → spillover)", EM_IHSG_MATRIX[quad])
+
+    st.markdown("**Crypto**")
+    for line in current_crypto_overlay(quad, signals):
+        st.write(f"• {line}")
+    render_ranked_overlay_matrix("Crypto Matrix (strongest → spillover)", CRYPTO_MATRIX[quad])
+
+
+def render_rotation_bundle(quad: str, stage: str) -> None:
+    render_ranked_overlay_matrix("Quad Long / Short Ladder", QUAD_LONG_SHORT_LADDER[quad])
+    render_ranked_overlay_matrix("Stage Winner / Loser / Rotation Map", STAGE_ROTATION_GUIDE[quad][stage])
+    render_ranked_overlay_matrix("Who usually moves first → who takes over → who moves last", LEADERSHIP_ROTATION_MAP[quad][stage])
+
+
 def render_phase_consistency_bundle(driver: str, state: DashboardState, signals: Dict[str, float], states_by_driver: Dict[str, DashboardState]) -> None:
     quad = state.quad.current_quad
     stage = state.stage
@@ -4656,32 +4701,12 @@ def render_phase_consistency_bundle(driver: str, state: DashboardState, signals:
         render_compact_playbook_buckets(quad, "Winners")
     with st.expander("Losers", expanded=False):
         render_compact_playbook_buckets(quad, "Losers")
-    with st.expander("Rates / Policy Lens", expanded=False):
-        for line in current_rates_note(quad, signals):
-            st.write(f"• {line}")
-    with st.expander("Current FX Overlay", expanded=False):
-        for line in current_fx_overlay(quad, signals):
-            st.write(f"• {line}")
-    with st.expander("Current Emerging Markets Overlay", expanded=False):
-        for line in current_em_overlay(quad, signals):
-            st.write(f"• {line}")
-        render_ranked_overlay_matrix("EM / IHSG Matrix (strongest → spillover)", EM_IHSG_MATRIX[quad])
-    with st.expander("Current Crypto Overlay", expanded=False):
-        for line in current_crypto_overlay(quad, signals):
-            st.write(f"• {line}")
-        render_ranked_overlay_matrix("Crypto Matrix (strongest → spillover)", CRYPTO_MATRIX[quad])
-    with st.expander("Proxy / Divergence Note", expanded=False):
-        for line in current_proxy_note(quad, signals):
-            st.write(f"• {line}")
-        for line in current_proxy_strength_ladder(quad, signals):
-            st.write(f"• {line}")
-        render_ranked_overlay_matrix("Proxy Impact Ladder (strongest → spillover)", PROXY_IMPACT_MATRIX[quad])
-    with st.expander("Winner / Loser Ladder (strongest → spillover)", expanded=False):
-        render_ranked_overlay_matrix("Quad Long / Short Ladder", QUAD_LONG_SHORT_LADDER[quad])
-    with st.expander(f"Stage Rotation — {stage}", expanded=False):
-        render_ranked_overlay_matrix("Stage Winner / Loser / Rotation Map", STAGE_ROTATION_GUIDE[quad][stage])
-    with st.expander(f"Leadership / Handoff Map — {stage}", expanded=False):
-        render_ranked_overlay_matrix("Who usually moves first → who takes over → who moves last", LEADERSHIP_ROTATION_MAP[quad][stage])
+    with st.expander("Integrated Overlay Families", expanded=False):
+        render_integrated_overlay_families(quad, signals)
+    with st.expander("Probability / Range / Timing", expanded=False):
+        render_quad_macro_only_summary(quad, signals)
+    with st.expander(f"Rotation / Ladder — {stage}", expanded=False):
+        render_rotation_bundle(quad, stage)
 
 
 def render_driver_triptych(states_by_driver: Dict[str, DashboardState], signals: Dict[str, float], active_driver: str) -> None:
@@ -4699,24 +4724,22 @@ def render_driver_triptych(states_by_driver: Dict[str, DashboardState], signals:
         is_active = driver == active_driver
         tag_bg = "#19e68c" if is_active else "#20304d"
         tag_fg = "#07110f" if is_active else "#dbeafe"
-        border = "1.5px solid rgba(0,255,200,.85)" if is_active else "1px solid rgba(255,255,255,.10)"
+        border = "1.6px solid rgba(0,255,200,.90)" if is_active else "1px solid rgba(255,255,255,.10)"
         with col:
             st.markdown(
                 f"""
-                <div style='border:{border};border-radius:18px;padding:16px 16px 14px 16px;background:linear-gradient(135deg, rgba(3,20,18,0.96), rgba(6,16,33,0.96));min-height:218px'>
+                <div class='main-card' style='border:{border};padding:18px 18px 16px 18px;min-height:264px'>
                     <div style='display:flex;justify-content:space-between;gap:10px;align-items:flex-start'>
-                        <div style='font-size:14px;font-weight:800;line-height:1.25'>{escape_text(driver_short_label(driver))}</div>
+                        <div style='font-size:15px;font-weight:900;line-height:1.25'>{escape_text(driver_short_label(driver))}</div>
                         <div style='display:inline-block;padding:4px 8px;border-radius:999px;background:{tag_bg};color:{tag_fg};font-weight:800;font-size:10px'>{'ACTIVE' if is_active else 'COMPARE'}</div>
                     </div>
-                    <div style='margin-top:14px;font-size:34px;font-weight:900;line-height:1'>{escape_text(q)}</div>
-                    <div style='margin-top:6px;font-weight:700'>{escape_text(meta['phase'])}</div>
-                    <div style='margin-top:12px;display:grid;grid-template-columns:1fr auto;gap:8px 12px;font-size:13px'>
-                        <div><b>Stage:</b> {escape_text(s.stage)}</div>
-                        <div style='text-align:right'><span style='opacity:.75'>Fit</span> <b>{s.quad.fit_score:.0f}</b></div>
-                        <div><b>Validity:</b> {escape_text(s.validity)}</div>
-                        <div style='text-align:right'><span style='opacity:.75'>Next</span> <b>{escape_text(s.primary_path['target'])} ({s.primary_path['score']:.0f})</b></div>
-                    </div>
-                    <div style='margin-top:12px;font-size:12px;opacity:.82'>{escape_text(meta['logic'])}</div>
+                    <div style='margin-top:14px;font-size:38px;font-weight:900;line-height:1'>{escape_text(q)}</div>
+                    <div style='margin-top:6px;font-weight:800'>{escape_text(meta['phase'])}</div>
+                    <div style='margin-top:14px;font-size:14px'><b>Stage:</b> {escape_text(s.stage)}</div>
+                    <div style='margin-top:8px;font-size:14px'><b>Validity:</b> {escape_text(s.validity)}</div>
+                    <div style='margin-top:8px;font-size:14px'><b>Fit:</b> {s.quad.fit_score:.0f}</div>
+                    <div style='margin-top:8px;font-size:14px'><b>Next:</b> {escape_text(s.primary_path['target'])} ({s.primary_path['score']:.0f})</div>
+                    <div style='margin-top:12px;font-size:12px;opacity:.86'>{escape_text(meta['logic'])}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -4859,6 +4882,26 @@ def render_macro_only_asset_panel(signals: Dict[str, float]) -> None:
     st.markdown("### Macro-Only Probability / Range / Timing")
     st.caption("Probabilitas + range + timing window. Bukan target pasti atau exact top/bottom.")
     df = build_macro_only_asset_table(signals)
+    family_rows = []
+    family_map = {
+        "US beta": ["SPX", "IWM"],
+        "Duration / hard defense": ["Long Bonds", "Gold", "DXY"],
+        "EM + Indonesia": ["Broad EM", "IHSG"],
+        "Commodity + crypto beta": ["Oil", "BTC"],
+    }
+    for fam, members in family_map.items():
+        sub = df[df['Asset'].isin(members)]
+        if sub.empty:
+            continue
+        family_rows.append({
+            'Family': fam,
+            'Members': ', '.join(sub['Asset'].tolist()),
+            'Winner %': round(sub['Winner %'].mean(), 1),
+            'Loser %': round(sub['Loser %'].mean(), 1),
+            'Timing Score': round(sub['Timing Score'].mean(), 1),
+            'Confidence': round(sub['Confidence'].mean(), 1),
+        })
+    fam_df = pd.DataFrame(family_rows).sort_values('Winner %', ascending=False) if family_rows else pd.DataFrame()
     topw, topl = st.columns(2)
     with topw:
         st.markdown("**Top Winner Candidates**")
@@ -4868,7 +4911,45 @@ def render_macro_only_asset_panel(signals: Dict[str, float]) -> None:
         st.markdown("**Top Loser / Short Candidates**")
         for _, r in df.sort_values('Loser %', ascending=False).head(4).iterrows():
             st.write(f"• {r['Asset']} — {r['Loser %']:.0f}% | {r['20D Base']} | Timing {r['Timing']}")
+    if not fam_df.empty:
+        with st.expander("Open merged family view", expanded=False):
+            st.dataframe(fam_df, use_container_width=True, hide_index=True)
+            st.caption("Correlated assets yang sering bergerak bareng diringkas jadi family supaya bacanya lebih cepat; detail per-asset tetap ada di bawah.")
     with st.expander("Open per-asset detail", expanded=False):
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
+
+QUAD_MACRO_BIAS = {
+    "Q1": {"winners": ["SPX", "IWM", "Long Bonds"], "losers": ["DXY", "Oil", "Gold"], "timing": "Data growth surprise positif + inflation surprise turun biasanya paling ramah. Fokus sesudah CPI/PCE/FOMC kalau disinflation confirm."},
+    "Q2": {"winners": ["Oil", "SPX", "IWM"], "losers": ["Long Bonds", "Gold"], "timing": "Edge paling besar saat growth surprise membaik dan inflation breadth ikut menguat. Lebih valid sesudah ISM/NFP/CPI yang sama-sama firm."},
+    "Q3": {"winners": ["Gold", "DXY", "Oil"], "losers": ["IWM", "SPX", "Broad EM"], "timing": "Kalau growth mulai crack tapi inflation/yields belum turun, short cyclicals dan domestic beta biasanya lebih bersih. Valid sesudah CPI/NFP/ISM saat kombinasi growth down + inflation sticky makin jelas."},
+    "Q4": {"winners": ["Long Bonds", "DXY", "Gold"], "losers": ["Oil", "IWM", "Broad EM"], "timing": "Bias paling kuat saat inflation akhirnya breakdown dan growth tetap lemah. Biasanya makin valid setelah CPI/PCE turun dan payroll/ISM ikut melemah."},
+}
+
+def render_quad_macro_only_summary(quad: str, signals: Dict[str, float]) -> None:
+    st.markdown("**Macro-Only Probability / Range / Timing**")
+    st.caption("Integrated ke consist of quad: probabilitas, range 20D, timing window, dan shortlist long/short. Ini probabilistik, bukan target pasti.")
+    df = build_macro_only_asset_table(signals)
+    bias = QUAD_MACRO_BIAS.get(quad, {"winners": [], "losers": [], "timing": ""})
+    winner_df = df[df['Asset'].isin(bias['winners'])].sort_values(['Winner %', 'Timing Score'], ascending=False)
+    loser_df = df[df['Asset'].isin(bias['losers'])].sort_values(['Loser %', 'Timing Score'], ascending=False)
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**Quad-aligned long candidates**")
+        if winner_df.empty:
+            st.caption("Belum ada shortlist.")
+        else:
+            for _, r in winner_df.iterrows():
+                st.write(f"• {r['Asset']} — Win {r['Winner %']:.0f}% | {r['20D Base']} | Timing {r['Timing']} | Conf {r['Confidence']:.0f}")
+    with c2:
+        st.markdown("**Quad-aligned short / laggard candidates**")
+        if loser_df.empty:
+            st.caption("Belum ada shortlist.")
+        else:
+            for _, r in loser_df.iterrows():
+                st.write(f"• {r['Asset']} — Loser {r['Loser %']:.0f}% | {r['20D Base']} | Timing {r['Timing']} | Conf {r['Confidence']:.0f}")
+    st.info(bias['timing'])
+    with st.expander("Open full probability / range / timing table", expanded=False):
         st.dataframe(df, use_container_width=True, hide_index=True)
 
 def render_bottom_toggle_sections(signals: Dict[str, float], state: DashboardState, news_query: str, states_by_driver: Optional[Dict[str, DashboardState]] = None) -> None:
@@ -4885,21 +4966,30 @@ def render_bottom_toggle_sections(signals: Dict[str, float], state: DashboardSta
 
     if show_selected:
         if states_by_driver:
-            with st.expander("Current Phase Compare Detail (Monthly / Quarterly / Blended)", expanded=False):
-                for driver in ["Monthly (Hedgeye-style current call)", "Quarterly Anchor", "Blended Regime"]:
-                    s = states_by_driver[driver]
-                    st.markdown(f"#### {escape_text(driver_short_label(driver))} — {escape_text(s.quad.current_quad)} / {escape_text(QUAD_META[s.quad.current_quad]['phase'])}")
-                    render_quad_detail(s.quad.current_quad, signals, s.quad.current_quad, s.quad.active_scores, s.quad.source_key)
-                    st.markdown("---")
+            with st.expander("Current Phase Compare Detail", expanded=False):
+                driver_pick = st.selectbox(
+                    "Choose driver detail",
+                    ["Monthly (Hedgeye-style current call)", "Quarterly Anchor", "Blended Regime"],
+                    index=["Monthly (Hedgeye-style current call)", "Quarterly Anchor", "Blended Regime"].index(state.quad.driver_label if state.quad.driver_label in ["Monthly (Hedgeye-style current call)", "Quarterly Anchor", "Blended Regime"] else "Monthly (Hedgeye-style current call)"),
+                    key="selected_driver_pick",
+                )
+                s = states_by_driver[driver_pick]
+                st.markdown(f"#### {escape_text(driver_short_label(driver_pick))} — {escape_text(s.quad.current_quad)} / {escape_text(QUAD_META[s.quad.current_quad]['phase'])}")
+                render_quad_detail(s.quad.current_quad, signals, s.quad.current_quad, s.quad.active_scores, s.quad.source_key)
         else:
-            render_quad_detail(state.quad.current_quad, signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
+            with st.expander("Selected-driver detail", expanded=False):
+                render_quad_detail(state.quad.current_quad, signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
     if show_playbook:
-        render_playbook_all_quads(signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
-        render_macro_only_asset_panel(signals)
+        with st.expander("Quad playbook + integrated overlays", expanded=False):
+            render_playbook_all_quads(signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
+            render_macro_only_asset_panel(signals)
     if show_news:
-        render_live_news_overlay(signals, state.quad.current_quad, news_query)
+        with st.expander("Live news / what-if / correlation", expanded=False):
+            render_live_news_overlay(signals, state.quad.current_quad, news_query)
     if show_advanced:
-        render_advanced_process_overlay(signals, state.quad.current_quad)
+        with st.expander("Advanced process overlay", expanded=False):
+            render_advanced_process_overlay(signals, state.quad.current_quad)
+
 
 def main() -> None:
     inject_css()
@@ -5004,7 +5094,7 @@ def main() -> None:
 
     st.markdown("---")
     st.caption(
-        "Performa dibenerin dengan Apply-settings form di sidebar dan detail compare/playbook/news/advanced overlay yang sekarang benar-benar lazy-render lewat expander, jadi bagian berat nggak ikut dirender kalau belum dibuka."
+        "Performa dibenerin dengan Apply-settings form di sidebar, symbol universe yang lebih ringkas, overlay yang dimerge jadi family, dan detail compare/playbook/news/advanced yang benar-benar lazy-render lewat expander."
     )
 
 
