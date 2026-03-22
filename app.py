@@ -3275,6 +3275,81 @@ def _normalize_item_key(item: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", item.lower()).strip()
 
 
+def _display_label_from_key(key: str) -> str:
+    label_map = {
+        "fixed income": "fixed income",
+        "usd": "USD",
+        "fx": "FX",
+        "consumer staples": "consumer staples",
+        "health care": "health care",
+        "consumer discretionary": "consumer discretionary",
+        "communication services": "communication services",
+        "small caps": "small caps",
+        "reits": "REITs",
+        "reit s": "REITs",
+        "high beta": "high beta",
+        "low beta": "low beta",
+        "em dollar debt": "EM dollar debt",
+        "high yield credit": "high yield credit",
+        "short duration treasuries": "short duration treasuries",
+        "treasury belly": "Treasury belly",
+        "long bond": "long bond",
+        "tips": "TIPS",
+    }
+    return label_map.get(key, key)
+
+
+RELATED_ITEM_HINTS = {
+    "commodities": ["energy", "gold", "materials", "industrials", "financials", "fixed income", "usd"],
+    "energy": ["commodities", "materials", "industrials", "financials", "usd", "fixed income"],
+    "gold": ["commodities", "fixed income", "usd", "consumer staples", "health care"],
+    "fixed income": ["usd", "financials", "utilities", "reits", "gold"],
+    "equities": ["tech", "financials", "industrials", "materials", "energy", "consumer discretionary", "communication services", "consumer staples", "health care", "utilities", "reits"],
+    "credit": ["financials", "fixed income", "high yield credit", "leveraged loans", "em dollar debt"],
+    "fx": ["usd", "commodities", "energy", "gold"],
+    "usd": ["fixed income", "fx", "gold", "commodities", "energy"],
+    "utilities": ["fixed income", "reits", "consumer staples", "health care"],
+    "reits": ["fixed income", "utilities", "financials"],
+    "tech": ["communication services", "consumer discretionary", "financials"],
+    "consumer staples": ["health care", "utilities", "fixed income"],
+    "health care": ["consumer staples", "utilities", "fixed income"],
+    "industrials": ["materials", "financials", "energy", "consumer discretionary"],
+    "materials": ["commodities", "energy", "industrials", "financials"],
+    "financials": ["industrials", "materials", "consumer discretionary", "fixed income"],
+    "consumer discretionary": ["communication services", "tech", "financials", "industrials"],
+    "communication services": ["tech", "consumer discretionary"],
+    "small caps": ["financials", "industrials", "consumer discretionary"],
+    "high beta": ["small caps", "momentum", "consumer discretionary", "tech"],
+    "momentum": ["high beta", "tech", "consumer discretionary"],
+}
+
+KNOWN_RELATED_KEYS = sorted({
+    *RELATED_ITEM_HINTS.keys(),
+    "equities", "credit", "commodities", "gold", "fixed income", "fx", "usd", "energy", "utilities", "reits",
+    "tech", "consumer staples", "health care", "industrials", "materials", "financials", "consumer discretionary",
+    "communication services", "small caps", "high beta", "momentum", "secular growth", "mid caps", "bdcs",
+    "convertibles", "high yield credit", "em dollar debt", "leveraged loans", "low beta", "defensives", "value",
+    "dividend yield", "tips", "short duration treasuries", "mbs", "treasury belly", "long bond"
+})
+
+
+def _extract_related_keys(item: str, tree: Dict[str, List[str]]) -> List[str]:
+    item_key = _normalize_item_key(item)
+    related = set(RELATED_ITEM_HINTS.get(item_key, []))
+    normalized_lines = []
+    for lines in tree.values():
+        normalized_lines.extend(_normalize_item_key(line) for line in lines)
+    for candidate in KNOWN_RELATED_KEYS:
+        if candidate == item_key:
+            continue
+        for line in normalized_lines:
+            if candidate in line:
+                related.add(candidate)
+                break
+    cleaned = [r for r in related if r and r != item_key]
+    return sorted(cleaned)
+
+
 def _fallback_item_tree(item: str, direction: str) -> Dict[str, List[str]]:
     if direction == "winner":
         return {
@@ -3460,12 +3535,24 @@ def _playbook_item_tree(quad: str, item: str, direction: str) -> Dict[str, List[
     return tree if tree is not None else _fallback_item_tree(item, direction)
 
 
-def render_item_tree(quad: str, item: str, direction: str) -> None:
+def render_item_tree(quad: str, item: str, direction: str, depth: int = 0, visited: Optional[set] = None) -> None:
+    if visited is None:
+        visited = set()
+    item_key = _normalize_item_key(item)
     tree = _playbook_item_tree(quad, item, direction)
     for section, lines in tree.items():
         st.markdown(f"<div class='small-muted' style='margin-top:6px;margin-bottom:4px'><b>{escape_text(section)}</b></div>", unsafe_allow_html=True)
         for line in lines:
             st.write(f"• {line}")
+    if depth >= 2:
+        return
+    related_keys = [rk for rk in _extract_related_keys(item, tree) if rk not in visited]
+    if related_keys:
+        with st.expander("Open sub-matrix / sleeves", expanded=False):
+            for rk in related_keys:
+                label = _display_label_from_key(rk)
+                with st.expander(label, expanded=False):
+                    render_item_tree(quad, label, direction, depth=depth + 1, visited=visited | {item_key, rk})
 def render_buckets_column(title: str, buckets: Dict[str, Dict[str, List[str]]], quad: str, direction: str, expand_first: bool = True) -> None:
     st.markdown(f"#### {title}")
     first_bucket = True
@@ -4462,6 +4549,50 @@ def render_live_news_overlay(signals: Dict[str, float], current_quad: str, news_
             st.dataframe(pd.DataFrame(CRASH_TYPES, columns=['Crash type', 'Read']), use_container_width=True, hide_index=True)
             st.dataframe(build_static_reference_df(CRASH_RECOVERY_ORDER, ('Crash family', 'Recovery order')), use_container_width=True, hide_index=True)
 
+def render_driver_comparison(states_by_driver: Dict[str, DashboardState], active_driver: str) -> None:
+    st.markdown("### Driver Comparison")
+    order = [
+        "Monthly (Hedgeye-style current call)",
+        "Blended Regime",
+        "Quarterly Anchor",
+    ]
+    cards = st.columns(3)
+    rows = []
+    for col, driver in zip(cards, order):
+        s = states_by_driver[driver]
+        active_badge = "<span style='display:inline-block;padding:4px 10px;border-radius:999px;background:#19e68c;color:#07110f;font-weight:800;font-size:11px'>ACTIVE</span>" if driver == active_driver else "<span style='display:inline-block;padding:4px 10px;border-radius:999px;background:#1f2937;color:#d1d5db;font-weight:800;font-size:11px'>COMPARE</span>"
+        with col:
+            st.markdown(
+                f"""
+                <div class='soft-card'>
+                    <div style='display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px'>
+                        <div style='font-size:13px;font-weight:800'>{escape_text(driver)}</div>
+                        <div>{active_badge}</div>
+                    </div>
+                    <div style='font-size:22px;font-weight:900;margin-bottom:6px'>{escape_text(s.quad.current_quad)}</div>
+                    <div style='font-size:12px;opacity:.8;margin-bottom:8px'>{escape_text(QUAD_META[s.quad.current_quad]['phase'])}</div>
+                    <div style='font-size:12px;margin-bottom:4px'><b>Fit:</b> {s.quad.fit_score:.0f}/100</div>
+                    <div style='font-size:12px;margin-bottom:4px'><b>Stage:</b> {escape_text(s.stage)}</div>
+                    <div style='font-size:12px;margin-bottom:4px'><b>Validity:</b> {escape_text(s.validity)}</div>
+                    <div style='font-size:12px'><b>Primary next:</b> {escape_text(s.primary_path['target'])} ({s.primary_path['score']:.0f})</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        rows.append({
+            "Driver": driver,
+            "Current Quad": s.quad.current_quad,
+            "Phase": QUAD_META[s.quad.current_quad]["phase"],
+            "Fit": round(float(s.quad.fit_score), 1),
+            "Stage": s.stage,
+            "Validity": s.validity,
+            "Primary Next": s.primary_path["target"],
+            "Path Score": round(float(s.primary_path["score"]), 1),
+        })
+    with st.expander("Open compact driver matrix", expanded=False):
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
 def main() -> None:
     inject_css()
     st.title("Macro Quad Transition Dashboard")
@@ -4507,9 +4638,12 @@ def main() -> None:
     if fg_mode == "CNN Auto" and fg_info.get("status") != "ok":
         st.warning("CNN Fear & Greed lagi gagal kebaca. Dashboard sementara pakai manual fallback dari sidebar.")
 
-    state = build_dashboard_state(signals, fg_info, quad_driver)
+    driver_order = ["Monthly (Hedgeye-style current call)", "Blended Regime", "Quarterly Anchor"]
+    states_by_driver = {driver: build_dashboard_state(signals, fg_info, driver) for driver in driver_order}
+    state = states_by_driver[quad_driver]
 
     overview_metrics(signals, fg_info)
+    render_driver_comparison(states_by_driver, quad_driver)
     render_engine_components(signals)
     render_forecast_summary_row(state.quad.current_quad, state.quad.fit_score, state.validity, state.primary_path, state.quad.driver_label)
     st.markdown("---")
