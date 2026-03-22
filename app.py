@@ -1410,11 +1410,11 @@ def choose_quad_selection(signals: Dict[str, float], driver_label: str) -> QuadS
 
 def build_dashboard_state(signals: Dict[str, float], fg_info: Dict[str, object], driver_label: str) -> DashboardState:
     quad = choose_quad_selection(signals, driver_label)
-    current_paths = finalize_paths(build_paths(signals, quad.current_quad))
+    current_paths = finalize_paths(build_paths(signals, quad.current_quad, quad.source_key), signals=signals)
     primary_path = max(current_paths, key=lambda x: x["score"])
     max_path_score = max(p["score"] for p in current_paths)
     validity = classify_validity(quad.fit_score, max_path_score)
-    stage = regime_stage(max_path_score)
+    stage = transition_stage(signals, quad.fit_score, current_paths, quad.source_key)
     return DashboardState(
         signals=signals,
         fg_info=fg_info,
@@ -1432,6 +1432,92 @@ def quad_scores_for_source(signals: Dict[str, float], source_key: str) -> Dict[s
     if source_key == "quarterly":
         return signals["quad_scores_quarterly"]
     return signals["quad_scores"]
+
+
+def transition_axes(signals: Dict[str, float], source_key: str) -> Dict[str, float]:
+    g_m = float(signals.get("gdp_nowcast_monthly", 0.0))
+    g_q = float(signals.get("gdp_nowcast_quarterly", 0.0))
+    i_m = float(signals.get("cpi_nowcast_monthly", 0.0))
+    i_q = float(signals.get("cpi_nowcast_quarterly", 0.0))
+    if source_key == "monthly":
+        gl = 0.70 * g_m + 0.30 * g_q
+        gm = g_m
+        il = 0.70 * i_m + 0.30 * i_q
+        im = i_m
+        source_blend = 0.75
+    elif source_key == "quarterly":
+        gl = g_q
+        gm = 0.70 * g_q + 0.30 * g_m
+        il = i_q
+        im = 0.70 * i_q + 0.30 * i_m
+        source_blend = 0.25
+    else:
+        gl = 0.60 * g_q + 0.40 * g_m
+        gm = 0.75 * g_m + 0.25 * g_q
+        il = 0.60 * i_q + 0.40 * i_m
+        im = 0.75 * i_m + 0.25 * i_q
+        source_blend = 0.50
+    ls = 0.55 * float(signals.get("claims_yoy_z", 0.0)) + 0.25 * float(signals.get("sahm_z", 0.0)) + 0.20 * float(signals.get("recpro_z", 0.0))
+    rr = 0.45 * float(signals.get("sahm_z", 0.0)) + 0.35 * float(signals.get("recpro_z", 0.0)) + 0.20 * (-gl)
+    return {"gl": gl, "gm": gm, "il": il, "im": im, "ls": ls, "rr": rr, "source_blend": source_blend}
+
+
+def path_signal_alignment(signals: Dict[str, float], target_quad: str) -> float:
+    front = float(signals.get("front_end_policy", 0.0))
+    duration = float(signals.get("duration_tailwind", 0.0))
+    usd = float(signals.get("usd_signal", 0.0))
+    commodity = float(signals.get("commodity_breadth", 0.0))
+    breadth = float(signals.get("breadth_health", 0.0))
+    credit = float(signals.get("credit_stress", 0.0))
+    em = float(signals.get("broad_em_equity_signal", 0.0))
+    nasdaq = float(signals.get("nasdaq_signal", 0.0))
+    top = float(signals.get("behavioral_top_score", 0.0))
+    dist = float(signals.get("distribution_risk", 0.0))
+
+    checks = {
+        "Q1": [duration, nasdaq, breadth, -front, -credit],
+        "Q2": [commodity, breadth, em, -usd, -credit],
+        "Q3": [commodity, usd, front, -em, -duration],
+        "Q4": [duration, credit, dist, usd, -breadth],
+    }[target_quad]
+    vals = [clamp01(0.5 + 0.30 * x) for x in checks]
+    # Penalize noisy late-stage risk when chasing reflation/recovery; reward it a bit for Q4-type downside.
+    if target_quad in {"Q1", "Q2"}:
+        vals.append(clamp01(1.0 - 0.55 * top))
+    elif target_quad == "Q4":
+        vals.append(clamp01(0.55 + 0.45 * dist))
+    else:
+        vals.append(clamp01(0.55 + 0.25 * max(usd, 0.0)))
+    return float(sum(vals) / len(vals))
+
+
+def transition_stage(signals: Dict[str, float], current_fit: float, paths: List[Dict[str, object]], source_key: str) -> str:
+    if not paths:
+        return "Mid"
+    max_path_score = max(float(p.get("score", 0.0)) for p in paths) / 100.0
+    fit = clamp01(current_fit / 100.0)
+    top = float(signals.get("behavioral_top_score", 0.0))
+    dist = float(signals.get("distribution_risk", 0.0))
+    credit = clamp01(0.5 + 0.25 * float(signals.get("credit_stress", 0.0)))
+    breadth_fragility = clamp01(0.5 - 0.25 * float(signals.get("breadth_health", 0.0)))
+    monthly_quad = str(signals.get("macro_quad_monthly", ""))
+    quarterly_quad = str(signals.get("macro_quad_quarterly", ""))
+    divergence = 1.0 if monthly_quad and quarterly_quad and monthly_quad != quarterly_quad else 0.0
+    source_penalty = 0.10 if source_key == "blend" and divergence else 0.0
+    maturity = (
+        0.38 * max_path_score
+        + 0.18 * (1.0 - fit)
+        + 0.14 * top
+        + 0.12 * dist
+        + 0.10 * credit
+        + 0.08 * breadth_fragility
+        + source_penalty
+    )
+    if maturity < 0.42:
+        return "Early"
+    if maturity < 0.67:
+        return "Mid"
+    return "Late"
 
 
 def inject_css() -> None:
@@ -2799,13 +2885,14 @@ def render_advanced_process_overlay(signals: Dict[str, float], current_quad: str
         st.dataframe(build_country_engine_df(signals, current_quad), use_container_width=True, hide_index=True)
 
 
-def reason_lines(signals: Dict[str, float], quad: str) -> Tuple[List[str], List[str]]:
-    gl = signals["growth_level"]
-    gm = signals["growth_mom"]
-    il = signals["inflation_level"]
-    im = signals["inflation_mom"]
+def reason_lines(signals: Dict[str, float], quad: str, source_key: str = "blend") -> Tuple[List[str], List[str]]:
+    ax = transition_axes(signals, source_key)
+    gl = ax["gl"]
+    gm = ax["gm"]
+    il = ax["il"]
+    im = ax["im"]
     cs = signals["credit_stress"]
-    rr = signals["recession_risk"]
+    rr = ax["rr"]
 
     if quad == "Q1":
         valid = [
@@ -2859,11 +2946,12 @@ def req(name: str, prob: float) -> Dict[str, object]:
     return {"name": name, "prob": prob, "icon": icon, "label": label, "status_score": status_score}
 
 
-def build_paths(signals: Dict[str, float], quad: str) -> List[Dict[str, object]]:
+def build_paths(signals: Dict[str, float], quad: str, source_key: str = "blend") -> List[Dict[str, object]]:
     # Macro transition engine only. No IWM / Fear & Greed inputs here.
-    gl, gm = signals["growth_level"], signals["growth_mom"]
-    il, im = signals["inflation_level"], signals["inflation_mom"]
-    ls, rr = signals["labor_soft"], signals["recession_risk"]
+    ax = transition_axes(signals, source_key)
+    gl, gm = ax["gl"], ax["gm"]
+    il, im = ax["il"], ax["im"]
+    ls, rr = ax["ls"], ax["rr"]
 
     infl_roll = sigmoid(-1.15 * im - 0.55 * il)
     infl_reheat = sigmoid(1.15 * im + 0.55 * il)
@@ -2981,15 +3069,19 @@ def build_paths(signals: Dict[str, float], quad: str) -> List[Dict[str, object]]
 
     for p in raw:
         p.update(PATH_META.get((quad, p["target"]), {}))
+        p["source_key"] = source_key
     return raw
 
-def finalize_paths(paths: List[Dict[str, object]]) -> List[Dict[str, object]]:
+def finalize_paths(paths: List[Dict[str, object]], signals: Optional[Dict[str, float]] = None) -> List[Dict[str, object]]:
     final = []
     for p in paths:
         weights = p["weights"]
-        score = 100 * sum(r["status_score"] * w for r, w in zip(p["requirements"], weights))
+        raw_score = 100 * sum(r["status_score"] * w for r, w in zip(p["requirements"], weights))
+        alignment = path_signal_alignment(signals, p["target"]) if signals is not None else 0.5
+        conviction_boost = (alignment - 0.5) * 16.0
+        score = max(0.0, min(100.0, raw_score + conviction_boost))
         color = "#22c55e" if score < 60 else "#f59e0b" if score < 75 else "#ef4444"
-        final.append({**p, "score": score, "color": color})
+        final.append({**p, "raw_score": raw_score, "alignment": alignment, "score": score, "color": color})
     return final
 
 
@@ -3756,7 +3848,7 @@ def render_path_card(path: Dict[str, object]) -> None:
         st.markdown(f"#### {path['title']}")
         for requirement in path["requirements"]:
             render_requirement_row(requirement)
-        st.caption(f"Path Score {path['score']:.0f}/100")
+        st.caption(f"Path Score {path['score']:.0f}/100 | Raw {path.get('raw_score', path['score']):.0f}/100 | Signal confirm {100*path.get('alignment', 0.5):.0f}%")
         st.progress(max(0.0, min(1.0, path["score"] / 100.0)))
         st.write(f"**Possible:** {path.get('possible', '-')}")
         st.write(f"**If forecast benar:** {path.get('if_right', '-')}")
@@ -3770,7 +3862,7 @@ def render_path_tree(paths: List[Dict[str, object]]) -> None:
     for idx, path in enumerate(paths):
         prefix = "├─" if idx == 0 else "└─"
         with st.expander(f"{prefix} {path['title']}", expanded=False):
-            st.markdown(f"<div class='tree-box'><b>{escape_text(path['title'])}</b><br><span class='small-muted'>Path Score {path['score']:.0f}/100</span></div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='tree-box'><b>{escape_text(path['title'])}</b><br><span class='small-muted'>Path Score {path['score']:.0f}/100 | Raw {path.get('raw_score', path['score']):.0f}/100 | Signal confirm {100*path.get('alignment', 0.5):.0f}%</span></div>", unsafe_allow_html=True)
             for i, requirement in enumerate(path["requirements"], start=1):
                 st.write(f"{i}. {requirement['name']} — {requirement['icon']} {requirement['label']}")
             st.progress(max(0.0, min(1.0, path["score"] / 100.0)))
@@ -3865,14 +3957,14 @@ def render_market_action_summary(signals: Dict[str, float]) -> None:
         """,
         unsafe_allow_html=True,
     )
-def render_quad_detail(quad: str, signals: Dict[str, float], current_quad: str, active_scores: Dict[str, float]) -> None:
+def render_quad_detail(quad: str, signals: Dict[str, float], current_quad: str, active_scores: Dict[str, float], source_key: str = "blend") -> None:
     meta = QUAD_META[quad]
-    paths = sorted(finalize_paths(build_paths(signals, quad)), key=lambda x: x["score"], reverse=True)
+    paths = sorted(finalize_paths(build_paths(signals, quad, source_key), signals=signals), key=lambda x: x["score"], reverse=True)
     quad_score = float(active_scores[quad])
     primary_path = paths[0]
     validity = classify_validity(quad_score, max(p["score"] for p in paths)) if quad == current_quad else "Watch"
-    stage = regime_stage(max(p["score"] for p in paths))
-    valid_lines, invalid_lines = reason_lines(signals, quad)
+    stage = transition_stage(signals, quad_score, paths, source_key)
+    valid_lines, invalid_lines = reason_lines(signals, quad, source_key)
 
     top_c1, top_c2, top_c3 = st.columns([1.2, 1, 1])
     with top_c1:
@@ -3914,9 +4006,9 @@ def render_quad_detail(quad: str, signals: Dict[str, float], current_quad: str, 
     )
 
 
-def build_forecast_tables(signals: Dict[str, float], current_quad: str, active_scores: Dict[str, float]) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def build_forecast_tables(signals: Dict[str, float], current_quad: str, active_scores: Dict[str, float], source_key: str = "blend") -> Tuple[pd.DataFrame, pd.DataFrame]:
     active_scores = signals["quad_scores"] if active_scores is None else active_scores
-    current_paths = finalize_paths(build_paths(signals, current_quad))
+    current_paths = finalize_paths(build_paths(signals, current_quad, source_key), signals=signals)
     path_rows = []
     for p in sorted(current_paths, key=lambda x: x["score"], reverse=True):
         path_rows.append(
@@ -3934,7 +4026,7 @@ def build_forecast_tables(signals: Dict[str, float], current_quad: str, active_s
 
     quad_rows = []
     for q in ["Q1", "Q2", "Q3", "Q4"]:
-        paths = finalize_paths(build_paths(signals, q))
+        paths = finalize_paths(build_paths(signals, q, source_key), signals=signals)
         primary = max(paths, key=lambda x: x["score"])
         quad_rows.append(
             {
@@ -4083,15 +4175,15 @@ def render_possible_next_playbook(quad: str) -> None:
             if info.get("laggards"):
                 st.write(f"**Likely laggards:** {info['laggards']}")
 
-def render_playbook_all_quads(signals: Dict[str, float], current_quad: str, active_scores: Optional[Dict[str, float]] = None) -> None:
+def render_playbook_all_quads(signals: Dict[str, float], current_quad: str, active_scores: Optional[Dict[str, float]] = None, source_key: str = "blend") -> None:
     st.markdown("### Quad Playbook (All Quads)")
     active_scores = signals["quad_scores"] if active_scores is None else active_scores
-    current_paths = finalize_paths(build_paths(signals, current_quad))
+    current_paths = finalize_paths(build_paths(signals, current_quad, source_key), signals=signals)
     next_likely = max(current_paths, key=lambda x: x["score"])["target"]
 
     for q in ["Q1", "Q2", "Q3", "Q4"]:
         meta = QUAD_META[q]
-        paths = finalize_paths(build_paths(signals, q))
+        paths = finalize_paths(build_paths(signals, q, source_key), signals=signals)
         chip = ""
         if q == current_quad:
             chip = "<span style='display:inline-block;padding:4px 8px;border-radius:999px;background:#19e68c;color:#07110f;font-size:11px;font-weight:800;margin-bottom:8px'>CURRENT QUAD</span>"
@@ -4430,9 +4522,9 @@ def main() -> None:
     render_phase_guide(state.quad.current_quad, signals, state.stage)
 
     with st.expander(f"Open {QUAD_META[state.quad.current_quad]['name']}", expanded=True):
-        render_quad_detail(state.quad.current_quad, signals, state.quad.current_quad, state.quad.active_scores)
+        render_quad_detail(state.quad.current_quad, signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
 
-    render_playbook_all_quads(signals, state.quad.current_quad, state.quad.active_scores)
+    render_playbook_all_quads(signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
     render_live_news_overlay(signals, state.quad.current_quad, news_query)
     render_advanced_process_overlay(signals, state.quad.current_quad)
 
