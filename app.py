@@ -4779,6 +4779,98 @@ def render_driver_path_compare(states_by_driver: Dict[str, DashboardState]) -> N
                 with st.expander(f"Alt path: {escape_text(alt['target'])}", expanded=False):
                     st.markdown(_path_card(alt, compact=True), unsafe_allow_html=True)
 
+
+
+def build_macro_only_asset_table(signals: Dict[str, float]) -> pd.DataFrame:
+    """Macro-only probability / range / timing panel.
+    Uses existing quad signals plus market overlays already loaded in the app.
+    It is intentionally probabilistic, not a point forecast engine.
+    """
+    G = float(np.clip(0.30*signals.get('wei_4w_z',0)+0.25*signals.get('wei_13w_z',0)-0.20*signals.get('claims_13w_z',0)-0.15*signals.get('sahm_13w_z',0)-0.10*signals.get('recpro_13w_z',0), -3, 3))
+    I = float(np.clip(0.24*signals.get('cpi3_z',0)+0.20*signals.get('core3_z',0)+0.16*signals.get('cpi_gap_z',0)+0.14*signals.get('core_gap_z',0)+0.12*signals.get('breakeven20_z',0)+0.14*signals.get('oil21_z',0), -3, 3))
+    R = float(np.clip(0.30*signals.get('sahm_z',0)+0.25*signals.get('recpro_z',0)+0.20*signals.get('claims_26w_z',0)+0.15*signals.get('hy_z',0)+0.10*signals.get('vix_z',0), -3, 3))
+    Y = float(np.clip(0.45*signals.get('dgs10_20_z',0)+0.35*signals.get('dgs30_20_z',0)+0.20*signals.get('dgs5_20_z',0), -3, 3))
+    D = float(np.clip(0.70*signals.get('usd_signal',0)+0.30*(signals.get('dgs2_20_z',0)+signals.get('dgs5_20_z',0))/2, -3, 3))
+    F = float(np.clip(-0.45*signals.get('hy_z',0)-0.25*signals.get('nfci_z',0)-0.20*signals.get('stlfsi_z',0)-0.10*signals.get('vix_z',0), -3, 3))
+    V = float(np.clip(0.65*signals.get('vix_z',0)+0.35*signals.get('stlfsi_z',0), -3, 3))
+    surprise = abs(signals.get('cpi_gap_z',0))+abs(signals.get('core_gap_z',0))+0.5*abs(signals.get('wei_4w_z',0)-signals.get('wei_13w_z',0))
+    breadth = np.mean([
+        1 if signals.get('cpi3_z',0) > 0 else -1,
+        1 if signals.get('core3_z',0) > 0 else -1,
+        1 if signals.get('wei_4w_z',0) > 0 else -1,
+        1 if -signals.get('claims_13w_z',0) > 0 else -1,
+        1 if signals.get('breakeven20_z',0) > 0 else -1,
+    ])
+    persistence = np.mean([
+        np.sign(signals.get('wei_4w_z',0))*np.sign(signals.get('wei_13w_z',0)),
+        np.sign(signals.get('cpi3_z',0))*np.sign(signals.get('cpi6_z',0)),
+        np.sign(signals.get('core3_z',0))*np.sign(signals.get('core6_z',0)),
+    ])
+    E = float(np.clip(0.55*surprise + 0.45*max(abs(breadth), 0), 0, 3))
+    S = float(np.clip(0.60*signals.get('oil21_z',0)+0.20*signals.get('oil63_z',0)+0.20*signals.get('commodity_breadth',0), -3, 3))
+    CM = float(np.clip(0.60*signals.get('btc_signal',0)+0.40*signals.get('crypto_major_signal',0), -3, 3))
+    CV = float(np.clip(0.60*signals.get('alt_beta_signal',0)-0.40*signals.get('vix_z',0), -3, 3))
+
+    cfg = {
+        'Gold': {'score': (-0.30*Y + 0.24*V + 0.16*I + 0.14*R - 0.10*D + 0.06*E), 'cap': 0.80, 'vol20': 0.07, 'k': 0.90, 'timing_bias': 1.05},
+        'Oil': {'score': (0.60*(0.24*G + 0.12*I - 0.14*R - 0.10*D + 0.10*E) + 0.40*S), 'cap': 0.70 if abs(S) > 0.35 else 0.45, 'vol20': 0.12, 'k': 1.40, 'timing_bias': 0.85},
+        'Long Bonds': {'score': (-0.28*G - 0.26*I + 0.20*R - 0.14*Y + 0.07*V + 0.05*E), 'cap': 0.85, 'vol20': 0.05, 'k': 0.80, 'timing_bias': 1.10},
+        'SPX': {'score': (0.30*G - 0.16*I - 0.14*R - 0.12*Y + 0.12*F + 0.08*E - 0.06*D), 'cap': 0.65, 'vol20': 0.08, 'k': 1.00, 'timing_bias': 0.95},
+        'IWM': {'score': (0.34*G - 0.18*I - 0.18*R + 0.16*F - 0.10*D - 0.04*Y + 0.06*E), 'cap': 0.60, 'vol20': 0.11, 'k': 1.20, 'timing_bias': 0.90},
+        'DXY': {'score': (0.32*D + 0.16*R - 0.14*G - 0.12*F - 0.08*I + 0.06*E), 'cap': 0.80, 'vol20': 0.04, 'k': 0.80, 'timing_bias': 1.05},
+        'Broad EM': {'score': (0.20*G + 0.16*F - 0.18*D - 0.16*R + 0.12*signals.get('broad_em_equity_signal',0) + 0.08*signals.get('emfx_signal',0)), 'cap': 0.60, 'vol20': 0.10, 'k': 1.10, 'timing_bias': 0.90},
+        'IHSG': {'score': (0.18*G + 0.10*F - 0.18*D - 0.14*R + 0.16*signals.get('indo_equity_signal',0) + 0.10*signals.get('ihsg_bank_signal',0) + 0.10*signals.get('ihsg_commodity_signal',0) - 0.06*signals.get('ihsg_property_signal',0)), 'cap': 0.58, 'vol20': 0.11, 'k': 1.10, 'timing_bias': 0.85},
+        'BTC': {'score': (0.45*(0.16*F - 0.14*R - 0.10*D + 0.08*G - 0.06*Y + 0.06*E) + 0.35*CM + 0.20*CV), 'cap': 0.65 if (abs(CM) + abs(CV)) > 0.30 else 0.40, 'vol20': 0.18, 'k': 1.80, 'timing_bias': 0.80},
+    }
+
+    rows = []
+    breadth_score = float(np.clip(50 + 25*breadth + 15*persistence, 5, 95))
+    event_strength = float(np.clip(40 + 18*E, 5, 95))
+    catalyst_density = 60.0
+    for asset, c in cfg.items():
+        score = float(np.clip(c['score'], -3, 3))
+        win = float(np.clip(100*sigmoid(1.25*score), 5, 95))
+        adj_win = float(np.clip(50 + (win-50)*c['cap'], 5, 95))
+        timing = float(np.clip((0.40*event_strength + 0.25*breadth_score + 0.20*(50 + 35*persistence) + 0.15*catalyst_density) * c['timing_bias']/100, 0, 100))
+        exp20 = score * c['vol20'] * c['k'] * c['cap']
+        band = 0.60 * c['vol20']
+        base_low = exp20 - band
+        base_high = exp20 + band
+        best = exp20 + np.sign(score if score != 0 else 1) * (1.20*c['vol20'])
+        worst = exp20 - np.sign(score if score != 0 else 1) * (1.20*c['vol20'])
+        rows.append({
+            'Asset': asset,
+            'Score': round(score, 2),
+            'Winner %': round(adj_win, 1),
+            'Loser %': round(100-adj_win, 1),
+            '20D Base': f"{base_low*100:+.1f}% to {base_high*100:+.1f}%",
+            '20D Best': f"{best*100:+.1f}%",
+            '20D Worst': f"{worst*100:+.1f}%",
+            'Timing': ('High' if timing >= 70 else 'Medium' if timing >= 52 else 'Low'),
+            'Timing Score': round(timing, 1),
+            'Confidence': round(100*c['cap'], 0),
+        })
+    df = pd.DataFrame(rows)
+    df['Rank'] = 0.45*df['Winner %'] + 0.30*df['Timing Score'] + 0.25*df['Confidence']
+    return df.sort_values('Rank', ascending=False).drop(columns=['Rank'])
+
+
+def render_macro_only_asset_panel(signals: Dict[str, float]) -> None:
+    st.markdown("### Macro-Only Probability / Range / Timing")
+    st.caption("Probabilitas + range + timing window. Bukan target pasti atau exact top/bottom.")
+    df = build_macro_only_asset_table(signals)
+    topw, topl = st.columns(2)
+    with topw:
+        st.markdown("**Top Winner Candidates**")
+        for _, r in df.head(4).iterrows():
+            st.write(f"• {r['Asset']} — {r['Winner %']:.0f}% | {r['20D Base']} | Timing {r['Timing']}")
+    with topl:
+        st.markdown("**Top Loser / Short Candidates**")
+        for _, r in df.sort_values('Loser %', ascending=False).head(4).iterrows():
+            st.write(f"• {r['Asset']} — {r['Loser %']:.0f}% | {r['20D Base']} | Timing {r['Timing']}")
+    with st.expander("Open per-asset detail", expanded=False):
+        st.dataframe(df, use_container_width=True, hide_index=True)
+
 def render_bottom_toggle_sections(signals: Dict[str, float], state: DashboardState, news_query: str, states_by_driver: Optional[Dict[str, DashboardState]] = None) -> None:
     st.markdown("### Bottom Toggles")
     t1, t2, t3, t4 = st.columns(4)
@@ -4803,6 +4895,7 @@ def render_bottom_toggle_sections(signals: Dict[str, float], state: DashboardSta
             render_quad_detail(state.quad.current_quad, signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
     if show_playbook:
         render_playbook_all_quads(signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
+        render_macro_only_asset_panel(signals)
     if show_news:
         render_live_news_overlay(signals, state.quad.current_quad, news_query)
     if show_advanced:
@@ -4914,3 +5007,7 @@ def main() -> None:
         "Performa dibenerin dengan Apply-settings form di sidebar dan detail compare/playbook/news/advanced overlay yang sekarang benar-benar lazy-render lewat expander, jadi bagian berat nggak ikut dirender kalau belum dibuka."
     )
 
+
+
+if __name__ == "__main__":
+    main()
