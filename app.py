@@ -1577,6 +1577,222 @@ def load_yf_close(symbols: Tuple[str, ...], period: str = "3y") -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def _safe_pct_series(df: pd.DataFrame, col: str, sign: float = 1.0) -> Optional[pd.Series]:
+    if df.empty or col not in df.columns:
+        return None
+    s = pd.to_numeric(df[col], errors="coerce").dropna()
+    if s.empty:
+        return None
+    return sign * s.pct_change().dropna()
+
+
+def _safe_diff_series(bundle: Dict[str, pd.Series], key: str, sign: float = 1.0) -> Optional[pd.Series]:
+    if key not in bundle:
+        return None
+    s = pd.to_numeric(bundle[key], errors="coerce").dropna()
+    if s.empty:
+        return None
+    return sign * s.diff().dropna()
+
+
+def _aligned_corr_stats(series_list: List[pd.Series], tail: int = 126, min_obs: int = 40) -> Tuple[Optional[float], Optional[float], Optional[pd.Series]]:
+    valid = [s for s in series_list if s is not None and not s.dropna().empty]
+    if len(valid) < 2:
+        return None, None, None
+    df = pd.concat(valid, axis=1, join="inner").dropna().tail(tail)
+    if len(df) < min_obs or df.shape[1] < 2:
+        return None, None, None
+    corr = df.corr()
+    vals = []
+    for i in range(corr.shape[0]):
+        for j in range(i + 1, corr.shape[1]):
+            v = corr.iat[i, j]
+            if pd.notna(v):
+                vals.append(abs(float(v)))
+    if not vals:
+        return None, None, None
+    rep = df.mean(axis=1)
+    return float(np.mean(vals)), float(np.min(vals)), rep
+
+
+def build_correlation_audit(bundle: Dict[str, pd.Series], yf_close: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    families = [
+        {
+            "name": "Front-End Rates Family",
+            "members": [
+                _safe_diff_series(bundle, "DGS2"),
+                _safe_diff_series(bundle, "DGS5"),
+            ],
+            "note": "2Y dan 5Y biasanya bergerak sangat rapat. Ini lebih bersih dibaca sebagai satu family policy / front-end repricing.",
+        },
+        {
+            "name": "Long-End Rates Family",
+            "members": [
+                _safe_diff_series(bundle, "DGS10"),
+                _safe_diff_series(bundle, "DGS30"),
+            ],
+            "note": "10Y dan 30Y idealnya dibaca sebagai satu family duration / long-end pressure dulu, baru dibedah divergence-nya bila perlu.",
+        },
+        {
+            "name": "USD Complex",
+            "members": [
+                _safe_pct_series(yf_close, "UUP", 1.0),
+                _safe_pct_series(yf_close, "FXE", -1.0),
+                _safe_pct_series(yf_close, "FXB", -1.0),
+                _safe_pct_series(yf_close, "FXY", -1.0),
+                _safe_pct_series(yf_close, "CEW", -1.0),
+            ],
+            "note": "Kalau korelasinya rapat, baca ini sebagai satu family dollar-strength / EM-FX pressure, bukan lima sinyal terpisah.",
+        },
+        {
+            "name": "Europe Equity Complex",
+            "members": [
+                _safe_pct_series(yf_close, "EZU"),
+                _safe_pct_series(yf_close, "VGK"),
+            ],
+            "note": "EZU dan VGK biasanya redundant. Kalau rapat, cukup satu European risk family.",
+        },
+        {
+            "name": "China Equity Complex",
+            "members": [
+                _safe_pct_series(yf_close, "FXI"),
+                _safe_pct_series(yf_close, "MCHI"),
+            ],
+            "note": "FXI dan MCHI sering cukup rapat untuk dibaca sebagai satu China risk family terlebih dulu.",
+        },
+        {
+            "name": "India Equity Complex",
+            "members": [
+                _safe_pct_series(yf_close, "INDA"),
+                _safe_pct_series(yf_close, "EPI"),
+            ],
+            "note": "Kalau rapat, cukup satu India family; pecah lagi hanya saat ada divergence local factor.",
+        },
+        {
+            "name": "IHSG Banks Family",
+            "members": [
+                _safe_pct_series(yf_close, "BBCA.JK"),
+                _safe_pct_series(yf_close, "BBRI.JK"),
+                _safe_pct_series(yf_close, "BMRI.JK"),
+                _safe_pct_series(yf_close, "BBNI.JK"),
+            ],
+            "note": "Empat bank besar biasanya sangat rapat. Ini cocok dibaca sebagai satu leadership family dulu.",
+        },
+        {
+            "name": "IHSG Property Family",
+            "members": [
+                _safe_pct_series(yf_close, "PWON.JK"),
+                _safe_pct_series(yf_close, "SMRA.JK"),
+                _safe_pct_series(yf_close, "CTRA.JK"),
+            ],
+            "note": "Property names sering bergerak bersama, tapi tetap pantau divergence kalau funding/local rates berubah cepat.",
+        },
+        {
+            "name": "IHSG Defensive Staples/Telecom/Pharma Family",
+            "members": [
+                _safe_pct_series(yf_close, "TLKM.JK"),
+                _safe_pct_series(yf_close, "ICBP.JK"),
+                _safe_pct_series(yf_close, "INDF.JK"),
+                _safe_pct_series(yf_close, "KLBF.JK"),
+            ],
+            "note": "Defensive IHSG names kadang cukup rapat, tapi sering lebih conditional daripada banks/property.",
+        },
+        {
+            "name": "IHSG Resource Family",
+            "members": [
+                _safe_pct_series(yf_close, "ADRO.JK"),
+                _safe_pct_series(yf_close, "ITMG.JK"),
+                _safe_pct_series(yf_close, "PGAS.JK"),
+                _safe_pct_series(yf_close, "ANTM.JK"),
+                _safe_pct_series(yf_close, "MDKA.JK"),
+            ],
+            "note": "Resource names boleh dikelompokkan kalau korelasinya rapat, tapi tetap pecah lagi untuk coal vs oil-gas vs metals bila chain-nya berbeda.",
+        },
+        {
+            "name": "Commodity Breadth ex-Gold",
+            "members": [
+                _safe_pct_series(yf_close, "DBC"),
+                _safe_pct_series(yf_close, "DBB"),
+                _safe_pct_series(yf_close, "DBA"),
+                _safe_pct_series(yf_close, "UNG"),
+            ],
+            "note": "Kalau cukup rapat, ini cocok dibaca sebagai commodity breadth family; gold tetap dipisah karena perannya bisa beda.",
+        },
+        {
+            "name": "Alt-Beta Crypto Family",
+            "members": [
+                _safe_pct_series(yf_close, "ETH-USD"),
+                _safe_pct_series(yf_close, "SOL-USD"),
+                _safe_pct_series(yf_close, "BLOK"),
+                _safe_pct_series(yf_close, "WGMI"),
+            ],
+            "note": "ETH/SOL dan crypto-equity beta sering lebih masuk akal dibaca sebagai satu alt-beta family; BTC sebaiknya tetap dipisah sebagai leader utama.",
+        },
+    ]
+
+    merged_rows: List[Dict[str, object]] = []
+    toggle_rows: List[Dict[str, object]] = []
+    reps: Dict[str, pd.Series] = {}
+
+    for fam in families:
+        avg_abs, min_abs, rep = _aligned_corr_stats(fam["members"])
+        if rep is not None:
+            reps[fam["name"]] = rep
+        if avg_abs is None:
+            continue
+        row = {
+            "Family": fam["name"],
+            "Avg |Corr|": round(avg_abs, 2),
+            "Min |Corr|": round(min_abs if min_abs is not None else 0.0, 2),
+            "Action": "Merge into one family" if avg_abs >= 0.78 and (min_abs or 0.0) >= 0.55 else "Keep toggle / conditional",
+            "Note": fam["note"],
+        }
+        if row["Action"] == "Merge into one family":
+            merged_rows.append(row)
+        elif avg_abs >= 0.45:
+            toggle_rows.append(row)
+
+    def _pair_corr(a: pd.Series, b: pd.Series, tail: int = 126, min_obs: int = 40) -> Optional[float]:
+        df = pd.concat([a, b], axis=1, join="inner").dropna().tail(tail)
+        if len(df) < min_obs:
+            return None
+        c = df.corr().iat[0, 1]
+        if pd.isna(c):
+            return None
+        return float(c)
+
+    pair_notes = {
+        frozenset(["Front-End Rates Family", "USD Complex"]): "Front-end hawkish repricing dan USD strength sering jalan bareng dalam shock regime.",
+        frozenset(["Commodity Breadth ex-Gold", "IHSG Resource Family"]): "Commodity breadth yang sehat biasanya menetes ke resource proxies, tapi local flow bisa delay.",
+        frozenset(["Alt-Beta Crypto Family", "USD Complex"]): "Dollar kuat sering jadi headwind untuk alt beta; lihat ini sebagai conditional inverse pair.",
+        frozenset(["IHSG Banks Family", "IHSG Property Family"]): "Banks dan property sering nyambung lewat domestic liquidity / rates, tapi property lebih lagging.",
+        frozenset(["Europe Equity Complex", "USD Complex"]): "Europe risk complex sering sensitif ke dollar direction dan global growth tone.",
+        frozenset(["China Equity Complex", "Commodity Breadth ex-Gold"]): "China complex bisa nyambung ke cyclicals/commodities, tapi tidak selalu sinkron bila policy lokal mendominasi.",
+        frozenset(["India Equity Complex", "USD Complex"]): "India tetap equity-heavy, tetapi dollar/funding backdrop tetap penting.",
+        frozenset(["IHSG Resource Family", "USD Complex"]): "USD kuat bisa membantu sebagian resource revenues tapi menekan broad local flows; treat as mixed pair.",
+    }
+
+    pair_rows: List[Dict[str, object]] = []
+    rep_names = list(reps.keys())
+    for i in range(len(rep_names)):
+        for j in range(i + 1, len(rep_names)):
+            a_name, b_name = rep_names[i], rep_names[j]
+            c = _pair_corr(reps[a_name], reps[b_name])
+            if c is None or abs(c) < 0.45:
+                continue
+            pair_rows.append({
+                "Pair": f"{a_name} ↔ {b_name}",
+                "Corr": round(c, 2),
+                "Type": "Strong" if abs(c) >= 0.70 else "Moderate",
+                "Read": pair_notes.get(frozenset([a_name, b_name]), "Treat as regime-dependent cross-family relationship; do not fully merge unless the linkage stays persistent."),
+            })
+
+    merged_df = pd.DataFrame(merged_rows).sort_values(["Avg |Corr|", "Min |Corr|"], ascending=False).reset_index(drop=True) if merged_rows else pd.DataFrame(columns=["Family", "Avg |Corr|", "Min |Corr|", "Action", "Note"])
+    toggle_df = pd.DataFrame(toggle_rows).sort_values(["Avg |Corr|", "Min |Corr|"], ascending=False).reset_index(drop=True) if toggle_rows else pd.DataFrame(columns=["Family", "Avg |Corr|", "Min |Corr|", "Action", "Note"])
+    pair_df = pd.DataFrame(pair_rows).sort_values("Corr", key=lambda s: s.abs(), ascending=False).reset_index(drop=True) if pair_rows else pd.DataFrame(columns=["Pair", "Corr", "Type", "Read"])
+    return merged_df, toggle_df, pair_df
+
+
 def _recursive_find_score(obj, preferred_keys=("fear_and_greed", "fearAndGreed", "feargreed")) -> Optional[int]:
     def maybe_score(d: dict) -> Optional[int]:
         score = d.get("score")
@@ -2063,6 +2279,8 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
     brazil_signal = 0.60 * _zret("EWZ", 20) + 0.25 * _zret("EWZ", 63) + 0.15 * commodity_breadth
     australia_signal = 0.60 * _zret("EWA", 20) + 0.25 * _zret("EWA", 63) + 0.15 * commodity_breadth
 
+    correlation_merge_df, correlation_toggle_df, cross_family_corr_df = build_correlation_audit(bundle, yf_close)
+
     signals.update({
         "usd_signal": usd_signal,
         "emfx_signal": emfx_signal,
@@ -2380,6 +2598,9 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
             "quality_break": quality_break,
             "secular_hard_asset_pressure": secular_hard_asset_pressure,
             "secular_duration_disinflation": secular_duration_disinflation,
+            "correlation_merge_df": correlation_merge_df,
+            "correlation_toggle_df": correlation_toggle_df,
+            "cross_family_corr_df": cross_family_corr_df,
             # Components for UI transparency
             "risk_on_components": {
                 "breadth_health": breadth_health,
@@ -4121,6 +4342,22 @@ def render_live_news_overlay(signals: Dict[str, float], current_quad: str, news_
 
         d1, d2 = st.columns(2)
         with d1:
+            st.markdown('**Deep Correlation Audit — Merge these first**')
+            merge_df = signals.get('correlation_merge_df', pd.DataFrame())
+            if isinstance(merge_df, pd.DataFrame) and not merge_df.empty:
+                st.dataframe(merge_df, use_container_width=True, hide_index=True)
+            else:
+                st.caption('Belum ada family yang cukup rapat untuk digabung penuh pada data sekarang.')
+            with st.expander('Open moderate / conditional correlations', expanded=False):
+                toggle_df = signals.get('correlation_toggle_df', pd.DataFrame())
+                if isinstance(toggle_df, pd.DataFrame) and not toggle_df.empty:
+                    st.dataframe(toggle_df, use_container_width=True, hide_index=True)
+                else:
+                    st.caption('Belum ada moderate-correlation family yang menonjol sekarang.')
+                pair_df = signals.get('cross_family_corr_df', pd.DataFrame())
+                if isinstance(pair_df, pd.DataFrame) and not pair_df.empty:
+                    st.markdown('**Cross-Family Correlation Watchlist**')
+                    st.dataframe(pair_df, use_container_width=True, hide_index=True)
             st.markdown('**Divergence Rules**')
             st.dataframe(build_static_reference_df(DIVERGENCE_RULES, ('Case', 'Why')), use_container_width=True, hide_index=True)
             st.markdown('**Regime Switch Archetypes**')
