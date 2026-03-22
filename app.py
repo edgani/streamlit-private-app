@@ -3735,7 +3735,7 @@ def main() -> None:
     render_countdown_cards(fred_key)
     st.markdown("---")
     render_hero(state.quad.current_quad, state.quad.fit_score, state.validity, state.primary_path, state.stage)
-    render_phase_guide(state.quad.current_quad, signals)
+    render_phase_guide(state.quad.current_quad, signals, state.stage)
 
     with st.expander(f"Open {QUAD_META[state.quad.current_quad]['name']}", expanded=True):
         render_quad_detail(state.quad.current_quad, signals, state.quad.current_quad, state.quad.active_scores)
