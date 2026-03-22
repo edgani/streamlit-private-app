@@ -21,6 +21,10 @@ SERIES = {
     "WEI": "WEI",
     "ICSA": "ICSA",
     "T10Y2Y": "T10Y2Y",
+    "DGS2": "DGS2",
+    "DGS5": "DGS5",
+    "DGS10": "DGS10",
+    "DGS30": "DGS30",
     "CPI": "CPIAUCSL",
     "CORE_CPI": "CPILFESL",
     "BREAKEVEN_5Y": "T5YIE",
@@ -128,6 +132,20 @@ PHASE_GUIDE = {
                     "selected EM FX only when dollar trend is soft and credit stress is contained",
                 ],
             },
+            "Emerging Markets Lens": {
+                "Prefer Selectively": [
+                    "country selection over generic EM beta when global demand is broadening",
+                    "EM exporters / reform stories only when USD is not the dominant macro trend",
+                    "broad EM works best when credit is calm and the dollar is softening, not tightening",
+                ],
+            },
+            "Crypto / Digital Assets Lens": {
+                "Tactical, Not Core": [
+                    "BTC and liquid crypto beta can participate when breadth, liquidity, and credit all improve together",
+                    "use signal confirmation rather than assuming all alts are automatic Quad 1 winners",
+                    "higher-quality, liquid beta is cleaner than illiquid alt beta",
+                ],
+            },
         },
         "losers": {
             "Worst Asset Classes": {
@@ -158,6 +176,18 @@ PHASE_GUIDE = {
                 "Avoid / Weak": [
                     "USD and defensive funding currencies when reflation breadth is broad",
                     "pure safe-haven FX beta over cyclical FX",
+                ],
+            },
+            "Emerging Markets Lens": {
+                "Avoid / Weak": [
+                    "fragile EM that need a weak dollar and easy credit to work",
+                    "broad EM beta if credit stress rises before growth breadth truly improves",
+                ],
+            },
+            "Crypto / Digital Assets Lens": {
+                "Avoid / Weak": [
+                    "illiquid alts and weak-balance-sheet miners when the rally is too narrow",
+                    "treating all crypto beta as equal-quality risk-on exposure",
                 ],
             },
         },
@@ -215,6 +245,20 @@ PHASE_GUIDE = {
                     "selected exporter FX only if dollar trend is not dominant",
                 ],
             },
+            "Emerging Markets Lens": {
+                "Prefer Selectively": [
+                    "commodity exporters and nominal-growth beneficiaries rather than generic EM beta",
+                    "country ETFs tied to energy, industrials, or reflation capex can outperform broad EM",
+                    "broad EM only if USD is not tightening financial conditions",
+                ],
+            },
+            "Crypto / Digital Assets Lens": {
+                "Tactical, Not Core": [
+                    "this is usually the best macro backdrop for BTC and higher-beta liquid crypto if breadth and liquidity confirm",
+                    "alts can work, but only when volume, breadth, and funding are broad rather than speculative and narrow",
+                    "infrastructure / exchange / blockchain beta is cleaner than low-quality alt beta",
+                ],
+            },
         },
         "losers": {
             "Worst Asset Classes": {
@@ -251,6 +295,18 @@ PHASE_GUIDE = {
                 "Avoid / Weak": [
                     "USD shorts when rates / credit are re-tightening and reflation breadth is narrow",
                     "generic broad EM beta without commodity confirmation",
+                ],
+            },
+            "Emerging Markets Lens": {
+                "Avoid / Weak": [
+                    "importer-heavy EM or weak-balance-sheet countries if oil and yields rise too fast",
+                    "generic broad-EM beta when the dollar is reasserting leadership",
+                ],
+            },
+            "Crypto / Digital Assets Lens": {
+                "Avoid / Weak": [
+                    "chasing low-quality alts after narrow vertical squeezes",
+                    "assuming every crypto rally is durable if rates and liquidity are working against it",
                 ],
             },
         },
@@ -309,6 +365,20 @@ PHASE_GUIDE = {
                     "commodity-exporter FX can work tactically, but only as exceptions rather than the default broad-EM playbook",
                 ],
             },
+            "Emerging Markets Lens": {
+                "Use Selectively": [
+                    "country dispersion dominates: selective energy/resource exporters or idiosyncratic reform/stimulus stories only",
+                    "broad EM is not a default Quad 3 winner in a USD-up stagflationary episode",
+                    "country-level longs are cleaner than EEM-style broad beta",
+                ],
+            },
+            "Crypto / Digital Assets Lens": {
+                "Tactical, Not Core": [
+                    "BTC is not a core historical Quad 3 winner in Hedgeye's public playbook",
+                    "at best, treat BTC as a tactical signal-driven trade rather than a regime-led allocation",
+                    "alts are usually much weaker than gold, commodities, or duration in this environment",
+                ],
+            },
         },
         "losers": {
             "Worst Asset Classes": {
@@ -346,6 +416,18 @@ PHASE_GUIDE = {
                     "broad EM FX beta",
                     "EUR, GBP, and high-beta cyclical FX during USD-up episodes",
                     "JPY when USD rates impulse dominates and trend breaks lower",
+                ],
+            },
+            "Emerging Markets Lens": {
+                "Avoid / Weak": [
+                    "broad EM equities / FX, especially importers or countries reliant on easy dollar liquidity",
+                    "fragile balance-sheet EM and generic EEM beta during USD-up, oil-up stress",
+                ],
+            },
+            "Crypto / Digital Assets Lens": {
+                "Avoid / Weak": [
+                    "alts, miners, and blockchain-beta equities when crash / stagflation risk is high",
+                    "treating BTC like a guaranteed inflation hedge when the dollar and yields are dominating the tape",
                 ],
             },
         },
@@ -396,6 +478,18 @@ PHASE_GUIDE = {
                     "long USD expressions rather than commodity / growth-sensitive FX",
                 ],
             },
+            "Emerging Markets Lens": {
+                "Prefer Selectively": [
+                    "very selective country stories only; broad EM is usually not the right default expression",
+                    "reserve-quality or reform-driven idiosyncratic winners are cleaner than broad EM beta",
+                ],
+            },
+            "Crypto / Digital Assets Lens": {
+                "Tactical, Not Core": [
+                    "wait for bottoming and signal confirmation rather than assuming crypto beta should lead",
+                    "capital preservation matters more than forcing digital-asset risk into a deflationary slowdown",
+                ],
+            },
         },
         "losers": {
             "Worst Asset Classes": {
@@ -432,6 +526,18 @@ PHASE_GUIDE = {
                 "Avoid / Weak": [
                     "commodity FX and high-beta growth FX",
                     "broad EM FX beta when global growth is decelerating",
+                ],
+            },
+            "Emerging Markets Lens": {
+                "Avoid / Weak": [
+                    "broad EM beta, especially cyclical importers and countries needing soft global growth conditions",
+                    "generic EM risk when dollar liquidity is tightening or global demand is weakening",
+                ],
+            },
+            "Crypto / Digital Assets Lens": {
+                "Avoid / Weak": [
+                    "BTC and especially alts when deflationary slowdown pressure is still dominating",
+                    "miners and levered crypto-equity beta before the macro and risk backdrop actually bottoms",
                 ],
             },
         },
@@ -488,12 +594,695 @@ PATH_META = {
     },
 }
 
+OFFICIAL_WINNER_BUCKETS = [
+    "Best Asset Classes",
+    "Best Equity Sectors",
+    "Best Equity Style Factors",
+    "Best Fixed Income Sectors",
+]
+
+OFFICIAL_LOSER_BUCKETS = [
+    "Worst Asset Classes",
+    "Worst Equity Sectors",
+    "Worst Equity Style Factors",
+    "Worst Fixed Income Sectors",
+]
+
+OVERLAY_BUCKETS = [
+    "FX Lens",
+    "Emerging Markets Lens",
+    "Crypto / Digital Assets Lens",
+]
+
 CURRENT_PHASE_TEXT = {
     "Q1": "Growth is holding up while inflation cools. Focus on whether inflation re-heats or growth loses momentum first.",
     "Q2": "Nominal growth is strong. Focus on whether inflation cools first or growth rolls first.",
     "Q3": "Growth is weak while inflation stays firm. Focus on whether inflation finally breaks or growth bottoms first.",
     "Q4": "Growth and inflation are both cooling. Focus on whether growth bottoms into recovery or inflation re-heats into stagflation.",
 }
+
+EM_IHSG_MATRIX = {
+    "Q1": {
+        "Tier 1 — strongest direct sensitivity": [
+            "IHSG large banks / domestic liquidity leaders: BBCA, BBRI, BMRI, BBNI",
+            "quality domestic-demand / retail proxies: AMRT, ACES, MAPI",
+            "high-quality Indonesia beta once USD stress is easing: EIDO / broad liquid IHSG",
+        ],
+        "Tier 2 — strong but needs confirmation": [
+            "property beta after rates stop backing up: PWON, SMRA, CTRA",
+            "industrials / cyclicals with clean balance sheets: ASII, UNTR, AKRA",
+        ],
+        "Tier 3 — spillover / tactical only": [
+            "select reform / exporter EM beta only after dollar and credit improve together",
+            "second-line domestic beta once banks and liquid leaders already confirm",
+        ],
+        "Weak / avoid": [
+            "fragile broad EM beta if USD refuses to soften",
+            "pure defensives as primary longs if growth breadth is broadening",
+        ],
+    },
+    "Q2": {
+        "Tier 1 — strongest direct sensitivity": [
+            "commodity / energy / materials proxies: ADRO, ITMG, PGAS, ANTM, MDKA",
+            "nominal-growth beneficiaries and reflation cyclicals: AKRA, ASII, UNTR",
+            "selected broad EM / exporter beta if USD is not the dominant tightening force",
+        ],
+        "Tier 2 — strong but secondary": [
+            "banks that monetize stronger nominal growth: BBRI, BMRI, BBCA, BBNI",
+            "shipping / logistics / capex spillover once the core commodity tape is already working",
+        ],
+        "Tier 3 — spillover / tactical only": [
+            "property beta only after rates stop bear-steepening too hard: PWON, SMRA, CTRA",
+            "broad IHSG beta after energy / materials / banks already lead",
+        ],
+        "Weak / avoid": [
+            "pure defensives and bond proxies as primary longs",
+            "fragile EM importers during an oil-up, inflation-sensitive reflation move",
+        ],
+    },
+    "Q3": {
+        "Tier 1 — strongest direct sensitivity": [
+            "Indonesia exporter / hard-asset / energy complex: ADRO, ITMG, PGAS, ANTM, MDKA",
+            "broadest direct macro expressions are USD strength and broad-EM weakness, not generic EM beta",
+            "inside IHSG, commodity cash-flow names usually feel the regime first and most directly",
+        ],
+        "Tier 2 — strong but more defensive": [
+            "defensive cash-flow / domestic defense: TLKM, ICBP, INDF, KLBF",
+            "selected idiosyncratic exporter / reform stories only after the core USD / commodity story is already in place",
+        ],
+        "Tier 3 — spillover / tactical only": [
+            "selective tactical bounces in broad EM or IHSG beta only when short-term risk appetite improves",
+            "country-specific exceptions, not generic EEM-style broad exposure",
+        ],
+        "Weak / avoid": [
+            "broad EM beta and vulnerable EM importers",
+            "IHSG domestic-beta cyclicals and rates-sensitive property: BBRI, BMRI, BBNI, PWON, SMRA, CTRA",
+        ],
+    },
+    "Q4": {
+        "Tier 1 — strongest direct sensitivity": [
+            "IHSG defensives / cash-flow resilience: TLKM, ICBP, INDF, KLBF",
+            "quality balance sheets and lower-beta large caps before the next recovery is confirmed",
+            "USD defense over broad EM beta",
+        ],
+        "Tier 2 — strong but selective": [
+            "selected gold / defensive commodity exposures only if duration is helping the tape: ANTM, MDKA",
+            "cash-generative franchises that can hold margins in a slowdown",
+        ],
+        "Tier 3 — spillover / watchlist only": [
+            "banks and domestic cyclicals as early-recovery watchlist, not core longs yet",
+            "broad EM only after a real bottoming process begins",
+        ],
+        "Weak / avoid": [
+            "commodity beta that still needs hot nominal growth",
+            "property, lower-quality cyclicals, and fragile EM balance-sheet exposure",
+        ],
+    },
+}
+
+CRYPTO_MATRIX = {
+    "Q1": {
+        "Tier 1 — strongest / highest-quality": [
+            "BTC first",
+            "ETH as secondary quality beta once breadth and liquidity confirm",
+        ],
+        "Tier 2 — strong but needs confirmation": [
+            "SOL and liquid large-cap beta only after BTC / ETH leadership is already broadening",
+            "blockchain / exchange infrastructure as cleaner equity expressions than low-quality alts",
+        ],
+        "Tier 3 — spillover / tactical only": [
+            "select liquid alts only after the major-beta complex is already working",
+        ],
+        "Weak / avoid": [
+            "illiquid alts, memecoins, and levered miner beta if breadth is still narrow",
+        ],
+    },
+    "Q2": {
+        "Tier 1 — strongest direct sensitivity": [
+            "BTC, ETH, and SOL / liquid large-cap beta",
+            "the cleanest crypto backdrop for broad beta only if liquidity and breadth actually confirm",
+        ],
+        "Tier 2 — strong but secondary": [
+            "blockchain / exchange / miner beta as higher-volatility expressions",
+            "selected liquid L1 / L2 / infra names after BTC leadership is already healthy",
+        ],
+        "Tier 3 — spillover / tactical only": [
+            "broader alt beta after majors, liquidity, and funding all confirm",
+        ],
+        "Weak / avoid": [
+            "low-quality illiquid alt beta treated as if it were the same as BTC quality",
+        ],
+    },
+    "Q3": {
+        "Tier 1 — strongest relative quality": [
+            "cash / stables first, then BTC as the only cleaner tactical bounce candidate",
+            "if risk appetite improves briefly, BTC is still cleaner than alt beta",
+        ],
+        "Tier 2 — tactical only": [
+            "ETH / SOL only after BTC and broader risk appetite both improve",
+            "blockchain / miner beta only for tactical trades, not core regime-led exposure",
+        ],
+        "Tier 3 — spillover / fragile": [
+            "selected liquid alts for quick tactical rebounds only",
+        ],
+        "Weak / avoid": [
+            "broad alt beta, memecoins, miners, and levered crypto-equity exposure as core holdings",
+        ],
+    },
+    "Q4": {
+        "Tier 1 — strongest relative quality": [
+            "cash / stables first, then BTC watchlist logic only after bottoming evidence appears",
+        ],
+        "Tier 2 — tactical only": [
+            "ETH and liquid majors only after the macro and liquidity backdrop truly turns",
+        ],
+        "Tier 3 — spillover / watchlist only": [
+            "miners, exchanges, and alt beta as later-cycle recovery expressions rather than first longs",
+        ],
+        "Weak / avoid": [
+            "broad alt beta and low-quality speculative crypto risk during an ongoing deflationary slowdown",
+        ],
+    },
+}
+
+PROXY_IMPACT_MATRIX = {
+    "Q1": {
+        "Strongest direct proxies": [
+            "growth RoC up, inflation RoC down",
+            "banks / cyclicals / high beta / momentum leadership",
+            "soft-to-stable 2Y / 5Y and calmer USD",
+        ],
+        "Second-order confirmations": [
+            "better breadth, cleaner credit, selective EM / IHSG beta participation",
+            "BTC first, then broader crypto only if breadth confirms",
+        ],
+        "Spillover / weaker confirmations": [
+            "property and lower-liquidity beta after the liquid leaders already confirm",
+        ],
+    },
+    "Q2": {
+        "Strongest direct proxies": [
+            "commodities and nominal-growth cyclicals",
+            "firm 2Y / 5Y / 10Y, still-orderly credit, high-beta leadership",
+            "energy / materials / reflation equity leadership",
+        ],
+        "Second-order confirmations": [
+            "banks, small caps, exporter EM / IHSG beta, liquid alt beta",
+        ],
+        "Spillover / weaker confirmations": [
+            "property / late-cycle domestic beta after the core reflation tape is already working",
+        ],
+    },
+    "Q3": {
+        "Strongest direct proxies": [
+            "oil / hard-asset impulse",
+            "USD strength and front-end / belly repricing via 2Y and 5Y",
+            "broad EM weakness rather than broad EM strength",
+        ],
+        "Second-order confirmations": [
+            "defensive cash-flow equities, selected energy / gold / exporter names, mixed 10Y / 30Y behavior",
+            "BTC tactical only after risk appetite improves; alt beta lags",
+        ],
+        "Spillover / weaker confirmations": [
+            "short-lived tactical bounces in broad beta or alts that do not change the underlying regime",
+        ],
+    },
+    "Q4": {
+        "Strongest direct proxies": [
+            "falling 2Y / 5Y / 10Y / 30Y and duration leadership",
+            "defensives, USD, and slowdown winners",
+        ],
+        "Second-order confirmations": [
+            "quality large caps, selected defensive EM / IHSG cash-flow names",
+        ],
+        "Spillover / weaker confirmations": [
+            "early-recovery bounces in banks / crypto / cyclicals that need far more confirmation",
+        ],
+    },
+}
+
+QUAD_LONG_SHORT_LADDER = {
+    "Q1": {
+        "Winner Ladder (most direct → spillover)": [
+            "Tier 1 — direct regime winners: tech, consumer discretionary, communication services, industrials, materials, REITs",
+            "Tier 2 — strong secondary: high beta, momentum, leverage, secular growth, mid caps, credit beta",
+            "Tier 3 — spillover / tactical: selected EM / IHSG banks, exporters, and then liquid crypto quality after breadth confirms",
+        ],
+        "Loser Ladder (best shorts / weakest first)": [
+            "Tier 1 — most direct laggards: utilities, staples, health care, pure duration, USD defense",
+            "Tier 2 — secondary laggards: low beta, deep defensives, dividend yield, bond proxies",
+            "Tier 3 — weaker spillover shorts: fragile EM or illiquid alt beta only if the rally stays narrow and selective",
+        ],
+    },
+    "Q2": {
+        "Winner Ladder (most direct → spillover)": [
+            "Tier 1 — direct regime winners: commodities, energy, materials, industrials, financials, high-beta cyclicals",
+            "Tier 2 — strong secondary: banks, small caps, exporter EM / IHSG beta, leveraged credit, liquid crypto beta",
+            "Tier 3 — spillover / tactical: property, logistics, and broader domestic cyclicals after the core reflation tape already leads",
+        ],
+        "Loser Ladder (best shorts / weakest first)": [
+            "Tier 1 — most direct laggards: long duration, utilities, staples, health care, pure USD defense",
+            "Tier 2 — secondary laggards: bond proxies, low beta, deep defensives, quality if rates back up too hard",
+            "Tier 3 — weaker spillover shorts: fragile importers and lower-quality growth if inflation pressure keeps broadening",
+        ],
+    },
+    "Q3": {
+        "Winner Ladder (most direct → spillover)": [
+            "Tier 1 — direct regime winners: oil / hard assets, USD strength, selected energy exporters, utilities / staples / health care cash-flow defense",
+            "Tier 2 — strong secondary: gold if inflation-hedge demand catches up, REITs / duration only when long-end growth fear is helping, selected exporter IHSG names",
+            "Tier 3 — spillover / tactical: BTC tactical only after risk appetite improves; selective country-specific EM exceptions, not broad EM beta",
+        ],
+        "Loser Ladder (best shorts / weakest first)": [
+            "Tier 1 — most direct laggards: broad EM, EM FX, domestic-beta cyclicals, financials, consumer discretionary, industrials, materials",
+            "Tier 2 — secondary laggards: IHSG banks / property / lower-quality cyclicals, broad alt beta, miners, small-cap beta",
+            "Tier 3 — weaker spillover shorts: lower-quality semis / tech beta only when yields and the dollar keep tightening the tape",
+        ],
+    },
+    "Q4": {
+        "Winner Ladder (most direct → spillover)": [
+            "Tier 1 — direct regime winners: duration, Treasuries, USD, gold, staples, health care, utilities",
+            "Tier 2 — strong secondary: high quality cash-flow large caps, selected defensive IHSG names, quality growth if yields keep falling",
+            "Tier 3 — spillover / watchlist only: BTC first, then banks / cyclicals only after a real bottoming process begins",
+        ],
+        "Loser Ladder (best shorts / weakest first)": [
+            "Tier 1 — most direct laggards: commodities that need hot nominal growth, lower-quality cyclicals, property, broad EM beta, alt beta",
+            "Tier 2 — secondary laggards: financials, industrials, materials, consumer discretionary, lower-quality credit",
+            "Tier 3 — weaker spillover shorts: exporter beta if duration is falling because global demand is rolling over, not because inflation is reaccelerating",
+        ],
+    },
+}
+
+STAGE_ROTATION_GUIDE = {
+    "Q1": {
+        "Early": {
+            "Winner Ladder": [
+                "Direct longs: tech, discretionary, communication services, industrials",
+                "Secondary: high beta, momentum, credit beta, selective EM / IHSG banks",
+                "Spillover: BTC first, then broader liquid crypto only if breadth is widening",
+            ],
+            "Loser Ladder": [
+                "Best shorts: utilities, staples, health care, long-duration defensives",
+                "Secondary shorts: USD defense and low-beta bond proxies",
+            ],
+            "If the phase weakens, rotate toward": [
+                "Q2 if inflation re-accelerates → add energy, materials, financials, commodity beta",
+                "Q4 if growth rolls first → add duration, defensives, USD, quality",
+            ],
+        },
+        "Mid": {
+            "Winner Ladder": [
+                "Keep core longs in tech / cyclicals but reduce weakest beta",
+                "Prefer quality growth over lower-quality speculative beta",
+                "EM / crypto only if breadth and credit still confirm",
+            ],
+            "Loser Ladder": [
+                "Utilities / staples still lag, but the cleaner shorts shift toward late movers and over-owned beta",
+                "Watch for rate-sensitive losers if yields start backing up",
+            ],
+            "If the phase weakens, rotate toward": [
+                "Toward Q2 if oil / breakevens / 2Y / 5Y all firm together",
+                "Toward Q4 if breadth narrows and duration starts to outperform",
+            ],
+        },
+        "Late": {
+            "Winner Ladder": [
+                "Take profits in crowded high-beta winners and keep only liquid leadership",
+                "Shrink lower-quality EM / crypto spillover first",
+            ],
+            "Loser Ladder": [
+                "Best new shorts become lower-quality cyclicals if breadth is cracking",
+                "Defensives stop being clean shorts once rotation begins",
+            ],
+            "If the phase weakens, rotate toward": [
+                "Toward Q2 when inflation-led reflation takes over",
+                "Toward Q4 when growth cracks and duration / defense take leadership",
+            ],
+        },
+    },
+    "Q2": {
+        "Early": {
+            "Winner Ladder": [
+                "Direct longs: energy, materials, industrials, financials, commodity beta",
+                "Secondary: banks, small caps, exporter EM / IHSG beta, liquid crypto beta",
+                "Spillover: property / domestic cyclicals after the reflation tape is clearly leading",
+            ],
+            "Loser Ladder": [
+                "Best shorts: duration, utilities, staples, health care, bond proxies",
+                "Secondary shorts: low beta / quality if rates keep backing up",
+            ],
+            "If the phase weakens, rotate toward": [
+                "Toward Q1 if inflation cools while growth stays okay → back to tech / growth / discretionary",
+                "Toward Q3 if growth cracks while inflation stays hot → add USD, hard assets, defensives",
+            ],
+        },
+        "Mid": {
+            "Winner Ladder": [
+                "Keep commodity / financial leadership but be stricter on balance-sheet quality",
+                "Reduce lower-quality beta if credit or USD stress starts to rise",
+            ],
+            "Loser Ladder": [
+                "Duration and defensives can still lag, but crowded cyclicals become two-way risk",
+                "Fragile importers become cleaner shorts than broad defensives if oil stays hot",
+            ],
+            "If the phase weakens, rotate toward": [
+                "Toward Q1 if rates calm and growth stays resilient",
+                "Toward Q3 if USD / oil / front-end yields start doing the heavy lifting",
+            ],
+        },
+        "Late": {
+            "Winner Ladder": [
+                "Take profits in crowded commodity / small-cap / crypto beta",
+                "Keep only the strongest cash-flow reflation winners",
+            ],
+            "Loser Ladder": [
+                "Best new shorts become lower-quality cyclicals, fragile EM, and over-owned small caps",
+                "Defensives stop being clean shorts if slowdown risk rises",
+            ],
+            "If the phase weakens, rotate toward": [
+                "Toward Q1 if inflation cools fast",
+                "Toward Q3 if growth fades but inflation / oil stay sticky",
+            ],
+        },
+    },
+    "Q3": {
+        "Early": {
+            "Winner Ladder": [
+                "Direct longs: USD, oil / hard assets, energy exporters, utilities / staples / health care",
+                "Secondary: selected gold, selected exporter IHSG names, defensive cash-flow EM exceptions",
+                "Spillover: BTC tactical only, not broad alt beta",
+            ],
+            "Loser Ladder": [
+                "Best shorts: broad EM, EM FX, domestic-beta cyclicals, financials, discretionary, industrials, materials",
+                "Secondary shorts: IHSG banks / property / lower-quality cyclicals, miners, alt beta",
+            ],
+            "If the phase weakens, rotate toward": [
+                "Toward Q4 if 2Y / 5Y / 10Y / 30Y all start falling and duration takes leadership",
+                "Toward Q2 only if growth stabilizes and inflation stays hot enough to reflate cyclicals",
+            ],
+        },
+        "Mid": {
+            "Winner Ladder": [
+                "Keep hard-asset / USD / defensive cash-flow winners, but size down anything that relied on a one-off oil squeeze",
+                "Gold improves if inflation-hedge demand catches up and the long end stops backing up",
+            ],
+            "Loser Ladder": [
+                "Broad EM and domestic cyclicals remain the cleaner shorts than pure defensives",
+                "Alt beta stays weaker than BTC even during tactical bounces",
+            ],
+            "If the phase weakens, rotate toward": [
+                "Toward Q4 if growth fear starts dominating inflation fear",
+                "Toward Q2 only if breadth, credit, and nominal growth all re-accelerate together",
+            ],
+        },
+        "Late": {
+            "Winner Ladder": [
+                "Harvest hard-asset winners as duration / defensives begin taking over",
+                "Keep only the strongest exporter / cash-flow names and shrink tactical crypto",
+            ],
+            "Loser Ladder": [
+                "Best shorts start migrating from broad EM / cyclicals toward the weakest residual commodity and alt-beta names",
+                "Do not overstay shorts in already-broken beta if yields are now falling fast",
+            ],
+            "If the phase weakens, rotate toward": [
+                "Toward Q4 first in most classic late-Q3 transitions",
+                "Toward Q2 only if the slowdown aborts and growth breadth re-accelerates",
+            ],
+        },
+    },
+    "Q4": {
+        "Early": {
+            "Winner Ladder": [
+                "Direct longs: duration, Treasuries, USD, staples, health care, utilities",
+                "Secondary: quality growth and selected defensive IHSG names",
+                "Spillover: BTC watchlist only, not broad crypto beta",
+            ],
+            "Loser Ladder": [
+                "Best shorts: commodities needing hot nominal growth, lower-quality cyclicals, property, broad EM, alt beta",
+                "Secondary shorts: financials, industrials, materials, lower-quality credit",
+            ],
+            "If the phase weakens, rotate toward": [
+                "Toward Q1 if growth stabilizes while inflation keeps cooling → quality growth / cyclicals improve",
+                "Toward Q3 if inflation re-heats before growth recovers → hard assets / USD re-take leadership",
+            ],
+        },
+        "Mid": {
+            "Winner Ladder": [
+                "Keep duration / defensives / quality, but start ranking recovery candidates",
+                "BTC can move from watchlist to tactical only after liquidity and breadth stabilize",
+            ],
+            "Loser Ladder": [
+                "Lower-quality cyclicals and alt beta stay cleaner shorts than already-defensive winners",
+                "Broad EM remains weak until USD and rates stop pressing it",
+            ],
+            "If the phase weakens, rotate toward": [
+                "Toward Q1 on cleaner disinflationary recovery",
+                "Toward Q3 if the slowdown gets replaced by another inflation shock",
+            ],
+        },
+        "Late": {
+            "Winner Ladder": [
+                "Take profits in pure duration and defensives as early recovery leaders begin to emerge",
+                "Upgrade watchlist names in banks, cyclicals, EM, and BTC only when the bottoming evidence is real",
+            ],
+            "Loser Ladder": [
+                "Best shorts shift away from the already-broken areas and toward residual late-defensive crowding if rates reverse higher",
+                "Do not press commodity / cyclicals shorts if the recovery handoff is becoming obvious",
+            ],
+            "If the phase weakens, rotate toward": [
+                "Toward Q1 in the cleaner recovery path",
+                "Toward Q3 if inflation re-accelerates before the recovery is secure",
+            ],
+        },
+    },
+}
+
+LEADERSHIP_ROTATION_MAP = {
+    "Q1": {
+        "Early": {
+            "Who usually moves first": [
+                "quality growth leadership first: tech, communication services, consumer discretionary, liquid cyclicals",
+                "banks / broad cyclicals join only after breadth and credit confirm the initial move",
+            ],
+            "If leaders cool, handoff usually goes to": [
+                "high beta, momentum, credit beta, then selected EM / IHSG banks",
+                "BTC first before broader liquid crypto if breadth keeps widening",
+            ],
+            "Who usually moves last / spillover": [
+                "property, lower-liquidity domestic beta, and weaker crypto beta",
+            ],
+            "Exhaustion / invalidation signs": [
+                "low-quality beta or illiquid spillover starts outperforming the original liquid leaders",
+                "defensives stop lagging and breadth narrows while the original leaders lose relative strength",
+            ],
+        },
+        "Mid": {
+            "Who usually moves first": [
+                "the original liquid quality-growth leaders should still hold relative strength",
+            ],
+            "If leaders cool, handoff usually goes to": [
+                "banks, industrials, selective EM / IHSG domestic beta, and then cleaner crypto quality",
+            ],
+            "Who usually moves last / spillover": [
+                "property and lower-liquidity beta after the larger liquid buckets already worked",
+            ],
+            "Exhaustion / invalidation signs": [
+                "handoff fails and only the weakest beta keeps running",
+                "2Y / 5Y back up, oil / breakevens reheat, and the tape starts looking more like Q2 than Q1",
+            ],
+        },
+        "Late": {
+            "Who usually moves first": [
+                "remaining liquid quality leaders and a narrower set of cyclicals",
+            ],
+            "If leaders cool, handoff usually goes to": [
+                "there should be less handoff and more profit-taking unless a true Q2 or Q4 transition is forming",
+            ],
+            "Who usually moves last / spillover": [
+                "lower-quality EM / crypto / domestic-beta names",
+            ],
+            "Exhaustion / invalidation signs": [
+                "late junky spillover outperforms while original leaders stall",
+                "duration / defensives begin taking leadership, pointing toward Q4, or energy / materials take over, pointing toward Q2",
+            ],
+        },
+    },
+    "Q2": {
+        "Early": {
+            "Who usually moves first": [
+                "energy, materials, industrials, financials, commodity-linked cyclicals",
+                "rates and nominal-growth proxies usually confirm early through firm 2Y / 5Y / 10Y",
+            ],
+            "If leaders cool, handoff usually goes to": [
+                "banks, small caps, exporter EM / IHSG beta, then liquid crypto beta",
+            ],
+            "Who usually moves last / spillover": [
+                "property, logistics, and broader domestic cyclicals after reflation leadership is already proven",
+            ],
+            "Exhaustion / invalidation signs": [
+                "small caps / alt beta start going vertical while the original reflation leaders stall",
+                "commodities stop confirming but lower-quality beta keeps squeezing",
+            ],
+        },
+        "Mid": {
+            "Who usually moves first": [
+                "core reflation leaders should still be energy / materials / industrials / financials",
+            ],
+            "If leaders cool, handoff usually goes to": [
+                "banks, exporter EM, selected IHSG cyclicals, and then liquid crypto beta if liquidity remains friendly",
+            ],
+            "Who usually moves last / spillover": [
+                "property and lower-quality domestic beta",
+            ],
+            "Exhaustion / invalidation signs": [
+                "the handoff shifts too quickly into junkier beta while core commodities and financials stop leading",
+                "USD / oil / front-end yields become the only leaders, which can foreshadow a Q3 handoff",
+            ],
+        },
+        "Late": {
+            "Who usually moves first": [
+                "only the strongest cash-flow reflation names should still be leading",
+            ],
+            "If leaders cool, handoff usually goes to": [
+                "there is usually less healthy handoff and more rotation into weaker beta or into next-regime winners",
+            ],
+            "Who usually moves last / spillover": [
+                "small caps, fragile EM, lower-quality cyclicals, alt beta",
+            ],
+            "Exhaustion / invalidation signs": [
+                "late spillover is strongest while commodities / financials lose leadership",
+                "defensives and USD stop lagging, or duration begins outperforming",
+            ],
+        },
+    },
+    "Q3": {
+        "Early": {
+            "Who usually moves first": [
+                "USD strength, oil / hard assets, energy exporters, and defensive cash-flow equities",
+                "front-end and belly repricing through 2Y / 5Y often confirm before every asset proxy aligns",
+            ],
+            "If leaders cool, handoff usually goes to": [
+                "selected gold and exporter names if inflation-hedge demand broadens",
+                "REITs / duration only if the long end begins to fall on growth fear",
+            ],
+            "Who usually moves last / spillover": [
+                "BTC tactical only, then very selective country-specific exceptions; broad EM and broad alts usually do not deserve the handoff",
+            ],
+            "Exhaustion / invalidation signs": [
+                "broad EM, domestic cyclicals, or alt beta start ripping while USD / oil / defensive leaders fade",
+                "2Y / 5Y stop backing up and duration begins taking over decisively, pointing toward Q4",
+            ],
+        },
+        "Mid": {
+            "Who usually moves first": [
+                "hard-asset / USD / defensive leaders should still dominate the tape",
+            ],
+            "If leaders cool, handoff usually goes to": [
+                "gold and selected exporter / cash-flow names if the move broadens in a cleaner way",
+                "duration only on clear growth-fear confirmation rather than on blind hope",
+            ],
+            "Who usually moves last / spillover": [
+                "tactical BTC only; broad alt beta remains a poor-quality spillover",
+            ],
+            "Exhaustion / invalidation signs": [
+                "only low-quality residual commodity or alt-beta names are still moving",
+                "broad EM and cyclicals stop underperforming, which weakens the clean Q3 map",
+            ],
+        },
+        "Late": {
+            "Who usually moves first": [
+                "the remaining winners are usually the strongest exporter / cash-flow / defensive names",
+            ],
+            "If leaders cool, handoff usually goes to": [
+                "duration and deeper defensives first in the classic Q3→Q4 path",
+                "only in the less-common abort path does the handoff go back toward Q2 cyclicals",
+            ],
+            "Who usually moves last / spillover": [
+                "residual commodity beta and low-quality hard-asset chasers",
+            ],
+            "Exhaustion / invalidation signs": [
+                "the only things still working are lower-quality residual winners while duration takes over",
+                "already-broken shorts stop making new downside progress because the market is handing off into Q4",
+            ],
+        },
+    },
+    "Q4": {
+        "Early": {
+            "Who usually moves first": [
+                "duration, Treasuries, USD, staples, health care, utilities",
+                "falling 2Y / 5Y usually confirm before high-beta recovery trades deserve attention",
+            ],
+            "If leaders cool, handoff usually goes to": [
+                "quality growth and selected defensive cash-flow names",
+                "BTC only moves from watchlist to tactical if liquidity and breadth genuinely stabilize",
+            ],
+            "Who usually moves last / spillover": [
+                "banks, cyclicals, broad EM, and alt beta only after a true bottoming process starts",
+            ],
+            "Exhaustion / invalidation signs": [
+                "recovery beta starts outperforming while duration and defensives lose leadership",
+                "oil / breakevens and front-end yields reheat, creating a Q3 risk rather than a clean Q1 recovery",
+            ],
+        },
+        "Mid": {
+            "Who usually moves first": [
+                "duration / defensives / quality should still dominate",
+            ],
+            "If leaders cool, handoff usually goes to": [
+                "quality growth first, then selected banks / BTC only after bottoming evidence strengthens",
+            ],
+            "Who usually moves last / spillover": [
+                "broad EM, commodity beta, and broad alt beta",
+            ],
+            "Exhaustion / invalidation signs": [
+                "broad recovery beta starts improving before the old defensive winners can extend",
+                "yields stop falling and curve dynamics shift away from the clean deflationary setup",
+            ],
+        },
+        "Late": {
+            "Who usually moves first": [
+                "pure duration and defensives usually stop being the only game in town",
+            ],
+            "If leaders cool, handoff usually goes to": [
+                "quality growth, then banks / cyclicals / BTC on a cleaner Q1 handoff",
+                "or back to hard assets / USD if inflation shock risk revives Q3 instead",
+            ],
+            "Who usually moves last / spillover": [
+                "lower-quality cyclicals, broad EM, and alt beta only after the recovery handoff is already real",
+            ],
+            "Exhaustion / invalidation signs": [
+                "late defensives remain crowded while recovery leaders keep broadening",
+                "or, alternatively, oil and yields re-accelerate before recovery is secure, which breaks the clean Q4→Q1 path",
+            ],
+        },
+    },
+}
+
+
+RATES_POLICY_GUIDE = {
+    "Q1": [
+        "2Y and 5Y usually soften or at least stop backing up aggressively as inflation cools and policy pressure eases.",
+        "10Y and 30Y do not need to collapse, but a major bear-steepening backup is usually not a clean Goldilocks confirmation.",
+        "Best read: front-end calm to easier, belly controlled, long-end not disorderly, while growth remains resilient.",
+    ],
+    "Q2": [
+        "2Y, 5Y, and 10Y often stay firm because nominal growth and inflation are both strong.",
+        "30Y can also rise, especially in a bear-steepening reflation move that hurts pure duration trades.",
+        "Best read: front-end firm, belly firm, long-end firm but orderly, credit calm, and cyclicals leading.",
+    ],
+    "Q3": [
+        "2Y and 5Y matter a lot here: if the front-end and belly back up, the market is repricing sticky inflation / fewer cuts, which is compatible with a stagflationary read.",
+        "10Y is the broad nominal-conditions lens; 30Y is the duration / growth-fear / term-premium lens. The long end can rise in an oil / term-premium shock or fall if growth fear dominates.",
+        "That is why Oil Up + USD Up + Gold down for a few sessions does not invalidate Q3 by itself; it can simply mean front-end policy repricing is leading the tape.",
+    ],
+    "Q4": [
+        "2Y and 5Y usually fall as the market prices easing / disinflation / growth stress.",
+        "10Y and 30Y often fall too, which is why long duration tends to be a core winner in deflationary slowdowns.",
+        "Best read: front-end, belly, and long-end yields all easing while defensives and duration outperform.",
+    ],
+}
+
+for _q, _items in RATES_POLICY_GUIDE.items():
+    PHASE_GUIDE[_q]["meaning"]["Rates / Policy Lens"] = _items
 
 STATUS_MAP = {
     "confirmed": ("✅", "Confirmed", 1.0),
@@ -917,16 +1706,19 @@ def _quad_scores_from_probs(g_up: float, i_up: float) -> Dict[str, float]:
 
 def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[str, float]:
     """
-    Clean architecture:
-    1) Macro Quad Engine (macro only): growth RoC + inflation RoC
-       - monthly overlay
-       - quarterly / slower anchor
-    2) Macro Transition Engine (macro only)
-    3) Market / Risk Engines (IWM, VIX, HY, Fear & Greed)
+    Internal architecture (visual intentionally unchanged):
+    1) GDP nowcast engine (macro only)
+    2) CPI nowcast engine (macro + inflation impulse only)
+    3) Policy / rates engine (2Y, 5Y, 10Y, 30Y)
+    4) Signal / risk engines (IWM, VIX, HY, Fear & Greed)
     """
     wei = bundle["WEI"]
     icsa = bundle["ICSA"]
     t10y2y = bundle["T10Y2Y"]
+    dgs2 = bundle["DGS2"]
+    dgs5 = bundle["DGS5"]
+    dgs10 = bundle["DGS10"]
+    dgs30 = bundle["DGS30"]
     cpi = bundle["CPI"]
     core_cpi = bundle["CORE_CPI"]
     breakeven = bundle["BREAKEVEN_5Y"]
@@ -948,6 +1740,24 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
     sahm13 = sahm.diff(13)
     recpro13 = recpro.diff(13)
 
+    dgs2_20 = dgs2.diff(20)
+    dgs2_63 = dgs2.diff(63)
+    dgs5_20 = dgs5.diff(20)
+    dgs5_63 = dgs5.diff(63)
+    dgs10_20 = dgs10.diff(20)
+    dgs10_63 = dgs10.diff(63)
+    dgs30_20 = dgs30.diff(20)
+    dgs30_63 = dgs30.diff(63)
+
+    curve5s2s = dgs5 - dgs2
+    curve10s5s = dgs10 - dgs5
+    curve30s10s = dgs30 - dgs10
+    curve30s2s = dgs30 - dgs2
+    curve5s2s_20 = curve5s2s.diff(20)
+    curve10s5s_20 = curve10s5s.diff(20)
+    curve30s10s_20 = curve30s10s.diff(20)
+    curve30s2s_20 = curve30s2s.diff(20)
+
     cpi3 = ann_roc(cpi, 3)
     cpi6 = ann_roc(cpi, 6)
     core3 = ann_roc(core_cpi, 3)
@@ -965,19 +1775,40 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
     breakeven63 = breakeven.diff(63)
 
     signals: Dict[str, float] = {
-        # Growth raw features
+        # Real-economy / GDP nowcast features
         "wei_level_z": rolling_z_last(wei, 156),
         "wei_4w_z": rolling_z_last(wei4, 156),
         "wei_13w_z": rolling_z_last(wei13, 156),
         "claims_yoy_z": rolling_z_last(claims_yoy, 156),
         "claims_13w_z": rolling_z_last(claims_13w, 156),
         "claims_26w_z": rolling_z_last(claims_26w, 156),
-        "curve_z": rolling_z_last(t10y2y, 252),
         "sahm_z": rolling_z_last(sahm, 60),
         "sahm_13w_z": rolling_z_last(sahm13, 60),
         "recpro_z": rolling_z_last(recpro, 60),
         "recpro_13w_z": rolling_z_last(recpro13, 60),
-        # Inflation raw features
+        # Policy / rates features
+        "curve_z": rolling_z_last(t10y2y, 252),
+        "dgs2_z": rolling_z_last(dgs2, 252),
+        "dgs5_z": rolling_z_last(dgs5, 252),
+        "dgs10_z": rolling_z_last(dgs10, 252),
+        "dgs30_z": rolling_z_last(dgs30, 252),
+        "dgs2_20_z": rolling_z_last(dgs2_20, 252),
+        "dgs2_63_z": rolling_z_last(dgs2_63, 252),
+        "dgs5_20_z": rolling_z_last(dgs5_20, 252),
+        "dgs5_63_z": rolling_z_last(dgs5_63, 252),
+        "dgs10_20_z": rolling_z_last(dgs10_20, 252),
+        "dgs10_63_z": rolling_z_last(dgs10_63, 252),
+        "dgs30_20_z": rolling_z_last(dgs30_20, 252),
+        "dgs30_63_z": rolling_z_last(dgs30_63, 252),
+        "curve5s2s_z": rolling_z_last(curve5s2s, 252),
+        "curve10s5s_z": rolling_z_last(curve10s5s, 252),
+        "curve30s10s_z": rolling_z_last(curve30s10s, 252),
+        "curve30s2s_z": rolling_z_last(curve30s2s, 252),
+        "curve5s2s_20_z": rolling_z_last(curve5s2s_20, 252),
+        "curve10s5s_20_z": rolling_z_last(curve10s5s_20, 252),
+        "curve30s10s_20_z": rolling_z_last(curve30s10s_20, 252),
+        "curve30s2s_20_z": rolling_z_last(curve30s2s_20, 252),
+        # Inflation / CPI nowcast features
         "cpi3_z": rolling_z_last(cpi3, 60),
         "cpi6_z": rolling_z_last(cpi6, 60),
         "core3_z": rolling_z_last(core3, 60),
@@ -1002,6 +1833,14 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
         "cpi3_last": safe_last(cpi3),
         "core3_last": safe_last(core3),
         "curve_last": safe_last(t10y2y),
+        "dgs2_last": safe_last(dgs2),
+        "dgs5_last": safe_last(dgs5),
+        "dgs10_last": safe_last(dgs10),
+        "dgs30_last": safe_last(dgs30),
+        "curve5s2s_last": safe_last(curve5s2s),
+        "curve10s5s_last": safe_last(curve10s5s),
+        "curve30s10s_last": safe_last(curve30s10s),
+        "curve30s2s_last": safe_last(curve30s2s),
         "wei_last": safe_last(wei),
         "claims_last": safe_last(claims4),
         "breakeven_last": safe_last(breakeven),
@@ -1009,6 +1848,10 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
         "last_WEI": last_date(wei),
         "last_ICSA": last_date(icsa),
         "last_T10Y2Y": last_date(t10y2y),
+        "last_DGS2": last_date(dgs2),
+        "last_DGS5": last_date(dgs5),
+        "last_DGS10": last_date(dgs10),
+        "last_DGS30": last_date(dgs30),
         "last_CPI": last_date(cpi),
         "last_CORE_CPI": last_date(core_cpi),
         "last_OIL": last_date(oil),
@@ -1017,7 +1860,7 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
     }
 
     # Market overlays - separate from macro quad engine.
-    yf_close = load_yf_close(("IWM", "SPY", "QQQ"))
+    yf_close = load_yf_close(("IWM", "SPY", "QQQ", "UUP", "FXE", "FXB", "FXY", "CEW", "GLD", "DBC", "DBB", "DBA", "UNG", "SPHB", "SPLV", "MTUM", "QUAL", "IWF", "IWD", "EEM", "EIDO", "^JKSE", "TLT", "HYG", "BLOK", "WGMI", "BTC-USD", "ETH-USD", "SOL-USD", "BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "KLBF.JK", "ADRO.JK", "ITMG.JK", "PGAS.JK", "ANTM.JK", "MDKA.JK", "PWON.JK", "SMRA.JK", "CTRA.JK", "AKRA.JK", "UNTR.JK", "ASII.JK", "AMRT.JK", "ACES.JK", "MAPI.JK"))
     if not yf_close.empty and all(col in yf_close.columns for col in ["IWM", "SPY"]):
         ratio = (yf_close["IWM"] / yf_close["SPY"]).dropna()
         rel63 = pct_change(ratio, 63)
@@ -1047,42 +1890,167 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
             }
         )
 
+    # Broader market-signal families (kept separate from macro quad engine)
+    def _zret(col: str, lookback: int = 20) -> float:
+        if yf_close.empty or col not in yf_close.columns:
+            return 0.0
+        return rolling_z_last(pct_change(yf_close[col], lookback), 252)
+
+    def _zratio(numer: str, denom: str, lookback: int = 20) -> float:
+        if yf_close.empty or numer not in yf_close.columns or denom not in yf_close.columns:
+            return 0.0
+        ratio = (yf_close[numer] / yf_close[denom]).dropna()
+        return rolling_z_last(pct_change(ratio, lookback), 252)
+
+    def _zbasket(cols: Tuple[str, ...], lookback: int = 20, min_names: int = 1) -> float:
+        if yf_close.empty:
+            return 0.0
+        vals: List[float] = []
+        for col in cols:
+            if col in yf_close.columns:
+                vals.append(rolling_z_last(pct_change(yf_close[col], lookback), 252))
+        if len(vals) < min_names:
+            return 0.0
+        return float(np.nanmean(vals))
+
+    usd_signal = (
+        0.30 * _zret("UUP", 20)
+        + 0.20 * _zret("UUP", 63)
+        + 0.15 * (-_zret("FXE", 20))
+        + 0.10 * (-_zret("FXB", 20))
+        + 0.10 * (-_zret("FXY", 20))
+        + 0.15 * (-_zret("CEW", 20))
+    )
+    emfx_signal = (
+        0.60 * _zret("CEW", 20)
+        + 0.20 * _zret("CEW", 63)
+        + 0.20 * (-_zret("UUP", 20))
+    )
+    commodity_breadth = (
+        0.28 * _zret("DBC", 20)
+        + 0.16 * _zret("DBC", 63)
+        + 0.18 * _zret("GLD", 20)
+        + 0.14 * _zret("DBB", 20)
+        + 0.12 * _zret("DBA", 20)
+        + 0.12 * _zret("UNG", 20)
+    )
+    hard_asset_breadth = (
+        0.45 * _zret("GLD", 20)
+        + 0.35 * _zret("DBC", 20)
+        + 0.20 * _zret("DBB", 20)
+    )
+    cyclical_style_signal = (
+        0.30 * _zratio("SPHB", "SPLV", 20)
+        + 0.20 * _zret("MTUM", 20)
+        + 0.20 * _zratio("IWF", "IWD", 20)
+        + 0.15 * _zret("IWM", 20)
+        + 0.15 * _zret("QQQ", 20)
+    )
+    defensive_style_signal = (
+        0.35 * (-_zratio("SPHB", "SPLV", 20))
+        + 0.25 * _zret("QUAL", 20)
+        + 0.20 * (-_zret("IWM", 20))
+        + 0.20 * (-_zret("QQQ", 20))
+    )
+    duration_market_signal = (
+        0.60 * _zret("TLT", 20)
+        + 0.20 * _zret("TLT", 63)
+        + 0.20 * (-_zret("HYG", 20))
+    )
+    crypto_equity_signal = (
+        0.55 * _zret("BLOK", 20)
+        + 0.45 * _zret("WGMI", 20)
+    )
+    broad_em_equity_signal = (
+        0.50 * _zret("EEM", 20)
+        + 0.20 * _zret("EEM", 63)
+        + 0.20 * _zret("EIDO", 20)
+        + 0.10 * (-_zret("UUP", 20))
+    )
+    indo_equity_signal = (
+        0.40 * _zret("EIDO", 20)
+        + 0.20 * _zret("EIDO", 63)
+        + 0.20 * _zret("^JKSE", 20)
+        + 0.20 * _zret("^JKSE", 63)
+    )
+    ihsg_bank_signal = 0.65 * _zbasket(("BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK"), 20, 2) + 0.35 * _zbasket(("BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK"), 63, 2)
+    ihsg_defensive_signal = 0.65 * _zbasket(("TLKM.JK", "ICBP.JK", "INDF.JK", "KLBF.JK"), 20, 2) + 0.35 * _zbasket(("TLKM.JK", "ICBP.JK", "INDF.JK", "KLBF.JK"), 63, 2)
+    ihsg_commodity_signal = 0.60 * _zbasket(("ADRO.JK", "ITMG.JK", "PGAS.JK", "ANTM.JK", "MDKA.JK"), 20, 2) + 0.40 * _zbasket(("ADRO.JK", "ITMG.JK", "PGAS.JK", "ANTM.JK", "MDKA.JK"), 63, 2)
+    ihsg_property_signal = 0.65 * _zbasket(("PWON.JK", "SMRA.JK", "CTRA.JK"), 20, 2) + 0.35 * _zbasket(("PWON.JK", "SMRA.JK", "CTRA.JK"), 63, 2)
+    ihsg_cyclical_signal = 0.45 * _zbasket(("AKRA.JK", "UNTR.JK", "ASII.JK"), 20, 2) + 0.25 * _zbasket(("AMRT.JK", "ACES.JK", "MAPI.JK"), 20, 1) + 0.30 * ihsg_bank_signal
+    btc_signal = 0.60 * _zret("BTC-USD", 20) + 0.40 * _zret("BTC-USD", 63)
+    eth_signal = 0.60 * _zret("ETH-USD", 20) + 0.40 * _zret("ETH-USD", 63)
+    sol_signal = 0.60 * _zret("SOL-USD", 20) + 0.40 * _zret("SOL-USD", 63)
+    crypto_major_signal = 0.50 * btc_signal + 0.30 * eth_signal + 0.20 * sol_signal
+    alt_beta_signal = 0.35 * eth_signal + 0.25 * sol_signal + 0.40 * crypto_equity_signal
+    crypto_quality_spread = btc_signal - alt_beta_signal
+
+    signals.update({
+        "usd_signal": usd_signal,
+        "emfx_signal": emfx_signal,
+        "commodity_breadth": commodity_breadth,
+        "hard_asset_breadth": hard_asset_breadth,
+        "cyclical_style_signal": cyclical_style_signal,
+        "defensive_style_signal": defensive_style_signal,
+        "duration_market_signal": duration_market_signal,
+        "crypto_equity_signal": crypto_equity_signal,
+        "broad_em_equity_signal": broad_em_equity_signal,
+        "indo_equity_signal": indo_equity_signal,
+        "ihsg_bank_signal": ihsg_bank_signal,
+        "ihsg_defensive_signal": ihsg_defensive_signal,
+        "ihsg_commodity_signal": ihsg_commodity_signal,
+        "ihsg_property_signal": ihsg_property_signal,
+        "ihsg_cyclical_signal": ihsg_cyclical_signal,
+        "btc_signal": btc_signal,
+        "eth_signal": eth_signal,
+        "sol_signal": sol_signal,
+        "crypto_major_signal": crypto_major_signal,
+        "alt_beta_signal": alt_beta_signal,
+        "crypto_quality_spread": crypto_quality_spread,
+    })
+
     signals.update(fear_greed_overlays(fg_value))
 
     # =========================
-    # 1) MACRO QUAD ENGINE ONLY
+    # 1) GDP & CPI NOWCAST ENGINE
     # =========================
-    growth_monthly_axis = (
-        0.32 * signals["wei_4w_z"]
-        + 0.28 * (-signals["claims_13w_z"])
+    gdp_nowcast_monthly = (
+        0.38 * signals["wei_4w_z"]
+        + 0.32 * (-signals["claims_13w_z"])
         - 0.18 * signals["sahm_13w_z"]
         - 0.12 * signals["recpro_13w_z"]
-        + 0.10 * signals["curve_z"]
     )
-    growth_quarterly_axis = (
-        0.25 * signals["wei_level_z"]
+    gdp_nowcast_quarterly = (
+        0.28 * signals["wei_level_z"]
+        + 0.20 * signals["wei_13w_z"]
         + 0.20 * (-signals["claims_yoy_z"])
-        + 0.15 * signals["wei_13w_z"]
         + 0.10 * (-signals["claims_26w_z"])
-        - 0.15 * signals["sahm_z"]
+        - 0.12 * signals["sahm_z"]
         - 0.10 * signals["recpro_z"]
-        + 0.05 * signals["curve_z"]
     )
-    inflation_monthly_axis = (
-        0.25 * signals["cpi_gap_z"]
-        + 0.20 * signals["core_gap_z"]
-        + 0.25 * signals["breakeven20_z"]
-        + 0.20 * signals["oil21_z"]
-        + 0.10 * signals["cpi3_z"]
+
+    inflation_market_impulse_monthly = 0.55 * signals["breakeven20_z"] + 0.45 * signals["oil21_z"]
+    inflation_market_impulse_quarterly = 0.55 * signals["breakeven_z"] + 0.45 * signals["oil63_z"]
+
+    cpi_nowcast_monthly = (
+        0.30 * signals["cpi_gap_z"]
+        + 0.25 * signals["core_gap_z"]
+        + 0.20 * signals["cpi3_z"]
+        + 0.05 * signals["core3_z"]
+        + 0.20 * inflation_market_impulse_monthly
     )
-    inflation_quarterly_axis = (
-        0.25 * signals["cpi6_z"]
-        + 0.25 * signals["core6_z"]
-        + 0.15 * signals["cpi6_gap_z"]
-        + 0.10 * signals["core6_gap_z"]
-        + 0.15 * signals["breakeven_z"]
-        + 0.10 * signals["oil63_z"]
+    cpi_nowcast_quarterly = (
+        0.22 * signals["cpi6_z"]
+        + 0.22 * signals["core6_z"]
+        + 0.14 * signals["cpi6_gap_z"]
+        + 0.12 * signals["core6_gap_z"]
+        + 0.30 * inflation_market_impulse_quarterly
     )
+
+    growth_monthly_axis = gdp_nowcast_monthly
+    growth_quarterly_axis = gdp_nowcast_quarterly
+    inflation_monthly_axis = cpi_nowcast_monthly
+    inflation_quarterly_axis = cpi_nowcast_quarterly
 
     g_up_monthly = sigmoid(1.20 * growth_monthly_axis)
     g_up_quarterly = sigmoid(1.10 * growth_quarterly_axis)
@@ -1107,7 +2075,44 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
     growth_transition = sigmoid(-1.10 * growth_monthly_axis - 0.55 * growth_quarterly_axis)
 
     # =========================
-    # 2) MARKET / RISK ENGINES
+    # 2) POLICY / RATES ENGINE
+    # =========================
+    front_end_policy = 0.50 * signals["dgs2_20_z"] + 0.25 * signals["dgs2_63_z"] + 0.25 * signals["dgs5_20_z"]
+    belly_policy = 0.45 * signals["dgs5_20_z"] + 0.30 * signals["dgs5_63_z"] + 0.25 * signals["dgs10_20_z"]
+    long_end_pressure = (
+        0.30 * signals["dgs10_20_z"]
+        + 0.20 * signals["dgs10_63_z"]
+        + 0.30 * signals["dgs30_20_z"]
+        + 0.20 * signals["dgs30_63_z"]
+    )
+    duration_tailwind = (
+        0.30 * (-signals["dgs10_20_z"])
+        + 0.20 * (-signals["dgs10_63_z"])
+        + 0.30 * (-signals["dgs30_20_z"])
+        + 0.20 * (-signals["dgs30_63_z"])
+    )
+    policy_easing_impulse = (
+        0.45 * (-signals["dgs2_20_z"])
+        + 0.25 * (-signals["dgs5_20_z"])
+        + 0.15 * (-signals["dgs10_20_z"])
+        + 0.15 * (-signals["dgs30_20_z"])
+    )
+    steepening_impulse = (
+        0.30 * signals["curve5s2s_20_z"]
+        + 0.20 * signals["curve10s5s_20_z"]
+        + 0.30 * signals["curve30s10s_20_z"]
+        + 0.20 * signals["curve30s2s_20_z"]
+    )
+    curve_regime = (
+        0.40 * signals["curve5s2s_z"]
+        + 0.20 * signals["curve10s5s_z"]
+        + 0.20 * signals["curve30s10s_z"]
+        + 0.20 * signals["curve30s2s_z"]
+    )
+    bear_steepener = 0.55 * max(long_end_pressure, 0.0) + 0.45 * max(steepening_impulse, 0.0)
+
+    # =========================
+    # 3) SIGNAL / RISK ENGINES
     # =========================
     credit_stress = 0.40 * signals["hy_z"] + 0.30 * signals["nfci_z"] + 0.20 * signals["stlfsi_z"] + 0.10 * signals["vix_z"]
     breadth_health = 0.50 * signals["iwm_rel63_z"] + 0.30 * signals["iwm_rel20_z"] + 0.20 * signals["iwm_dist_z"]
@@ -1115,49 +2120,64 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
     iwm_euphoria = 0.50 * signals["iwm_63_z"] + 0.30 * signals["iwm_20_z"] + 0.20 * signals["iwm_dist_z"]
 
     recession_prob = sigmoid(recession_risk)
-    labor_prob = sigmoid(labor_soft)
 
     short_risk_on = clamp01(
         sigmoid(
-            0.70 * breadth_health
-            - 0.55 * credit_stress
-            - 0.45 * signals["vix_z"]
-            + 0.35 * (signals["fg_short_risk_on"] - 0.5)
+            0.62 * breadth_health
+            - 0.48 * credit_stress
+            - 0.38 * signals["vix_z"]
+            + 0.25 * (signals["fg_short_risk_on"] - 0.5)
+            + 0.18 * duration_tailwind
+            - 0.18 * front_end_policy
         )
     )
     short_risk_off = clamp01(
         sigmoid(
-            0.55 * credit_stress
-            + 0.55 * signals["vix_z"]
-            + 0.45 * iwm_fragility
-            + 0.35 * signals["fg_fear"]
-            - 0.20 * breadth_health
+            0.50 * credit_stress
+            + 0.48 * signals["vix_z"]
+            + 0.40 * iwm_fragility
+            + 0.28 * signals["fg_fear"]
+            + 0.18 * front_end_policy
+            + 0.08 * long_end_pressure
+            - 0.16 * breadth_health
         )
     )
     big_crash = clamp01(
         sigmoid(
-            0.55 * credit_stress
-            + 0.35 * recession_risk
-            + 0.25 * labor_soft
-            + 0.15 * iwm_fragility
-            + 0.15 * signals["fg_big_crash_overlay"]
+            0.48 * credit_stress
+            + 0.28 * recession_risk
+            + 0.20 * labor_soft
+            + 0.14 * iwm_fragility
+            + 0.14 * signals["fg_big_crash_overlay"]
+            + 0.10 * front_end_policy
+            + 0.10 * long_end_pressure
             - 0.10 * breadth_health
         )
     )
     long_risk_on = clamp01(
         sigmoid(
-            0.45 * growth_quarterly_axis
-            + 0.20 * growth_monthly_axis
-            + 0.20 * breadth_health
-            - 0.25 * credit_stress
-            - 0.20 * max(inflation_quarterly_axis, 0.0)
+            0.40 * growth_quarterly_axis
+            + 0.18 * growth_monthly_axis
+            + 0.16 * breadth_health
+            + 0.14 * duration_tailwind
+            + 0.10 * policy_easing_impulse
+            - 0.22 * credit_stress
+            - 0.15 * max(inflation_quarterly_axis, 0.0)
             - 0.10 * recession_prob
+            - 0.12 * front_end_policy
         )
     )
 
     signals.update(
         {
-            # Macro axes
+            # GDP / CPI nowcast axes
+            "gdp_nowcast_quarterly": gdp_nowcast_quarterly,
+            "gdp_nowcast_monthly": gdp_nowcast_monthly,
+            "cpi_nowcast_quarterly": cpi_nowcast_quarterly,
+            "cpi_nowcast_monthly": cpi_nowcast_monthly,
+            "inflation_market_impulse_monthly": inflation_market_impulse_monthly,
+            "inflation_market_impulse_quarterly": inflation_market_impulse_quarterly,
+            # Backward-compatible macro axis keys
             "growth_level": growth_quarterly_axis,
             "growth_mom": growth_monthly_axis,
             "inflation_level": inflation_quarterly_axis,
@@ -1167,6 +2187,18 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
             "growth_transition": growth_transition,
             "labor_soft": labor_soft,
             "recession_risk": recession_risk,
+            # Policy / rates engine
+            "front_end_policy": front_end_policy,
+            "belly_policy": belly_policy,
+            "long_end_pressure": long_end_pressure,
+            "duration_tailwind": duration_tailwind,
+            "policy_easing_impulse": policy_easing_impulse,
+            "steepening_impulse": steepening_impulse,
+            "curve_regime": curve_regime,
+            "bear_steepener": bear_steepener,
+            # Legacy-compatible aliases used by the UI
+            "policy_repricing": front_end_policy,
+            "long_end_inflation_stress": long_end_pressure,
             # Market / risk overlays
             "credit_stress": credit_stress,
             "breadth_health": breadth_health,
@@ -1196,12 +2228,16 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
                 "credit_stress_inv": -credit_stress,
                 "vix_inv": -signals["vix_z"],
                 "fear_greed_sweet": signals["fg_short_risk_on"] - 0.5,
+                "duration_tailwind": duration_tailwind,
+                "front_end_policy_inv": -front_end_policy,
             },
             "risk_off_components": {
                 "credit_stress": credit_stress,
                 "vix_z": signals["vix_z"],
                 "iwm_fragility": iwm_fragility,
                 "fg_fear": signals["fg_fear"],
+                "front_end_policy": front_end_policy,
+                "long_end_pressure": long_end_pressure,
             },
             "big_crash_components": {
                 "credit_stress": credit_stress,
@@ -1209,6 +2245,8 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
                 "labor_soft": labor_soft,
                 "iwm_fragility": iwm_fragility,
                 "fg_big_crash_overlay": signals["fg_big_crash_overlay"],
+                "front_end_policy": front_end_policy,
+                "long_end_pressure": long_end_pressure,
             },
             "long_risk_on_components": {
                 "growth_quarterly": growth_quarterly_axis,
@@ -1216,10 +2254,14 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
                 "breadth_health": breadth_health,
                 "credit_stress_inv": -credit_stress,
                 "inflation_drag": -max(inflation_quarterly_axis, 0.0),
+                "duration_tailwind": duration_tailwind,
+                "policy_easing_impulse": policy_easing_impulse,
+                "front_end_policy_inv": -front_end_policy,
             },
         }
     )
     return signals
+
 
 def reason_lines(signals: Dict[str, float], quad: str) -> Tuple[List[str], List[str]]:
     gl = signals["growth_level"]
@@ -1438,8 +2480,8 @@ def overview_metrics(signals: Dict[str, float], fg_info: Dict[str, object]) -> N
     c1.metric("Blended Regime", str(max(signals["quad_scores"], key=signals["quad_scores"].get)))
     c2.metric("Quarterly Quad", str(signals.get("macro_quad_quarterly", "N/A")))
     c3.metric("Monthly Quad", str(signals.get("macro_quad_monthly", "N/A")))
-    c4.metric("Growth Axis (Q)", f"{signals['growth_level']:.2f}")
-    c5.metric("Inflation Axis (Q)", f"{signals['inflation_level']:.2f}")
+    c4.metric("GDP Nowcast (Q)", f"{signals['gdp_nowcast_quarterly']:.2f}")
+    c5.metric("CPI Nowcast (Q)", f"{signals['cpi_nowcast_quarterly']:.2f}")
     c6.metric("Macro Roll Risk", f"{signals['growth_transition'] * 100:.0f}%")
 
     fg_text = "N/A" if np.isnan(signals["fg_norm"]) else f"{signals['fg_norm'] * 100:.0f}"
@@ -1448,8 +2490,8 @@ def overview_metrics(signals: Dict[str, float], fg_info: Dict[str, object]) -> N
     d1, d2, d3, d4, d5, d6 = st.columns(6)
     d1.metric("Credit Stress", f"{signals['credit_stress']:.2f}")
     d2.metric("Breadth / IWM", f"{signals['breadth_health']:.2f}")
-    d3.metric("IWM Fragility", f"{signals['iwm_fragility']:.2f}")
-    d4.metric("VIX z-score", f"{signals['vix_z']:.2f}")
+    d3.metric("Front-End Policy", f"{signals['front_end_policy']:.2f}")
+    d4.metric("Duration Tailwind", f"{signals['duration_tailwind']:.2f}")
     d5.metric("Fear & Greed", fg_text, fg_source)
     d6.metric("Recession Risk", f"{signals['recession_risk']:.2f}")
 
@@ -1490,20 +2532,38 @@ def render_engine_components(signals: Dict[str, float]) -> None:
     macro_left, macro_right = st.columns(2)
     with macro_left:
         with st.expander("Macro Quad Engine", expanded=False):
-            st.write("**Quarterly growth axis:**", round(float(signals["growth_level"]), 3))
-            st.write("**Monthly growth axis:**", round(float(signals["growth_mom"]), 3))
-            st.write("**Quarterly inflation axis:**", round(float(signals["inflation_level"]), 3))
-            st.write("**Monthly inflation axis:**", round(float(signals["inflation_mom"]), 3))
+            st.write("**GDP nowcast (quarterly):**", round(float(signals["gdp_nowcast_quarterly"]), 3))
+            st.write("**GDP nowcast (monthly):**", round(float(signals["gdp_nowcast_monthly"]), 3))
+            st.write("**CPI nowcast (quarterly):**", round(float(signals["cpi_nowcast_quarterly"]), 3))
+            st.write("**CPI nowcast (monthly):**", round(float(signals["cpi_nowcast_monthly"]), 3))
+            st.write("**Inflation market impulse (monthly):**", round(float(signals["inflation_market_impulse_monthly"]), 3))
+            st.write("**Inflation market impulse (quarterly):**", round(float(signals["inflation_market_impulse_quarterly"]), 3))
             st.write("**Quarterly quad scores:**", {k: round(v, 1) for k, v in signals["quad_scores_quarterly"].items()})
             st.write("**Monthly quad scores:**", {k: round(v, 1) for k, v in signals["quad_scores_monthly"].items()})
             st.write("**Blended regime scores:**", {k: round(v, 1) for k, v in signals["quad_scores"].items()})
     with macro_right:
-        with st.expander("Transition Engine (Macro Only)", expanded=False):
+        with st.expander("Policy / Transition Engine", expanded=False):
             st.write("**Growth transition risk:**", round(float(signals["growth_transition"]), 3))
             st.write("**Labor softening:**", round(float(signals["labor_soft"]), 3))
             st.write("**Recession risk:**", round(float(signals["recession_risk"]), 3))
+            st.caption("Macro quad remains growth-vs-inflation. 2Y / 5Y / 10Y / 30Y live here as policy, rates, timing, and divergence lenses.")
+            st.write("**2Y front-end policy repricing:**", round(float(signals["front_end_policy"]), 3))
+            st.write("**5Y belly policy repricing:**", round(float(signals["belly_policy"]), 3))
+            st.write("**10Y/30Y long-end pressure:**", round(float(signals["long_end_pressure"]), 3))
+            st.write("**Duration tailwind:**", round(float(signals["duration_tailwind"]), 3))
+            st.write("**Policy easing impulse:**", round(float(signals["policy_easing_impulse"]), 3))
+            st.write("**Steepening impulse:**", round(float(signals["steepening_impulse"]), 3))
+            st.write("**Bear steepener risk:**", round(float(signals["bear_steepener"]), 3))
             st.write("**Commodity impulse (oil21 z):**", round(float(signals["oil21_z"]), 3))
             st.write("**Breakeven impulse (20d z):**", round(float(signals["breakeven20_z"]), 3))
+            st.write("**USD signal complex:**", round(float(signals["usd_signal"]), 3))
+            st.write("**EM FX signal:**", round(float(signals["emfx_signal"]), 3))
+            st.write("**Commodity breadth:**", round(float(signals["commodity_breadth"]), 3))
+            st.write("**Hard-asset breadth:**", round(float(signals["hard_asset_breadth"]), 3))
+            st.write("**Cyclical style signal:**", round(float(signals["cyclical_style_signal"]), 3))
+            st.write("**Defensive style signal:**", round(float(signals["defensive_style_signal"]), 3))
+            st.write("**Duration market signal:**", round(float(signals["duration_market_signal"]), 3))
+            st.write("**Crypto-equity signal:**", round(float(signals["crypto_equity_signal"]), 3))
 
     risk_names = [
         ("Short Risk-On Engine", signals.get("risk_on_components", {})),
@@ -1517,7 +2577,6 @@ def render_engine_components(signals: Dict[str, float]) -> None:
             with st.expander(title, expanded=False):
                 for k, v in comp.items():
                     st.write(f"**{k.replace('_', ' ').title()}:** {float(v):.3f}")
-
 
 def render_meter_cards(signals: Dict[str, float]) -> None:
     st.markdown("### Separate Market / Risk Engines")
@@ -1600,9 +2659,9 @@ def render_phase_matrix(quad: str) -> None:
                 for item in items:
                     st.write(f"• {item}")
     with c2:
-        render_buckets_column("Winners", guide["winners"])
+        render_buckets_column("Winners", filter_playbook_buckets("Winners", guide["winners"], official_only=True))
     with c3:
-        render_buckets_column("Losers", guide["losers"])
+        render_buckets_column("Losers", filter_playbook_buckets("Losers", guide["losers"], official_only=True))
 
 
 def current_fx_overlay(quad: str, signals: Dict[str, float]) -> List[str]:
@@ -1639,6 +2698,8 @@ def current_fx_overlay(quad: str, signals: Dict[str, float]) -> List[str]:
         ]
         if oil_hot:
             lines.append("With oil pressure still positive, keep stagflation-sensitive FX expressions cleaner via USD majors instead of broad EM beta.")
+        if float(signals.get("usd_signal", 0.0)) > 0.20:
+            lines.append("USD signal lattice is confirming the defensive tilt; stay with major-pair USD expressions before reaching for EM FX.")
         return lines
 
     lines = [
@@ -1651,30 +2712,234 @@ def current_fx_overlay(quad: str, signals: Dict[str, float]) -> List[str]:
     return lines
 
 
+def current_em_overlay(quad: str, signals: Dict[str, float]) -> List[str]:
+    usd_stress = float(signals.get("big_crash", 0.0)) > 0.50 or float(signals.get("short_risk_off", 0.0)) > 0.55
+
+    if quad == "Q1":
+        lines = [
+            "Base EM tilt: selective long bias only when the dollar is soft and credit is calm.",
+            "Country selection beats generic broad-EM beta.",
+            "Cleaner expressions: reform / exporter / demand-sensitive countries rather than weak balance-sheet EM.",
+        ]
+        if float(signals.get("ihsg_bank_signal", 0.0)) > float(signals.get("ihsg_defensive_signal", 0.0)):
+            lines.append("Current IHSG confirmation: banks / domestic liquidity leaders are outperforming defensives, which fits the higher-beta side of Q1.")
+        if float(signals.get("ihsg_property_signal", 0.0)) > 0.10:
+            lines.append("Rates-sensitive property beta is starting to confirm the recovery side of the tape.")
+        if usd_stress:
+            lines.append("If USD stress rises, cut broad EM aggression first and keep only the highest-conviction country stories.")
+        return lines
+
+    if quad == "Q2":
+        lines = [
+            "Base EM tilt: selective reflation beneficiaries and commodity exporters.",
+            "Cleaner expressions: country ETFs tied to energy, industrial capex, and exporter strength.",
+            "Broad EM only works cleanly if USD is not the dominant tightening force.",
+        ]
+        if float(signals.get("ihsg_commodity_signal", 0.0)) >= max(float(signals.get("ihsg_bank_signal", 0.0)), float(signals.get("ihsg_defensive_signal", 0.0))):
+            lines.append("Current IHSG confirmation: commodity / exporter complex is leading the local tape, which is the cleanest reflation read.")
+        elif float(signals.get("ihsg_bank_signal", 0.0)) > 0.10:
+            lines.append("Current IHSG confirmation: banks are monetizing stronger nominal-growth expectations.")
+        if usd_stress:
+            lines.append("If dollar / credit stress rises, downgrade broad EM to tactical only.")
+        return lines
+
+    if quad == "Q3":
+        lines = [
+            "Base EM tilt now: underweight broad EM beta.",
+            "Cleaner expressions: selective exporters or idiosyncratic reform / stimulus stories only.",
+            "Avoid assuming EEM-style broad exposure is a Quad 3 winner.",
+        ]
+        if float(signals.get("ihsg_commodity_signal", 0.0)) >= max(float(signals.get("ihsg_bank_signal", 0.0)), float(signals.get("ihsg_defensive_signal", 0.0))):
+            lines.append("Current IHSG confirmation: exporter / hard-asset names are beating banks and domestic beta, which is the cleanest local Q3 expression.")
+        elif float(signals.get("ihsg_defensive_signal", 0.0)) > float(signals.get("ihsg_bank_signal", 0.0)):
+            lines.append("Current IHSG confirmation: defensives are holding up better than banks / property, which also fits a tighter Q3 tape.")
+        if usd_stress:
+            lines.append("If USD-up and risk-off pressure stay firm, keep EM exposure very selective or absent.")
+        if float(signals.get("emfx_signal", 0.0)) < -0.15:
+            lines.append("EM FX signal is not confirming broad EM risk-taking right now.")
+        return lines
+
+    lines = [
+        "Base EM tilt: defensive and highly selective only.",
+        "Broad EM beta is usually the wrong default expression in a Q4-style slowdown.",
+        "Wait for a real bottoming process before leaning back into cyclical EM risk.",
+    ]
+    if float(signals.get("ihsg_defensive_signal", 0.0)) >= max(float(signals.get("ihsg_bank_signal", 0.0)), float(signals.get("ihsg_commodity_signal", 0.0))):
+        lines.append("Current IHSG confirmation: defensives / cash-flow names are the cleaner local expression than cyclicals.")
+    if float(signals.get("long_risk_on", 0.0)) > 0.55:
+        lines.append("If long-risk-on improves from depressed levels, start building an EM watchlist rather than front-running full beta.")
+    return lines
+
+
+def current_crypto_overlay(quad: str, signals: Dict[str, float]) -> List[str]:
+    crash = float(signals.get("big_crash", 0.0))
+    sro = float(signals.get("short_risk_off", 0.0))
+    lro = float(signals.get("long_risk_on", 0.0))
+
+    if quad == "Q1":
+        lines = [
+            "Crypto lens: constructive only if breadth, liquidity, and credit are all improving together.",
+            "BTC is cleaner than broad alt beta when the risk-on move is still maturing.",
+            "Use market signals to size exposure; do not treat crypto as a core Hedgeye quad bucket.",
+        ]
+        if float(signals.get("crypto_quality_spread", 0.0)) > 0.10:
+            lines.append("Current confirmation: BTC quality still leads alt beta, which is usually the healthier sequence early in a crypto risk-on move.")
+        if crash > 0.60 or sro > 0.60:
+            lines.append("If crash / risk-off pressure stays high, keep crypto tactical and smaller than core macro winners.")
+        return lines
+
+    if quad == "Q2":
+        lines = [
+            "Crypto lens: this is usually the friendliest macro backdrop for BTC and higher-beta digital assets, but only if liquidity actually confirms.",
+            "BTC first, then selective liquid alts; avoid assuming every alt deserves equal weight.",
+            "Treat blockchain beta and miners as higher-volatility expressions, not substitutes for BTC quality.",
+        ]
+        if float(signals.get("alt_beta_signal", 0.0)) > float(signals.get("btc_signal", 0.0)) and float(signals.get("short_risk_on", 0.0)) > 0.55:
+            lines.append("Current confirmation: liquid alt beta is starting to outrun BTC, which is a stronger reflation / risk-appetite tell.")
+        if crash > 0.55:
+            lines.append("If crash pressure is still elevated, stay with BTC / liquid beta and avoid low-quality alts.")
+        return lines
+
+    if quad == "Q3":
+        lines = [
+            "Crypto lens now: defensive to bearish by default.",
+            "BTC can bounce tactically, but this is not the public-Hedgeye-style regime to treat crypto as a core winner.",
+            "Alts, miners, and blockchain-beta equities are the weakest part of the stack when stagflation and crash risk dominate.",
+        ]
+        if float(signals.get("crypto_quality_spread", 0.0)) > 0.15:
+            lines.append("Current confirmation: BTC quality is materially stronger than alt beta, which is the cleaner defensive crypto sequence in Q3.")
+        if lro > 0.60 and crash < 0.45:
+            lines.append("Only if short-term risk appetite improves meaningfully should you consider tactical BTC exposure; alts still deserve tighter risk limits.")
+        if float(signals.get("crypto_equity_signal", 0.0)) < -0.15:
+            lines.append("Blockchain/miner beta is not confirming broad crypto risk appetite yet.")
+        return lines
+
+    lines = [
+        "Crypto lens: wait for a bottoming process rather than forcing buy-and-hold risk into a Q4 slowdown.",
+        "BTC is still cleaner than alt beta, but neither is a core Quad 4 winner in Hedgeye's public playbook.",
+        "Alts and miners are usually the weakest expressions until macro and liquidity actually turn.",
+    ]
+    if float(signals.get("btc_signal", 0.0)) > float(signals.get("alt_beta_signal", 0.0)):
+        lines.append("Current confirmation: BTC remains the cleaner watchlist candidate than broader alt beta.")
+    if lro > 0.60 and crash < 0.40:
+        lines.append("If long-risk-on is genuinely recovering, start with BTC watchlist logic before broad alt beta.")
+    return lines
+
+
+def current_rates_note(quad: str, signals: Dict[str, float]) -> List[str]:
+    d2 = float(signals.get("dgs2_20_z", 0.0))
+    d5 = float(signals.get("dgs5_20_z", 0.0))
+    d10 = float(signals.get("dgs10_20_z", 0.0))
+    d30 = float(signals.get("dgs30_20_z", 0.0))
+    s52 = float(signals.get("curve5s2s_20_z", 0.0))
+    s3010 = float(signals.get("curve30s10s_20_z", 0.0))
+
+    if quad == "Q3":
+        lines = [
+            "2Y = front-end policy / inflation repricing lens. 5Y = belly lens that bridges policy expectations with medium-term inflation pressure.",
+            "10Y = broad nominal-conditions lens. 30Y = duration / growth-fear / term-premium lens. Those do not have to move the same way inside Quad 3.",
+            "That is why oil can rip while gold stalls or falls for a stretch: if 2Y/5Y and the dollar are doing the leading, the short-end repricing can dominate the tape.",
+        ]
+        if d2 > 0.35 and d5 > 0.20 and d10 >= 0 and d30 >= 0:
+            lines.append("Current scenario bias: front-end and belly inflation-policy repricing are leading, while the long end is not offering clean duration relief yet. Oil-up + USD-up + Gold-soft remains compatible with Q3.")
+        elif d2 > 0.20 and d5 > 0.10 and d10 < 0 and d30 < 0:
+            lines.append("Current scenario bias: stagflation with growth fear. Front-end stays sticky, but 10Y/30Y are catching a duration bid.")
+        elif d2 < -0.20 and d5 < -0.15 and d10 < -0.15 and d30 < -0.15:
+            lines.append("Watch for a Q3→Q4 handoff if the whole curve keeps easing while inflation proxies cool.")
+        if s52 > 0.30 or s3010 > 0.30:
+            lines.append("A steeper 2s5s / 30s10s curve means the rates tape is changing shape; that matters for banks, REITs, housing, and duration even before the quad label changes.")
+        return lines
+
+    if quad == "Q2":
+        lines = [
+            "In Q2, firm 2Y / 5Y / 10Y usually confirm nominal-growth strength and keep pure duration trades on the back foot.",
+            "30Y can rise too, especially in a bear-steepening reflation move where commodities and cyclicals lead.",
+        ]
+        if d2 < -0.20 and d5 < -0.15 and d10 < -0.10:
+            lines.append("If front-end and belly yields start easing first, reflation may be fading toward Q1 or Q3.")
+        return lines
+
+    if quad == "Q1":
+        lines = [
+            "In Q1, stable-to-lower 2Y and 5Y fit the cooling-inflation story better than an aggressive front-end backup.",
+            "10Y and 30Y can stay mixed, but a disorderly bear steepener is usually not a clean Goldilocks confirmation.",
+        ]
+        if d2 > 0.30 and d5 > 0.20:
+            lines.append("If 2Y and 5Y start backing up sharply, watch for an inflation reheat that can push the regime toward Q2.")
+        return lines
+
+    lines = [
+        "In Q4, falling 2Y / 5Y / 10Y / 30Y usually confirm the duration-led slowdown / deflation backdrop.",
+        "If the long end starts backing up while oil and breakevens reheat, watch for a Q4→Q3 stagflation risk rather than forcing a clean disinflation story.",
+    ]
+    if d2 > 0.20 and d5 > 0.15 and d10 > 0.15 and d30 > 0.15:
+        lines.append("A whole-curve backup would weaken the clean Q4 read and argue for closer monitoring of stagflation risk.")
+    return lines
+
 def current_proxy_note(quad: str, signals: Dict[str, float]) -> List[str]:
     if quad == "Q3":
-        return [
+        lines = [
             "Quad maps are expected-value playbooks, not a requirement that oil, gold, bonds, and FX all move in lockstep every session.",
             "A Q3 read stays valid as long as growth is rolling over while inflation pressure is sticky or re-accelerating.",
             "Short-term divergence is normal: oil plus USD can be leading while gold consolidates under stronger dollar / yield pressure.",
+            "The key check is whether GDP nowcast is still rolling over while CPI nowcast stays firm; that matters more than forcing all proxies to move together every day.",
+            "Cross-check the signal families: USD complex, commodity breadth, curve shape, and style-factor leadership do not all need to agree at once, but they should not tell the exact opposite story for long.",
         ]
-    if quad == "Q4":
-        return [
+    elif quad == "Q4":
+        lines = [
             "Q4 usually rewards duration, USD, and defense, but high-volatility bear-market rallies can still happen inside the regime.",
             "Do not confuse a tactical bounce in beta with a confirmed regime change until growth and inflation trajectories actually turn.",
         ]
-    if quad == "Q2":
-        return [
+    elif quad == "Q2":
+        lines = [
             "Q2 usually rewards broad reflation, but not every cyclical pocket has to move together every day.",
             "If commodities stop confirming and credit/vol worsen, reflation trades can fade before the macro quad fully changes.",
         ]
-    return [
-        "Q1 supports risk-on with cooling inflation, but breadth and credit still matter for confirmation.",
-        "If defensives suddenly lead and growth breadth narrows, treat it as an early warning rather than a reason to instantly relabel the quad.",
-    ]
+    else:
+        lines = [
+            "Q1 supports risk-on with cooling inflation, but breadth and credit still matter for confirmation.",
+            "If defensives suddenly lead and growth breadth narrows, treat it as an early warning rather than a reason to instantly relabel the quad.",
+        ]
+    return lines + current_rates_note(quad, signals)
 
 
-def render_phase_guide(quad: str, signals: Dict[str, float]) -> None:
+def current_proxy_strength_ladder(quad: str, signals: Dict[str, float]) -> List[str]:
+    if quad == "Q3":
+        base = [
+            "Strongest direct regime expressions now: oil / hard-asset impulse, USD strength, and 2Y / 5Y repricing.",
+            "Second-order expressions: selective IHSG exporters / defensives, broad EM weakness, and only tactical BTC quality.",
+            "Weakest / most fragile spillover: broad EM beta, IHSG property / domestic-beta cyclicals, and broad alt beta.",
+        ]
+    elif quad == "Q2":
+        base = [
+            "Strongest direct regime expressions now: commodities, cyclicals, and firm 2Y / 5Y / 10Y nominal-growth confirmation.",
+            "Second-order expressions: banks, exporter EM / IHSG beta, and then liquid crypto beta.",
+            "Weakest / lagging spillover: bond proxies and deep defensives if reflation breadth stays broad.",
+        ]
+    elif quad == "Q1":
+        base = [
+            "Strongest direct regime expressions now: quality growth, banks / cyclicals, improving breadth, and calmer 2Y / 5Y.",
+            "Second-order expressions: selected EM / IHSG domestic beta and then cleaner crypto quality.",
+            "Weakest / lagging spillover: pure defensives and pure duration winners if growth breadth keeps improving.",
+        ]
+    else:
+        base = [
+            "Strongest direct regime expressions now: falling yields / duration, USD, and defensive cash-flow equities.",
+            "Second-order expressions: selected defensive IHSG names and only early watchlist work in BTC / banks.",
+            "Weakest / lagging spillover: cyclical EM, commodity beta that needs hot nominal growth, and broad alt beta.",
+        ]
+    return base
+
+
+def render_ranked_overlay_matrix(title: str, matrix: Dict[str, List[str]]) -> None:
+    st.markdown(f"**{title}**")
+    for tier, items in matrix.items():
+        with st.expander(tier, expanded=False):
+            for idx, item in enumerate(items, start=1):
+                st.write(f"{idx}. {item}")
+
+
+def render_phase_guide(quad: str, signals: Dict[str, float], stage: str) -> None:
     st.markdown("### Current Phase")
     st.markdown(
         f"<div class='section-note'><b>{escape_text(QUAD_META[quad]['name'])}:</b> {escape_text(CURRENT_PHASE_TEXT[quad])}<br><br><b>Playbook lens:</b> Fokus ke winners quad ini, hindari losers yang paling sensitif, lalu monitor what-if / next likely quad sebelum ubah agresi.</div>",
@@ -1686,10 +2951,27 @@ def render_phase_guide(quad: str, signals: Dict[str, float]) -> None:
         with st.expander("Current FX Overlay", expanded=False):
             for line in current_fx_overlay(quad, signals):
                 st.write(f"• {line}")
+            render_ranked_overlay_matrix("Proxy Impact Ladder (strongest → spillover)", PROXY_IMPACT_MATRIX[quad])
+        with st.expander("Current Emerging Markets Overlay", expanded=False):
+            for line in current_em_overlay(quad, signals):
+                st.write(f"• {line}")
+            render_ranked_overlay_matrix("EM / IHSG Matrix (strongest → spillover)", EM_IHSG_MATRIX[quad])
+        with st.expander("Winner / Loser Ladder (strongest → spillover)", expanded=False):
+            render_ranked_overlay_matrix("Quad Long / Short Ladder", QUAD_LONG_SHORT_LADDER[quad])
     with c2:
         with st.expander("Proxy / Divergence Note", expanded=False):
             for line in current_proxy_note(quad, signals):
                 st.write(f"• {line}")
+            for line in current_proxy_strength_ladder(quad, signals):
+                st.write(f"• {line}")
+        with st.expander("Current Crypto Overlay", expanded=False):
+            for line in current_crypto_overlay(quad, signals):
+                st.write(f"• {line}")
+            render_ranked_overlay_matrix("Crypto Matrix (strongest → spillover)", CRYPTO_MATRIX[quad])
+        with st.expander(f"Stage Rotation — {stage}", expanded=False):
+            render_ranked_overlay_matrix("Stage Winner / Loser / Rotation Map", STAGE_ROTATION_GUIDE[quad][stage])
+        with st.expander(f"Leadership / Handoff Map — {stage}", expanded=False):
+            render_ranked_overlay_matrix("Who usually moves first → who takes over → who moves last", LEADERSHIP_ROTATION_MAP[quad][stage])
 
 
 def render_requirement_row(requirement: Dict[str, object]) -> None:
@@ -1713,7 +2995,7 @@ def render_target_quad_snapshot(target_quad: str) -> None:
                         st.write(f"• {item}")
         with c2:
             st.markdown("**Winners**")
-            for bucket, content in guide["winners"].items():
+            for bucket, content in filter_playbook_buckets("Winners", guide["winners"], official_only=True).items():
                 with st.expander(bucket, expanded=False):
                     for subhead, items in content.items():
                         st.write(f"**{subhead}**")
@@ -1721,7 +3003,7 @@ def render_target_quad_snapshot(target_quad: str) -> None:
                             st.write(f"• {item}")
         with c3:
             st.markdown("**Losers**")
-            for bucket, content in guide["losers"].items():
+            for bucket, content in filter_playbook_buckets("Losers", guide["losers"], official_only=True).items():
                 with st.expander(bucket, expanded=False):
                     for subhead, items in content.items():
                         st.write(f"**{subhead}**")
@@ -2026,8 +3308,16 @@ def render_playbook_meaning(quad: str) -> None:
                 st.write(f"• {item}")
 
 
-def render_playbook_section(title: str, buckets: Dict[str, Dict[str, List[str]]]) -> None:
+def filter_playbook_buckets(title: str, buckets: Dict[str, Dict[str, List[str]]], official_only: bool = False) -> Dict[str, Dict[str, List[str]]]:
+    if not official_only:
+        return buckets
+    keep = OFFICIAL_WINNER_BUCKETS if title.lower().startswith("winner") else OFFICIAL_LOSER_BUCKETS
+    return {k: v for k, v in buckets.items() if k in keep}
+
+
+def render_playbook_section(title: str, buckets: Dict[str, Dict[str, List[str]]], official_only: bool = False) -> None:
     st.markdown(f"### {title}")
+    buckets = filter_playbook_buckets(title, buckets, official_only=official_only)
     for bucket, content in buckets.items():
         with st.expander(bucket, expanded=False):
             for subhead, items in content.items():
@@ -2080,8 +3370,15 @@ def render_playbook_all_quads(signals: Dict[str, float], current_quad: str, acti
                 unsafe_allow_html=True,
             )
             render_playbook_meaning(q)
-            render_playbook_section("Winners", PHASE_GUIDE[q]["winners"])
-            render_playbook_section("Losers", PHASE_GUIDE[q]["losers"])
+            render_playbook_section("Winners", PHASE_GUIDE[q]["winners"], official_only=True)
+            render_playbook_section("Losers", PHASE_GUIDE[q]["losers"], official_only=True)
+            render_ranked_overlay_matrix("EM / IHSG Matrix (strongest → spillover)", EM_IHSG_MATRIX[q])
+            render_ranked_overlay_matrix("Crypto Matrix (strongest → spillover)", CRYPTO_MATRIX[q])
+            render_ranked_overlay_matrix("Proxy Impact Ladder (strongest → spillover)", PROXY_IMPACT_MATRIX[q])
+            render_ranked_overlay_matrix("Winner / Loser Ladder (strongest → spillover)", QUAD_LONG_SHORT_LADDER[q])
+            for _stage in ["Early", "Mid", "Late"]:
+                with st.expander(f"Stage Rotation — {_stage}", expanded=False):
+                    render_ranked_overlay_matrix(f"{_stage} Winner / Loser / Rotation Map", STAGE_ROTATION_GUIDE[q][_stage])
             render_possible_next_playbook(q)
 
 
@@ -2089,7 +3386,7 @@ def main() -> None:
     inject_css()
     st.title("Macro Quad Transition Dashboard")
     st.caption(
-        "Arsitektur bersih: Macro Quad Engine (macro only), Transition Engine (macro only), lalu Market / Risk Engines terpisah untuk risk-on, risk-off, big crash, dan long risk-on. Cara baca dibuat lebih Hedgeye-style: Current Quad → Playbook → What If / Next Likely Quad → Risk Management, plus FX / proxy overlay, tanpa ubah visual utama."
+        "Arsitektur bersih: Macro Quad Engine (macro only), Transition Engine (macro only), lalu Market / Risk Engines terpisah untuk risk-on, risk-off, big crash, dan long risk-on. Matrix Q1–Q4 kini dipisah tegas antara official public Hedgeye matrix versus overlay inference (FX / EM / IHSG / crypto / rates). Overlay matrix dan proxy ladder diurutkan dari dampak paling kuat sampai spillover paling kecil, tanpa ubah visual utama."
     )
 
     st.sidebar.header("Settings")
@@ -2155,7 +3452,7 @@ def main() -> None:
 
     st.markdown("---")
     st.caption(
-        "Catatan: quad inti sekarang dihitung dari macro-only (growth RoC vs inflation RoC). Driver current quad bisa dipilih: Monthly, Blended Regime, atau Quarterly Anchor. IWM, VIX, HY, dan Fear & Greed dipisah ke engine risk tersendiri, bukan penentu macro quad inti."
+        "Catatan: quad inti sekarang dihitung dari GDP nowcast RoC vs CPI nowcast RoC. Driver current quad bisa dipilih: Monthly, Blended Regime, atau Quarterly Anchor. Matrix Q1–Q4 menampilkan official public Hedgeye buckets; FX / EM / IHSG / crypto / rates dipisah sebagai overlay inference. Winner / loser ladder dan stage rotation kini diurutkan dari dampak paling direct sampai spillover paling kecil. 2Y / 5Y / 10Y / 30Y hidup di policy / rates lens; IWM, VIX, HY, Fear & Greed, FX complex, commodity breadth, style factors, EM / IHSG local baskets, dan crypto-quality-vs-alt-beta hidup di signal / risk engines, bukan penentu macro quad inti."
     )
 
 
