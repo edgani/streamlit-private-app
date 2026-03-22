@@ -3128,18 +3128,21 @@ def overview_metrics(signals: Dict[str, float], fg_info: Dict[str, object]) -> N
     c4.metric("GDP Nowcast (Q)", f"{signals['gdp_nowcast_quarterly']:.2f}")
     c5.metric("CPI Nowcast (Q)", f"{signals['cpi_nowcast_quarterly']:.2f}")
     c6.metric("Out-Quarter Quad", str(signals.get("macro_quad_outquarter", "N/A")))
-    st.caption(f"Macro roll risk: {signals['growth_transition'] * 100:.0f}% | Behavioral top: {signals['behavioral_top_score'] * 100:.0f}%")
+    st.caption(
+        f"Macro-only ringkas: growth transition {signals['growth_transition'] * 100:.0f}% | "
+        f"inflation impulse {signals['inflation_market_impulse_quarterly']:.2f} | "
+        f"recession risk {signals['recession_risk']:.2f}"
+    )
 
     fg_text = "N/A" if np.isnan(signals["fg_norm"]) else f"{signals['fg_norm'] * 100:.0f}"
     fg_source = "CNN" if fg_info.get("status") == "ok" else "Manual / N.A."
-    st.markdown("### Market / Risk Overlay")
-    d1, d2, d3, d4, d5, d6 = st.columns(6)
+    st.markdown("### Separate Market / Risk Engines")
+    d1, d2, d3, d4 = st.columns(4)
     d1.metric("Credit Stress", f"{signals['credit_stress']:.2f}")
-    d2.metric("Breadth / IWM", f"{signals['breadth_health']:.2f}")
-    d3.metric("Front-End Policy", f"{signals['front_end_policy']:.2f}")
-    d4.metric("Duration Tailwind", f"{signals['duration_tailwind']:.2f}")
-    d5.metric("Fear & Greed", fg_text, fg_source)
-    d6.metric("Recession Risk", f"{signals['recession_risk']:.2f}")
+    d2.metric("Front-End Policy", f"{signals['front_end_policy']:.2f}")
+    d3.metric("Duration Tailwind", f"{signals['duration_tailwind']:.2f}")
+    d4.metric("Fear & Greed", fg_text, fg_source)
+
 
 def render_forecast_summary_row(current_quad: str, current_quad_score: float, validity: str, primary_path: Dict[str, object], driver_label: str) -> None:
     target_quad = str(primary_path["target"])
@@ -4995,7 +4998,7 @@ def main() -> None:
     inject_css()
     st.title("Macro Quad Transition Dashboard")
     st.caption(
-        "Struktur utama: Macro Quad Engine → Separate Market / Risk Engines → Condition Sekarang Bagusnya? → Current Phase Compare (Monthly / Quarterly / Blended) → Path to Q? → bottom toggles."
+        "Struktur utama: Macro Quad Engine (macro-only ringkas) → Separate Market / Risk Engines → Condition Sekarang Bagusnya? → Current Phase Compare (Monthly / Quarterly / Blended) → Path to Q? → bottom toggles."
     )
 
     st.sidebar.header("Settings")
@@ -5094,7 +5097,7 @@ def main() -> None:
 
     st.markdown("---")
     st.caption(
-        "Performa dibenerin dengan Apply-settings form di sidebar, symbol universe yang lebih ringkas, overlay yang dimerge jadi family, dan detail compare/playbook/news/advanced yang benar-benar lazy-render lewat expander."
+        "Performa dibikin lebih ringan dengan macro-quad ringkas di atas, symbol universe yang lebih ramping, overlay yang dimerge jadi family, dan detail compare/playbook/news/advanced yang lazy-render lewat expander."
     )
 
 
