@@ -1926,7 +1926,7 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
     }
 
     # Market overlays - separate from macro quad engine.
-    yf_close = load_yf_close(("IWM", "SPY", "QQQ", "UUP", "FXE", "FXB", "FXY", "CEW", "GLD", "DBC", "DBB", "DBA", "UNG", "SPHB", "SPLV", "MTUM", "QUAL", "IWF", "IWD", "EEM", "EIDO", "^JKSE", "TLT", "HYG", "BLOK", "WGMI", "BTC-USD", "ETH-USD", "SOL-USD", "BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "KLBF.JK", "ADRO.JK", "ITMG.JK", "PGAS.JK", "ANTM.JK", "MDKA.JK", "PWON.JK", "SMRA.JK", "CTRA.JK", "AKRA.JK", "UNTR.JK", "ASII.JK", "AMRT.JK", "ACES.JK", "MAPI.JK"))
+    yf_close = load_yf_close(("IWM", "SPY", "QQQ", "UUP", "FXE", "FXB", "FXY", "CEW", "GLD", "DBC", "DBB", "DBA", "UNG", "SPHB", "SPLV", "MTUM", "QUAL", "IWF", "IWD", "EEM", "EIDO", "^JKSE", "TLT", "HYG", "BLOK", "WGMI", "BTC-USD", "ETH-USD", "SOL-USD", "FXI", "MCHI", "EWJ", "EZU", "VGK", "INDA", "EPI", "EWZ", "EWA", "BBCA.JK", "BBRI.JK", "BMRI.JK", "BBNI.JK", "TLKM.JK", "ICBP.JK", "INDF.JK", "KLBF.JK", "ADRO.JK", "ITMG.JK", "PGAS.JK", "ANTM.JK", "MDKA.JK", "PWON.JK", "SMRA.JK", "CTRA.JK", "AKRA.JK", "UNTR.JK", "ASII.JK", "AMRT.JK", "ACES.JK", "MAPI.JK"))
     if not yf_close.empty and all(col in yf_close.columns for col in ["IWM", "SPY"]):
         ratio = (yf_close["IWM"] / yf_close["SPY"]).dropna()
         rel63 = pct_change(ratio, 63)
@@ -2051,6 +2051,18 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
     alt_beta_signal = 0.35 * eth_signal + 0.25 * sol_signal + 0.40 * crypto_equity_signal
     crypto_quality_spread = btc_signal - alt_beta_signal
 
+    us_equity_signal = 0.60 * _zret("SPY", 20) + 0.40 * _zret("SPY", 63)
+    nasdaq_signal = 0.60 * _zret("QQQ", 20) + 0.40 * _zret("QQQ", 63)
+    tlt_signal = 0.60 * _zret("TLT", 20) + 0.40 * _zret("TLT", 63)
+    gld_signal = 0.60 * _zret("GLD", 20) + 0.40 * _zret("GLD", 63)
+    dbc_signal = 0.60 * _zret("DBC", 20) + 0.40 * _zret("DBC", 63)
+    europe_signal = 0.45 * _zret("EZU", 20) + 0.20 * _zret("EZU", 63) + 0.20 * _zret("VGK", 20) + 0.15 * (-_zret("UUP", 20))
+    china_signal = 0.40 * _zret("FXI", 20) + 0.20 * _zret("FXI", 63) + 0.25 * _zret("MCHI", 20) + 0.15 * (-_zret("UUP", 20))
+    japan_signal = 0.60 * _zret("EWJ", 20) + 0.25 * _zret("EWJ", 63) + 0.15 * (-_zret("UUP", 20))
+    india_signal = 0.45 * _zret("INDA", 20) + 0.25 * _zret("INDA", 63) + 0.15 * _zret("EPI", 20) + 0.15 * (-_zret("UUP", 20))
+    brazil_signal = 0.60 * _zret("EWZ", 20) + 0.25 * _zret("EWZ", 63) + 0.15 * commodity_breadth
+    australia_signal = 0.60 * _zret("EWA", 20) + 0.25 * _zret("EWA", 63) + 0.15 * commodity_breadth
+
     signals.update({
         "usd_signal": usd_signal,
         "emfx_signal": emfx_signal,
@@ -2073,6 +2085,17 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
         "crypto_major_signal": crypto_major_signal,
         "alt_beta_signal": alt_beta_signal,
         "crypto_quality_spread": crypto_quality_spread,
+        "us_equity_signal": us_equity_signal,
+        "nasdaq_signal": nasdaq_signal,
+        "tlt_signal": tlt_signal,
+        "gld_signal": gld_signal,
+        "dbc_signal": dbc_signal,
+        "europe_signal": europe_signal,
+        "china_signal": china_signal,
+        "japan_signal": japan_signal,
+        "india_signal": india_signal,
+        "brazil_signal": brazil_signal,
+        "australia_signal": australia_signal,
     })
 
     signals.update(fear_greed_overlays(fg_value))
@@ -2178,6 +2201,29 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
     bear_steepener = 0.55 * max(long_end_pressure, 0.0) + 0.45 * max(steepening_impulse, 0.0)
 
     # =========================
+    # 2.5) BAYESIAN-LITE OUT-QUARTER MODULE
+    # =========================
+    growth_base_effect = (
+        0.30 * signals["wei_13w_z"]
+        + 0.25 * (-signals["claims_26w_z"])
+        - 0.25 * signals["sahm_13w_z"]
+        - 0.20 * signals["recpro_13w_z"]
+    )
+    inflation_base_effect = (
+        -0.25 * signals["cpi6_z"]
+        - 0.20 * signals["core6_z"]
+        + 0.20 * signals["cpi_gap_z"]
+        + 0.20 * signals["core_gap_z"]
+        + 0.15 * signals["cpi6_gap_z"]
+        + 0.20 * inflation_market_impulse_monthly
+    )
+    gdp_nowcast_outquarter = 0.55 * gdp_nowcast_quarterly + 0.25 * gdp_nowcast_monthly + 0.20 * growth_base_effect
+    cpi_nowcast_outquarter = 0.55 * cpi_nowcast_quarterly + 0.25 * cpi_nowcast_monthly + 0.20 * inflation_base_effect
+    g_up_outquarter = sigmoid(1.10 * gdp_nowcast_outquarter)
+    i_up_outquarter = sigmoid(1.10 * cpi_nowcast_outquarter)
+    quad_scores_outquarter = _quad_scores_from_probs(g_up_outquarter, i_up_outquarter)
+
+    # =========================
     # 3) SIGNAL / RISK ENGINES
     # =========================
     credit_stress = 0.40 * signals["hy_z"] + 0.30 * signals["nfci_z"] + 0.20 * signals["stlfsi_z"] + 0.10 * signals["vix_z"]
@@ -2234,6 +2280,38 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
         )
     )
 
+    speculative_heat = (
+        0.28 * max(iwm_euphoria, 0.0)
+        + 0.24 * max(alt_beta_signal, 0.0)
+        + 0.16 * max(cyclical_style_signal, 0.0)
+        + 0.16 * max(signals["fg_greed"], 0.0)
+        + 0.16 * max(broad_em_equity_signal, 0.0)
+    )
+    quality_break = (
+        0.28 * max(-crypto_quality_spread, 0.0)
+        + 0.24 * max(iwm_fragility, 0.0)
+        + 0.24 * max(credit_stress, 0.0)
+        + 0.24 * max(front_end_policy, 0.0)
+    )
+    behavioral_top_score = clamp01(sigmoid(0.95 * speculative_heat + 1.00 * quality_break - 0.30 * breadth_health))
+    distribution_risk = clamp01(sigmoid(0.85 * iwm_fragility + 0.55 * credit_stress + 0.35 * max(iwm_euphoria, 0.0) - 0.25 * breadth_health))
+
+    secular_hard_asset_pressure = (
+        0.28 * commodity_breadth
+        + 0.18 * hard_asset_breadth
+        + 0.16 * inflation_quarterly_axis
+        + 0.16 * long_end_pressure
+        + 0.12 * front_end_policy
+        + 0.10 * bear_steepener
+    )
+    secular_duration_disinflation = (
+        0.30 * duration_tailwind
+        + 0.20 * policy_easing_impulse
+        + 0.20 * (-max(inflation_quarterly_axis, 0.0))
+        + 0.15 * (-max(front_end_policy, 0.0))
+        + 0.15 * defensive_style_signal
+    )
+
     signals.update(
         {
             # GDP / CPI nowcast axes
@@ -2241,6 +2319,10 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
             "gdp_nowcast_monthly": gdp_nowcast_monthly,
             "cpi_nowcast_quarterly": cpi_nowcast_quarterly,
             "cpi_nowcast_monthly": cpi_nowcast_monthly,
+            "gdp_nowcast_outquarter": gdp_nowcast_outquarter,
+            "cpi_nowcast_outquarter": cpi_nowcast_outquarter,
+            "growth_base_effect": growth_base_effect,
+            "inflation_base_effect": inflation_base_effect,
             "inflation_market_impulse_monthly": inflation_market_impulse_monthly,
             "inflation_market_impulse_quarterly": inflation_market_impulse_quarterly,
             # Backward-compatible macro axis keys
@@ -2275,19 +2357,29 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
             "g_up_quarterly": g_up_quarterly,
             "i_up_monthly": i_up_monthly,
             "i_up_quarterly": i_up_quarterly,
+            "g_up_outquarter": g_up_outquarter,
+            "i_up_outquarter": i_up_outquarter,
             "g_up": g_up,
             "g_down": g_down,
             "i_up": i_up,
             "quad_scores_monthly": quad_scores_monthly,
             "quad_scores_quarterly": quad_scores_quarterly,
+            "quad_scores_outquarter": quad_scores_outquarter,
             "quad_scores": quad_scores_blend,
             "macro_quad_monthly": max(quad_scores_monthly, key=quad_scores_monthly.get),
             "macro_quad_quarterly": max(quad_scores_quarterly, key=quad_scores_quarterly.get),
+            "macro_quad_outquarter": max(quad_scores_outquarter, key=quad_scores_outquarter.get),
             # Risk engines
             "short_risk_on": short_risk_on,
             "short_risk_off": short_risk_off,
             "big_crash": big_crash,
             "long_risk_on": long_risk_on,
+            "behavioral_top_score": behavioral_top_score,
+            "distribution_risk": distribution_risk,
+            "speculative_heat": speculative_heat,
+            "quality_break": quality_break,
+            "secular_hard_asset_pressure": secular_hard_asset_pressure,
+            "secular_duration_disinflation": secular_duration_disinflation,
             # Components for UI transparency
             "risk_on_components": {
                 "breadth_health": breadth_health,
@@ -2327,6 +2419,163 @@ def latest_signal_snapshot(bundle: Dict[str, pd.Series], fg_value: int) -> Dict[
         }
     )
     return signals
+
+
+def _state_label(score: float, positive_label: str = "Bullish", negative_label: str = "Bearish") -> str:
+    if score >= 0.85:
+        return f"{positive_label} Trend"
+    if score >= 0.35:
+        return f"{positive_label} / Improving"
+    if score <= -0.85:
+        return f"{negative_label} Trend"
+    if score <= -0.35:
+        return f"{negative_label} / Weakening"
+    return "Neutral / Mixed"
+
+
+def build_formal_signal_state_df(signals: Dict[str, float]) -> pd.DataFrame:
+    rows = [
+        ("USD", signals.get("usd_signal", 0.0), "Dollar and funding conditions"),
+        ("Oil / broad commodities", 0.60 * signals.get("oil21_z", 0.0) + 0.40 * signals.get("dbc_signal", 0.0), "Inflation shock / hard-asset pulse"),
+        ("Gold", signals.get("gld_signal", 0.0), "Precious-metals / hedge response"),
+        ("2Y front-end", signals.get("front_end_policy", 0.0), "Policy repricing / hawkish-dovish shift"),
+        ("5Y belly", signals.get("belly_policy", 0.0), "Medium-term inflation-policy repricing"),
+        ("10Y/30Y long-end", signals.get("long_end_pressure", 0.0), "Term premium / duration pressure"),
+        ("Duration / TLT", signals.get("duration_tailwind", 0.0), "Long-duration relief or stress"),
+        ("Nasdaq / duration equity", signals.get("nasdaq_signal", 0.0), "Growth-duration leadership"),
+        ("Broad EM", signals.get("broad_em_equity_signal", 0.0), "Cross-border cyclicality / dollar sensitivity"),
+        ("Indonesia / IHSG", signals.get("indo_equity_signal", 0.0), "Local EM / domestic risk appetite"),
+        ("BTC", signals.get("btc_signal", 0.0), "Crypto quality leader"),
+        ("Alt beta", signals.get("alt_beta_signal", 0.0), "Speculative crypto / narrative beta"),
+    ]
+    out = []
+    for asset, score, why in rows:
+        if asset in {"USD", "2Y front-end", "5Y belly", "10Y/30Y long-end"}:
+            state = _state_label(score, positive_label="Higher", negative_label="Lower")
+        else:
+            state = _state_label(score)
+        out.append({"Signal": asset, "State": state, "Score": round(float(score), 2), "Why it matters": why})
+    return pd.DataFrame(out)
+
+
+def build_country_engine_df(signals: Dict[str, float], current_quad: str) -> pd.DataFrame:
+    rows = [
+        ("US", signals.get("us_equity_signal", 0.0), "Core benchmark / quality leadership"),
+        ("Europe", signals.get("europe_signal", 0.0), "DM cyclical / FX-sensitive"),
+        ("China", signals.get("china_signal", 0.0), "Stimulus / industrial-demand sensitivity"),
+        ("Japan", signals.get("japan_signal", 0.0), "Global industrial / yen-policy mix"),
+        ("India", signals.get("india_signal", 0.0), "Domestic growth / higher-quality EM"),
+        ("Indonesia", signals.get("indo_equity_signal", 0.0), "Commodity + banks + local liquidity"),
+        ("Brazil", signals.get("brazil_signal", 0.0), "Commodity exporter / hard-asset beta"),
+        ("Australia", signals.get("australia_signal", 0.0), "Commodity / China-sensitive DM"),
+        ("Broad EM", signals.get("broad_em_equity_signal", 0.0), "Catch-all EM beta; often weaker than country selection"),
+    ]
+    adj_rows = []
+    for country, raw_score, why in rows:
+        bonus = 0.0
+        if current_quad == "Q2" and country in {"Brazil", "Australia", "India", "Indonesia"}:
+            bonus += 0.15
+        if current_quad == "Q3" and country in {"Brazil", "Australia"}:
+            bonus += 0.18
+        if current_quad == "Q3" and country in {"Broad EM", "Indonesia"}:
+            bonus -= 0.10 if country == "Broad EM" else 0.05
+        if current_quad == "Q4" and country in {"US", "Japan"}:
+            bonus += 0.10
+        final = raw_score + bonus
+        if final >= 0.55:
+            bias = "Strong / favored"
+        elif final >= 0.20:
+            bias = "Constructive / selective"
+        elif final <= -0.55:
+            bias = "Weak / avoid"
+        elif final <= -0.20:
+            bias = "Soft / underweight"
+        else:
+            bias = "Mixed / watch"
+        adj_rows.append({"Country": country, "Bias": bias, "Score": round(float(final), 2), "Why": why})
+    return pd.DataFrame(adj_rows).sort_values("Score", ascending=False).reset_index(drop=True)
+
+
+def build_outquarter_df(signals: Dict[str, float]) -> pd.DataFrame:
+    rows = [
+        ("GDP nowcast (Monthly)", signals.get("gdp_nowcast_monthly", 0.0)),
+        ("GDP nowcast (Quarterly)", signals.get("gdp_nowcast_quarterly", 0.0)),
+        ("GDP nowcast (Out-quarter)", signals.get("gdp_nowcast_outquarter", 0.0)),
+        ("CPI nowcast (Monthly)", signals.get("cpi_nowcast_monthly", 0.0)),
+        ("CPI nowcast (Quarterly)", signals.get("cpi_nowcast_quarterly", 0.0)),
+        ("CPI nowcast (Out-quarter)", signals.get("cpi_nowcast_outquarter", 0.0)),
+        ("Growth base-effect adjustment", signals.get("growth_base_effect", 0.0)),
+        ("Inflation base-effect adjustment", signals.get("inflation_base_effect", 0.0)),
+    ]
+    return pd.DataFrame(rows, columns=["Module", "Score"])
+
+
+def behavioral_process_summary(signals: Dict[str, float]) -> Dict[str, object]:
+    top = float(signals.get("behavioral_top_score", 0.0))
+    dist = float(signals.get("distribution_risk", 0.0))
+    if top >= 0.78:
+        label = "Behavioral Excess / Blow-off Risk"
+    elif top >= 0.58:
+        label = "Hot / crowded tape"
+    elif top >= 0.38:
+        label = "Warm / watch for distribution"
+    else:
+        label = "No major behavioral excess"
+    lines = [
+        "Leader-first moves are healthy; low-quality spillover leading too early usually means the move is maturing.",
+        "If BTC leadership weakens while alt beta still pushes, or IWM euphoria rises while breadth deteriorates, treat that as a late-stage warning.",
+        "If credit stress and front-end yields rise while speculative beta stays hot, that is closer to distribution than healthy rotation.",
+    ]
+    return {"label": label, "top": round(top * 100, 1), "distribution": round(dist * 100, 1), "lines": lines}
+
+
+def secular_cycle_summary(signals: Dict[str, float]) -> Dict[str, object]:
+    hard = float(signals.get("secular_hard_asset_pressure", 0.0))
+    dur = float(signals.get("secular_duration_disinflation", 0.0))
+    if hard - dur >= 0.35:
+        regime = "Hard-asset / inflation-pressure secular tilt"
+    elif dur - hard >= 0.35:
+        regime = "Duration / disinflation secular tilt"
+    else:
+        regime = "Mixed / transition secular tilt"
+    lines = [
+        "Use this as a backdrop overlay, not as a direct replacement for the quad engine.",
+        "Hard-asset secular tilt matters most when commodity breadth, yields, and inflation impulse reinforce each other.",
+        "Duration secular tilt matters most when front-end pressure eases, long-end relief broadens, and defensives / quality duration lead.",
+    ]
+    return {"regime": regime, "hard_asset_score": round(hard, 2), "duration_score": round(dur, 2), "lines": lines}
+
+
+def render_advanced_process_overlay(signals: Dict[str, float], current_quad: str) -> None:
+    st.markdown("### Advanced Process Overlay")
+    with st.expander("Open signal states + out-quarter + country engine", expanded=False):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**Formal Signal States**")
+            st.dataframe(build_formal_signal_state_df(signals), use_container_width=True, hide_index=True)
+            beh = behavioral_process_summary(signals)
+            st.markdown("**Behavioral / Topping Process**")
+            st.markdown(
+                f"<div class='section-note'><b>{escape_text(beh['label'])}</b><br>Top score: {beh['top']}/100 | Distribution risk: {beh['distribution']}/100</div>",
+                unsafe_allow_html=True,
+            )
+            for line in beh["lines"]:
+                st.write(f"• {line}")
+        with c2:
+            st.markdown("**Bayesian-lite Out-Quarter Module**")
+            st.dataframe(build_outquarter_df(signals), use_container_width=True, hide_index=True)
+            st.write("**Out-quarter quad scores:**", {k: round(v, 1) for k, v in signals.get("quad_scores_outquarter", {}).items()})
+            st.write("**Out-quarter quad:**", signals.get("macro_quad_outquarter", "N/A"))
+            sec = secular_cycle_summary(signals)
+            st.markdown("**Secular Commodity / Rates Overlay**")
+            st.markdown(
+                f"<div class='section-note'><b>{escape_text(sec['regime'])}</b><br>Hard-asset score: {sec['hard_asset_score']} | Duration score: {sec['duration_score']}</div>",
+                unsafe_allow_html=True,
+            )
+            for line in sec["lines"]:
+                st.write(f"• {line}")
+        st.markdown("**Global / Country Engine**")
+        st.dataframe(build_country_engine_df(signals, current_quad), use_container_width=True, hide_index=True)
 
 
 def reason_lines(signals: Dict[str, float], quad: str) -> Tuple[List[str], List[str]]:
@@ -2548,7 +2797,8 @@ def overview_metrics(signals: Dict[str, float], fg_info: Dict[str, object]) -> N
     c3.metric("Monthly Quad", str(signals.get("macro_quad_monthly", "N/A")))
     c4.metric("GDP Nowcast (Q)", f"{signals['gdp_nowcast_quarterly']:.2f}")
     c5.metric("CPI Nowcast (Q)", f"{signals['cpi_nowcast_quarterly']:.2f}")
-    c6.metric("Macro Roll Risk", f"{signals['growth_transition'] * 100:.0f}%")
+    c6.metric("Out-Quarter Quad", str(signals.get("macro_quad_outquarter", "N/A")))
+    st.caption(f"Macro roll risk: {signals['growth_transition'] * 100:.0f}% | Behavioral top: {signals['behavioral_top_score'] * 100:.0f}%")
 
     fg_text = "N/A" if np.isnan(signals["fg_norm"]) else f"{signals['fg_norm'] * 100:.0f}"
     fg_source = "CNN" if fg_info.get("status") == "ok" else "Manual / N.A."
@@ -2606,6 +2856,7 @@ def render_engine_components(signals: Dict[str, float]) -> None:
             st.write("**Inflation market impulse (quarterly):**", round(float(signals["inflation_market_impulse_quarterly"]), 3))
             st.write("**Quarterly quad scores:**", {k: round(v, 1) for k, v in signals["quad_scores_quarterly"].items()})
             st.write("**Monthly quad scores:**", {k: round(v, 1) for k, v in signals["quad_scores_monthly"].items()})
+            st.write("**Out-quarter quad scores:**", {k: round(v, 1) for k, v in signals["quad_scores_outquarter"].items()})
             st.write("**Blended regime scores:**", {k: round(v, 1) for k, v in signals["quad_scores"].items()})
     with macro_right:
         with st.expander("Policy / Transition Engine", expanded=False):
@@ -2630,6 +2881,10 @@ def render_engine_components(signals: Dict[str, float]) -> None:
             st.write("**Defensive style signal:**", round(float(signals["defensive_style_signal"]), 3))
             st.write("**Duration market signal:**", round(float(signals["duration_market_signal"]), 3))
             st.write("**Crypto-equity signal:**", round(float(signals["crypto_equity_signal"]), 3))
+            st.write("**Behavioral top score:**", round(float(signals["behavioral_top_score"]), 3))
+            st.write("**Distribution risk:**", round(float(signals["distribution_risk"]), 3))
+            st.write("**Secular hard-asset pressure:**", round(float(signals["secular_hard_asset_pressure"]), 3))
+            st.write("**Secular duration/disinflation:**", round(float(signals["secular_duration_disinflation"]), 3))
 
     risk_names = [
         ("Short Risk-On Engine", signals.get("risk_on_components", {})),
@@ -3942,6 +4197,7 @@ def main() -> None:
 
     render_playbook_all_quads(signals, state.quad.current_quad, state.quad.active_scores)
     render_live_news_overlay(signals, state.quad.current_quad, news_query)
+    render_advanced_process_overlay(signals, state.quad.current_quad)
 
     if show_raw:
         st.markdown("### Raw Signal Table")
@@ -3949,7 +4205,7 @@ def main() -> None:
 
     st.markdown("---")
     st.caption(
-        "Catatan: quad inti sekarang dihitung dari GDP nowcast RoC vs CPI nowcast RoC. Driver current quad bisa dipilih: Monthly, Blended Regime, atau Quarterly Anchor. Matrix Q1–Q4 menampilkan official public Hedgeye buckets; FX / EM / IHSG / crypto / rates dipisah sebagai overlay inference. Winner / loser ladder dan stage rotation kini diurutkan dari dampak paling direct sampai spillover paling kecil. 2Y / 5Y / 10Y / 30Y hidup di policy / rates lens; IWM, VIX, HY, Fear & Greed, FX complex, commodity breadth, style factors, EM / IHSG local baskets, dan crypto-quality-vs-alt-beta hidup di signal / risk engines, bukan penentu macro quad inti."
+        "Catatan: quad inti sekarang dihitung dari GDP nowcast RoC vs CPI nowcast RoC. Driver current quad bisa dipilih: Monthly, Blended Regime, atau Quarterly Anchor. Matrix Q1–Q4 menampilkan official public Hedgeye buckets; FX / EM / IHSG / crypto / rates dipisah sebagai overlay inference. Winner / loser ladder dan stage rotation kini diurutkan dari dampak paling direct sampai spillover paling kecil. 2Y / 5Y / 10Y / 30Y hidup di policy / rates lens; IWM, VIX, HY, Fear & Greed, FX complex, commodity breadth, style factors, EM / IHSG local baskets, dan crypto-quality-vs-alt-beta hidup di signal / risk engines, bukan penentu macro quad inti. V17 menambah Bayesian-lite out-quarter module, formal signal states, behavioral/topping process overlay, secular commodity-vs-duration layer, dan global/country engine agar flow model lebih dekat ke public-process Hedgeye sambil tetap usable untuk crypto dan IHSG."
     )
 
 
