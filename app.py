@@ -162,6 +162,79 @@ def score_color(x: float) -> str:
     return "#ef4444"
 
 
+def next_release_watch(now: Optional[pd.Timestamp] = None) -> List[Tuple[str, pd.Timestamp]]:
+    now = pd.Timestamp.utcnow().tz_localize(None) if now is None else pd.Timestamp(now).tz_localize(None) if getattr(pd.Timestamp(now), "tzinfo", None) else pd.Timestamp(now)
+    y, m = now.year, now.month
+    def nth_weekday(year: int, month: int, weekday: int, n: int) -> pd.Timestamp:
+        d = pd.Timestamp(year=year, month=month, day=1)
+        shift = (weekday - d.weekday()) % 7
+        return d + pd.Timedelta(days=shift + 7 * (n - 1))
+    # rough recurring schedule, good enough as an event watch card
+    events = [
+        ("CPI", pd.Timestamp(year=y, month=m, day=min(13, pd.Period(f"{y}-{m:02d}").days_in_month))),
+        ("PPI", pd.Timestamp(year=y, month=m, day=min(14, pd.Period(f"{y}-{m:02d}").days_in_month))),
+        ("Retail Sales", pd.Timestamp(year=y, month=m, day=min(15, pd.Period(f"{y}-{m:02d}").days_in_month))),
+        ("FOMC", nth_weekday(y, m, 2, 3)),
+        ("NFP", nth_weekday(y, m, 4, 1)),
+    ]
+    out=[]
+    for name, dt in events:
+        if dt < now.normalize():
+            nm = 1 if m < 12 else 1
+            ny = y if m < 12 else y + 1
+            if name == "CPI":
+                dt = pd.Timestamp(year=ny, month=(m%12)+1, day=min(13, pd.Period(f"{ny}-{(m%12)+1:02d}").days_in_month))
+            elif name == "PPI":
+                dt = pd.Timestamp(year=ny, month=(m%12)+1, day=min(14, pd.Period(f"{ny}-{(m%12)+1:02d}").days_in_month))
+            elif name == "Retail Sales":
+                dt = pd.Timestamp(year=ny, month=(m%12)+1, day=min(15, pd.Period(f"{ny}-{(m%12)+1:02d}").days_in_month))
+            elif name == "FOMC":
+                dt = nth_weekday(ny, (m%12)+1, 2, 3)
+            elif name == "NFP":
+                dt = nth_weekday(ny, (m%12)+1, 4, 1)
+        out.append((name, dt))
+    return sorted(out, key=lambda x: x[1])[:3]
+
+
+def path_status(state: PhaseState) -> Tuple[str, str, str, str]:
+    target = f"{state.current_phase} → {top1(state.next_phase_probs)}"
+    p = state.transition_pressure
+    c = state.confidence
+    if top1(state.next_phase_probs) == state.current_phase and state.stay_probability >= 0.62:
+        status = "Stable / no clean shift"
+    elif p < 0.28:
+        status = "Starting"
+    elif p < 0.45:
+        status = "Building"
+    elif p < 0.62:
+        status = "Valid"
+    else:
+        status = "Confirmed"
+    fail = "Low" if state.stay_probability > 0.65 else ("Medium" if state.stay_probability > 0.48 else "High")
+    conf = "High" if c > 0.68 else ("Medium" if c > 0.48 else "Low")
+    return target, status, conf, fail
+
+
+def risk_snapshot(state: PhaseState, shocks: Dict[str, Tuple[str, str]], fear_greed: float) -> pd.DataFrame:
+    growth_stress = clamp(state.transition_pressure * 0.9 + state.top_score * 0.35 - state.bottom_score * 0.2)
+    inflation_stress = clamp(1 - state.bottom_score * 0.2 + state.higher_top_risk * 0.35)
+    liquidity_stress = 0.2 if shocks.get("Liquidity", ("Low",))[0] == "Low" else (0.55 if shocks.get("Liquidity", ("Low",))[0] == "Medium" else 0.82)
+    sentiment_stretch = clamp(abs(fear_greed - 50.0) / 50.0)
+    items = [("Growth stress", growth_stress),("Inflation stress", inflation_stress),("Liquidity stress", liquidity_stress),("Sentiment stretch", sentiment_stretch)]
+    return pd.DataFrame([(k, pct_fmt(v), "High" if v>=0.7 else ("Medium" if v>=0.45 else "Low")) for k,v in items], columns=["Engine","Score","Read"])
+
+
+def next_playbook_hint(state: PhaseState) -> Tuple[List[str], List[str]]:
+    q = top1(state.next_phase_probs)
+    base = {
+        "Q1": (["Beta", "Cyclicals", "Quality Growth"], ["USD", "Pure defensives"]),
+        "Q2": (["Cyclicals", "Value", "Energy"], ["Long duration"]),
+        "Q3": (["USD", "Gold", "Defensives"], ["Small caps", "Deep cyclicals"]),
+        "Q4": (["Duration", "Quality", "Gold"], ["Beta", "Value cyclicals"]),
+    }
+    return base.get(q, (["Balanced"],["Crowded extremes"]))
+
+
 # =========================
 # Data fetch
 # =========================
@@ -788,23 +861,34 @@ with left:
             unsafe_allow_html=True,
         )
         st.dataframe(prob_bar(state.blended_probs), use_container_width=True, hide_index=True)
-        with st.expander("Top / Bottom ladder", expanded=True):
-            ladder = pd.DataFrame([
-                ["Provisional top", pct_fmt(state.top_score)],
-                ["Higher-top / blow-off", pct_fmt(state.higher_top_risk)],
-                ["Provisional bottom", pct_fmt(state.bottom_score)],
-                ["Lower-bottom / capitulation", pct_fmt(state.lower_bottom_risk)],
-            ], columns=["Ladder", "Score"])
-            st.dataframe(ladder, use_container_width=True, hide_index=True)
+        c1, c2 = st.columns([1.25, 1.0])
+        with c1:
+            with st.expander("Top / Bottom ladder", expanded=True):
+                ladder = pd.DataFrame([
+                    ["Provisional top", pct_fmt(state.top_score)],
+                    ["Higher-top / blow-off", pct_fmt(state.higher_top_risk)],
+                    ["Provisional bottom", pct_fmt(state.bottom_score)],
+                    ["Lower-bottom / capitulation", pct_fmt(state.lower_bottom_risk)],
+                ], columns=["Ladder", "Score"])
+                st.dataframe(ladder, use_container_width=True, hide_index=True)
+        with c2:
+            st.markdown("**Risk Engine Snapshot**")
+            st.dataframe(risk_snapshot(state, shocks, float(fear_greed)), use_container_width=True, hide_index=True)
+            st.markdown("**Event Watch**")
+            ev = pd.DataFrame([(n, d.strftime("%Y-%m-%d"), f"{max((d.normalize()-pd.Timestamp.utcnow().tz_localize(None).normalize()).days,0)}d") for n,d in next_release_watch()], columns=["Event","Date","In"])
+            st.dataframe(ev, use_container_width=True, hide_index=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     with next_tab:
         st.markdown("<div class='card'><div class='section-title'>NEXT MAP</div>", unsafe_allow_html=True)
+        _path_target, _path_status, _path_conf, _path_fail = path_status(state)
         st.markdown(
             f"<div class='tree'>"
             f"<div class='node'><b>Stay Probability</b> → {pct_fmt(state.stay_probability)}</div>"
             f"<div class='node'><b>Transition Pressure</b> → {pct_fmt(state.transition_pressure)}</div>"
             f"<div class='node'><b>Most Likely Next</b> → {top1(state.next_phase_probs)}</div>"
+            f"<div class='node'><b>Path to Next Q</b> → {_path_target}</div>"
+            f"<div class='node'><b>Status</b> → {_path_status} &nbsp; {pill(_path_conf)} {pill('Failure ' + _path_fail)}</div>"
             f"<div class='node'><b>Entry Quality</b> → {timing['Entry Quality']}</div>"
             f"<div class='node'><b>Rotation Timing</b> → {timing['Rotation Timing']}</div>"
             f"<div class='node'><b>Hold Bias</b> → {timing['Hold Bias']}</div>"
@@ -813,10 +897,38 @@ with left:
             unsafe_allow_html=True,
         )
         st.dataframe(prob_bar(state.next_phase_probs), use_container_width=True, hide_index=True)
+        _next_sorted = sorted(state.next_phase_probs.items(), key=lambda kv: kv[1], reverse=True)
+        _tree = pd.DataFrame([
+            ["Most likely", f"{state.current_phase} → {_next_sorted[0][0]}", pct_fmt(_next_sorted[0][1])],
+            ["Alt 1", f"{state.current_phase} → {_next_sorted[1][0]}", pct_fmt(_next_sorted[1][1])],
+            ["Alt 2", f"{state.current_phase} → {_next_sorted[2][0]}", pct_fmt(_next_sorted[2][1])],
+        ], columns=["Route", "Path", "Weight"])
+        st.markdown("**Transition Tree mini**")
+        st.dataframe(_tree, use_container_width=True, hide_index=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     with playbook_tab:
         st.markdown("<div class='card'><div class='section-title'>PLAYBOOK MAP</div>", unsafe_allow_html=True)
+        _nw, _nl = next_playbook_hint(state)
+        ctop1, ctop2 = st.columns(2)
+        with ctop1:
+            st.markdown("**Current vs Next Playbook mini**")
+            _curr = playbook.get('US Stocks', next(iter(playbook.values())))
+            mini = pd.DataFrame([
+                ["Current winners", ", ".join(_curr['Winners'][:3])],
+                ["Current losers", ", ".join(_curr['Losers'][:3])],
+                ["Next winners", ", ".join(_nw[:3])],
+                ["Next losers", ", ".join(_nl[:3])],
+            ], columns=["Lens", "Read"])
+            st.dataframe(mini, use_container_width=True, hide_index=True)
+        with ctop2:
+            st.markdown("**Invalidation mini-box**")
+            inv = pd.DataFrame([
+                ["Growth breadth improves sharply", "Reduce defensive / slowdown bias"],
+                ["Inflation re-accelerates", "Upgrade stagflation / USD / gold tilt"],
+                ["Shock fades quickly", "Trim hedges and shorten override state"],
+            ], columns=["Trigger", "Action"])
+            st.dataframe(inv, use_container_width=True, hide_index=True)
         play_tabs = st.tabs(list(playbook.keys()))
         for tab, (asset_class, mapping) in zip(play_tabs, playbook.items()):
             with tab:
