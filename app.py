@@ -114,7 +114,11 @@ class PhaseState:
     agreement: float
     sub_phase: str
     validity: str
+    regime_strength: float
+    breadth: float
+    fragility: float
     transition_pressure: float
+    transition_conviction: float
     stay_probability: float
     next_phase_probs: Dict[str, float]
     top_score: float
@@ -487,8 +491,29 @@ def build_phase_state(df: pd.DataFrame, fear_greed: Optional[float], iwm_blowoff
     current_phase = top1(blended)
 
     # Sub-phase / validity
-    regime_strength = float(sorted_blend[0] - sorted_blend[-1])
-    if confidence > 0.72 and regime_strength > 0.35:
+    regime_strength = clamp((float(sorted_blend[0] - sorted_blend[-1])) / 0.60)
+    growth_parts = [
+        pct_change_z(df["PAYEMS"], 3, 24) if "PAYEMS" in df else 0.0,
+        pct_change_z(df["INDPRO"], 3, 24) if "INDPRO" in df else 0.0,
+        pct_change_z(df["RSAFS"], 3, 24) if "RSAFS" in df else 0.0,
+        -level_change_z(df["UNRATE"], 3, 24) if "UNRATE" in df else 0.0,
+        -pct_change_z(df["ICSA"], 4, 24) if "ICSA" in df else 0.0,
+        pct_change_z(df["HOUST"], 3, 24) if "HOUST" in df else 0.0,
+        pct_change_z(df["PERMIT"], 3, 24) if "PERMIT" in df else 0.0,
+    ]
+    infl_parts = [
+        yoy_z(df["CPIAUCSL"]) if "CPIAUCSL" in df else 0.0,
+        yoy_z(df["CPILFESL"]) if "CPILFESL" in df else 0.0,
+        yoy_z(df["PPIACO"]) if "PPIACO" in df else 0.0,
+        level_change_z(df["T5YIE"], 3, 24) if "T5YIE" in df else 0.0,
+    ]
+    g_sign = 1 if current_phase in ["Q1", "Q2"] else -1
+    i_sign = 1 if current_phase in ["Q2", "Q3"] else -1
+    g_b = np.mean([1.0 if np.sign(x) == g_sign and abs(x) > 0.10 else 0.0 for x in growth_parts])
+    i_b = np.mean([1.0 if np.sign(x) == i_sign and abs(x) > 0.10 else 0.0 for x in infl_parts])
+    breadth = clamp(0.55 * g_b + 0.45 * i_b)
+    fragility = clamp(0.45 * (1.0 - confidence) + 0.35 * (1.0 - breadth) + 0.20 * max(stress_m, 0.0))
+    if confidence > 0.72 and regime_strength > 0.55 and fragility < 0.38:
         validity = "Stable"
     elif confidence > 0.55:
         validity = "Fragile"
@@ -521,6 +546,8 @@ def build_phase_state(df: pd.DataFrame, fear_greed: Optional[float], iwm_blowoff
     next_phase_probs = normalize_prob_map({q: float(v) for q, v in zip(["Q1", "Q2", "Q3", "Q4"], next_prob_vec)})
     stay_probability = float(next_phase_probs[current_phase])
     transition_pressure = clamp(1.0 - stay_probability)
+    _next_sorted_vals = sorted(next_phase_probs.values(), reverse=True)
+    transition_conviction = clamp((_next_sorted_vals[0] - _next_sorted_vals[1]) / 0.35)
 
     # Turning-point ladder with optional sentiment overlays
     late_macro = clamp(0.55 * max(stress_m, 0.0) + 0.45 * transition_pressure)
@@ -549,7 +576,11 @@ def build_phase_state(df: pd.DataFrame, fear_greed: Optional[float], iwm_blowoff
         agreement=agreement,
         sub_phase=sub_phase,
         validity=validity,
+        regime_strength=regime_strength,
+        breadth=breadth,
+        fragility=fragility,
         transition_pressure=transition_pressure,
+        transition_conviction=transition_conviction,
         stay_probability=stay_probability,
         next_phase_probs=next_phase_probs,
         top_score=top_score,
@@ -719,6 +750,90 @@ def build_what_if(state: PhaseState, shocks: Dict[str, Tuple[str, str]]) -> List
     return out
 
 
+def posture_from_state(state: PhaseState) -> str:
+    if state.confidence < 0.42 or state.fragility > 0.68:
+        return "Wait / low conviction"
+    if state.current_phase in ["Q3", "Q4"] and state.top_score > 0.45:
+        return "Defensive"
+    if state.current_phase in ["Q1", "Q2"] and state.regime_strength > 0.55 and state.fragility < 0.45:
+        return "Aggressive"
+    return "Balanced"
+
+
+def _bucket(v: float, cuts=(0.33,0.66), labels=("Weak","Medium","Strong")) -> str:
+    return labels[0] if v < cuts[0] else (labels[1] if v < cuts[1] else labels[2])
+
+
+def relative_detail_engine(prices: pd.DataFrame, df: pd.DataFrame, fear_greed: Optional[float]=None) -> Dict[str, Dict[str, str]]:
+    out: Dict[str, Dict[str, str]] = {}
+    rets_1m = prices.ffill().pct_change(21) if not prices.empty else pd.DataFrame()
+    rets_3m = prices.ffill().pct_change(63) if not prices.empty else pd.DataFrame()
+    last1 = rets_1m.iloc[-1].to_dict() if not rets_1m.empty else {}
+    last3 = rets_3m.iloc[-1].to_dict() if not rets_3m.empty else {}
+    usd_z = safe_zscore(df["DTWEXBGS"], 26) if "DTWEXBGS" in df else 0.0
+    oil_z = safe_zscore(df["DCOILWTICO"], 26) if "DCOILWTICO" in df else 0.0
+    fci_z = safe_zscore(df["NFCI"], 26) if "NFCI" in df else 0.0
+
+    def build(name, a, b, pos_label, neg_label, confirm_hint=True):
+        a1, b1 = last1.get(a, np.nan), last1.get(b, np.nan)
+        a3, b3 = last3.get(a, np.nan), last3.get(b, np.nan)
+        if pd.notna(a3) and pd.notna(b3):
+            diff = float(a3 - b3)
+            diff1 = float((0 if pd.isna(a1) else a1) - (0 if pd.isna(b1) else b1))
+        else:
+            diff = 0.0; diff1 = 0.0
+        direction = pos_label if diff > 0.03 else (neg_label if diff < -0.03 else "Balanced")
+        strength = clamp(abs(diff) / 0.12)
+        state = "Building" if diff1 * diff > 0 and abs(diff1) > 0.01 else ("Fading" if diff1 * diff < 0 and abs(diff1) > 0.01 else "Stable")
+        quality = "Healthy" if strength > 0.55 and state != "Fading" else ("Narrow" if strength > 0.35 else "Fragile")
+        sustain = "High" if strength > 0.62 and state != "Fading" else ("Medium" if strength > 0.35 else "Low")
+        conf = "Confirmed"
+        if name == "US vs EM" and usd_z > 0.7 and direction == "EM stronger": conf = "Mixed"
+        if name.startswith("IHSG") and usd_z > 0.8 and direction.startswith("IHSG"): conf = "Mixed"
+        if name == "Crypto vs Liquidity" and fci_z > 0.4 and direction == "Crypto leading": conf = "Not confirmed"
+        out[name] = {"Direction": direction, "Strength": _bucket(strength), "State": state, "Quality": quality, "Sustainability": sustain, "Confirmation": conf}
+
+    build("US vs EM", "SPY", "EEM", "US stronger", "EM stronger")
+    build("IHSG vs US", "^JKSE", "SPY", "IHSG stronger", "US stronger")
+    if out["IHSG vs US"]["Direction"] == "Balanced" and "EIDO" in last3 and "SPY" in last3:
+        diff=float(last3.get("EIDO",0)-last3.get("SPY",0)); out["IHSG vs US"]["Direction"] = "IHSG stronger" if diff>0.03 else ("US stronger" if diff<-0.03 else "Balanced")
+    build("IHSG vs EM", "^JKSE", "EEM", "IHSG stronger", "EM stronger")
+    if out["IHSG vs EM"]["Direction"] == "Balanced" and "EIDO" in last3 and "EEM" in last3:
+        diff=float(last3.get("EIDO",0)-last3.get("EEM",0)); out["IHSG vs EM"]["Direction"] = "IHSG stronger" if diff>0.03 else ("EM stronger" if diff<-0.03 else "Balanced")
+    build("Crypto vs Liquidity", "BTC-USD", "QQQ", "Crypto leading", "Liquidity not confirming")
+    return out
+
+
+def size_rotation_engine(prices: pd.DataFrame, df: pd.DataFrame, fear_greed: Optional[float]=None, iwm_blowoff: float=0.0) -> Dict[str, Dict[str, str]]:
+    out = {}
+    rets_1m = prices.ffill().pct_change(21) if not prices.empty else pd.DataFrame()
+    rets_3m = prices.ffill().pct_change(63) if not prices.empty else pd.DataFrame()
+    l1 = rets_1m.iloc[-1].to_dict() if not rets_1m.empty else {}
+    l3 = rets_3m.iloc[-1].to_dict() if not rets_3m.empty else {}
+    fg = 50 if fear_greed is None else float(fear_greed)
+    def mk(name, a, b, pos, neg, speculative=False):
+        da = float(l3.get(a, np.nan)) if a in l3 else np.nan
+        db = float(l3.get(b, np.nan)) if b in l3 else np.nan
+        d1a = float(l1.get(a, np.nan)) if a in l1 else np.nan
+        d1b = float(l1.get(b, np.nan)) if b in l1 else np.nan
+        diff = 0.0 if (pd.isna(da) or pd.isna(db)) else da-db
+        diff1 = 0.0 if (pd.isna(d1a) or pd.isna(d1b)) else d1a-d1b
+        direction = pos if diff > 0.03 else (neg if diff < -0.03 else "Balanced")
+        strength = clamp(abs(diff)/0.15)
+        state = "Building" if diff1*diff>0 and abs(diff1)>0.01 else ("Peaking" if abs(diff)>0.08 and abs(diff1)<0.01 else ("Fading" if diff1*diff<0 and abs(diff1)>0.01 else "Stable"))
+        quality = "Healthy"
+        if speculative and direction==pos and fg>70: quality = "Frothy"
+        elif strength < 0.35: quality = "Weak"
+        elif state=="Fading": quality = "Exhausting"
+        sustain = "High" if strength>0.6 and quality=="Healthy" else ("Low" if quality in ["Frothy","Exhausting","Weak"] else "Medium")
+        conf = "Confirmed" if strength>0.45 else "Mixed"
+        out[name] = {"Direction": direction, "Strength": _bucket(strength), "State": state, "Quality": quality, "Sustainability": sustain, "Confirmation": conf}
+    mk("US Size Rotation", "IWM", "SPY", "Small > Big", "Big > Small", speculative=True)
+    mk("IHSG Size Rotation", "EIDO", "SPY", "Small/2nd liners > Big", "Big > Small/2nd liners", speculative=True)
+    mk("Crypto Size Rotation", "ETH-USD", "BTC-USD", "Alts > BTC", "BTC > Alts", speculative=True)
+    return out
+
+
 # =========================
 # Visuals
 # =========================
@@ -816,8 +931,12 @@ else:
 if not playbook_order:
     playbook_order = ['Balanced / wait for stronger edge']
 relative = relative_engine(prices, fred, float(fear_greed))
+relative_detail = relative_detail_engine(prices, fred, float(fear_greed))
+size_rotation = size_rotation_engine(prices, fred, float(fear_greed), float(iwm_blowoff))
 shocks = shock_engine(fred, float(fear_greed), state)
 what_if_cases = build_what_if(state, shocks)
+positioning_posture = posture_from_state(state)
+base_override_status = "Override active" if any(v[0] == "High" for v in shocks.values()) else ("Watch" if any(v[0] == "Medium" for v in shocks.values()) else "Base case")
 
 # Top KPIs
 k1, k2, k3, k4, k5 = st.columns(5)
@@ -857,6 +976,9 @@ with left:
             f"<div class='node'><b>Confidence</b> → {pct_fmt(state.confidence)} &nbsp; {pill(state.validity, score_color(state.confidence))}</div>"
             f"<div class='node'><b>Agreement</b> → {pct_fmt(state.agreement)} &nbsp; {pill('Monthly ' + top1(state.monthly_probs))} {pill('Quarterly ' + top1(state.quarterly_probs))}</div>"
             f"<div class='node'><b>Sub-Phase</b> → {state.sub_phase}</div>"
+            f"<div class='node'><b>Regime Strength</b> → {pct_fmt(state.regime_strength)}</div>"
+            f"<div class='node'><b>Breadth</b> → {pct_fmt(state.breadth)}</div>"
+            f"<div class='node'><b>Fragility</b> → {pct_fmt(state.fragility)}</div>"
             f"</div>",
             unsafe_allow_html=True,
         )
@@ -889,6 +1011,7 @@ with left:
             f"<div class='node'><b>Most Likely Next</b> → {top1(state.next_phase_probs)}</div>"
             f"<div class='node'><b>Path to Next Q</b> → {_path_target}</div>"
             f"<div class='node'><b>Status</b> → {_path_status} &nbsp; {pill(_path_conf)} {pill('Failure ' + _path_fail)}</div>"
+            f"<div class='node'><b>Transition Conviction</b> → {pct_fmt(state.transition_conviction)}</div>"
             f"<div class='node'><b>Entry Quality</b> → {timing['Entry Quality']}</div>"
             f"<div class='node'><b>Rotation Timing</b> → {timing['Rotation Timing']}</div>"
             f"<div class='node'><b>Hold Bias</b> → {timing['Hold Bias']}</div>"
@@ -922,6 +1045,7 @@ with left:
             ], columns=["Lens", "Read"])
             st.dataframe(mini, use_container_width=True, hide_index=True)
         with ctop2:
+            st.markdown(f"**Positioning Posture**: {positioning_posture}")
             st.markdown("**Invalidation mini-box**")
             inv = pd.DataFrame([
                 ["Growth breadth improves sharply", "Reduce defensive / slowdown bias"],
@@ -948,14 +1072,24 @@ with right:
 
     with rel_tab:
         st.markdown("<div class='card'><div class='section-title'>RELATIVE MAP</div>", unsafe_allow_html=True)
-        rel_df = pd.DataFrame([[k, v] for k, v in relative.items()], columns=["Relative Lens", "Read"])
+        rel_rows = []
+        for k, v in relative_detail.items():
+            rel_rows.append([k, v["Direction"], v["Strength"], v["State"], v["Quality"], v["Sustainability"], v["Confirmation"]])
+        rel_df = pd.DataFrame(rel_rows, columns=["Relative Lens", "Direction", "Strength", "State", "Quality", "Sustainability", "Confirmation"])
         st.dataframe(rel_df, use_container_width=True, hide_index=True)
+        st.markdown("**SIZE ROTATION**")
+        sr_rows = []
+        for k, v in size_rotation.items():
+            sr_rows.append([k, v["Direction"], v["Strength"], v["State"], v["Quality"], v["Sustainability"], v["Confirmation"]])
+        sr_df = pd.DataFrame(sr_rows, columns=["Rotation Lens", "Direction", "Strength", "State", "Quality", "Sustainability", "Confirmation"])
+        st.dataframe(sr_df, use_container_width=True, hide_index=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     with shock_tab:
         st.markdown("<div class='card'><div class='section-title'>SHOCKS / WHAT-IF MAP</div>", unsafe_allow_html=True)
         s1, s2, s3 = st.tabs(["Overlay", "Transmission / Correlation", "Crash / Recovery"])
         with s1:
+            st.markdown(f"**Shock Status**: {base_override_status}")
             for k, (sev, desc) in shocks.items():
                 color = "#22c55e" if sev == "Low" else ("#f59e0b" if sev == "Medium" else "#ef4444")
                 st.markdown(f"{pill(f'{k}: {sev}', color)} <span class='muted'>{desc}</span>", unsafe_allow_html=True)
