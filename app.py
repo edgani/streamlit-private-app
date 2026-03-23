@@ -828,9 +828,9 @@ def size_rotation_engine(prices: pd.DataFrame, df: pd.DataFrame, fear_greed: Opt
         sustain = "High" if strength>0.6 and quality=="Healthy" else ("Low" if quality in ["Frothy","Exhausting","Weak"] else "Medium")
         conf = "Confirmed" if strength>0.45 else "Mixed"
         out[name] = {"Direction": direction, "Strength": _bucket(strength), "State": state, "Quality": quality, "Sustainability": sustain, "Confirmation": conf}
-    mk("US Size Rotation", "IWM", "SPY", "Small > Big", "Big > Small", speculative=True)
-    mk("IHSG Size Rotation", "EIDO", "SPY", "Small/2nd liners > Big", "Big > Small/2nd liners", speculative=True)
-    mk("Crypto Size Rotation", "ETH-USD", "BTC-USD", "Alts > BTC", "BTC > Alts", speculative=True)
+    mk("US Small Caps vs Big Caps", "IWM", "SPY", "Small > Big", "Big > Small", speculative=True)
+    mk("IHSG Small / 2nd Liners vs Big Caps", "EIDO", "SPY", "Small/2nd liners > Big", "Big > Small/2nd liners", speculative=True)
+    mk("Crypto Alts vs BTC", "ETH-USD", "BTC-USD", "Alts > BTC", "BTC > Alts", speculative=True)
     return out
 
 
@@ -884,21 +884,36 @@ def pill(label: str, color: Optional[str] = None) -> str:
 
 def render_compact_matrix(title: str, rows: list[list[str]], columns: list[str], lens_width: str = "28%"):
     st.markdown(f"**{title}**")
-    headers = ''.join([f"<th>{c}</th>" for c in columns])
+    # Short headers so the table fits without ugly wrapping.
+    header_labels = columns[:]
+    header_map = {
+        "Direction": "Dir",
+        "Strength": "Str",
+        "Sustainability": "Sustain",
+        "Confirmation": "Confirm",
+        "Relative Lens": "Relative Lens",
+        "Rotation Lens": "Rotation Lens",
+    }
+    header_labels = [header_map.get(c, c) for c in header_labels]
+    headers = ''.join([f"<th>{c}</th>" for c in header_labels])
     body = ''
     for row in rows:
         body += '<tr>' + ''.join([f"<td>{cell}</td>" for cell in row]) + '</tr>'
     html = f"""
     <style>
-    .compact-matrix {{width:100%; border-collapse:collapse; table-layout:fixed; font-size:12px;}}
-    .compact-matrix th, .compact-matrix td {{border:1px solid rgba(148,163,184,.18); padding:8px 10px; vertical-align:top; word-wrap:break-word; overflow-wrap:anywhere;}}
-    .compact-matrix th {{color:#94a3b8; font-weight:600; background:rgba(255,255,255,.02);}}
+    .compact-matrix-wrap {{overflow-x:hidden;}}
+    .compact-matrix {{width:100%; border-collapse:collapse; table-layout:fixed; font-size:11px;}}
+    .compact-matrix th, .compact-matrix td {{border:1px solid rgba(148,163,184,.18); padding:8px 8px; vertical-align:top; overflow-wrap:anywhere;}}
+    .compact-matrix th {{color:#94a3b8; font-weight:600; background:rgba(255,255,255,.02); line-height:1.2;}}
     .compact-matrix td:first-child, .compact-matrix th:first-child {{width:{lens_width};}}
+    .compact-matrix td:not(:first-child), .compact-matrix th:not(:first-child) {{text-align:left;}}
     </style>
+    <div class="compact-matrix-wrap">
     <table class="compact-matrix">
       <thead><tr>{headers}</tr></thead>
       <tbody>{body}</tbody>
     </table>
+    </div>
     """
     st.markdown(html, unsafe_allow_html=True)
 
