@@ -1541,42 +1541,137 @@ def inject_css() -> None:
     st.markdown(
         """
         <style>
+            :root {
+                --bg-soft: rgba(255,255,255,.035);
+                --bg-softer: rgba(255,255,255,.02);
+                --line-soft: rgba(255,255,255,.08);
+                --line-strong: rgba(25,230,140,.28);
+                --text-soft: rgba(255,255,255,.70);
+                --mint: #19e68c;
+                --cyan: #4fd1ff;
+                --amber: #f6c453;
+                --rose: #fb7185;
+            }
+            .block-container {
+                padding-top: 1.0rem;
+                padding-bottom: 2rem;
+                max-width: 1500px;
+            }
+            h2, h3, h4 {
+                letter-spacing: .01em;
+            }
             .main-card {
-                border: 2px solid #19e68c;
-                border-radius: 20px;
-                padding: 22px;
-                background: linear-gradient(90deg, rgba(14,35,29,.95), rgba(6,25,30,.95));
+                position: relative;
+                overflow: hidden;
+                border: 1px solid var(--line-strong);
+                border-radius: 22px;
+                padding: 22px 22px 18px 22px;
+                background: radial-gradient(circle at top left, rgba(25,230,140,.10), transparent 32%), linear-gradient(135deg, rgba(10,22,26,.98), rgba(7,20,24,.96));
+                box-shadow: 0 10px 28px rgba(0,0,0,.22);
                 margin-bottom: 14px;
             }
+            .main-card:before {
+                content: "";
+                position: absolute;
+                inset: 0;
+                background: linear-gradient(90deg, rgba(79,209,255,.06), transparent 24%, transparent 76%, rgba(25,230,140,.06));
+                pointer-events: none;
+            }
             .soft-card {
-                padding: 16px;
-                border-radius: 16px;
-                border: 1px solid rgba(255,255,255,.10);
-                background: rgba(255,255,255,.03);
+                padding: 16px 16px 14px 16px;
+                border-radius: 18px;
+                border: 1px solid var(--line-soft);
+                background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02));
+                box-shadow: inset 0 1px 0 rgba(255,255,255,.03);
                 height: 100%;
             }
             .mini-card {
                 padding: 14px;
-                border-radius: 14px;
-                background: rgba(255,255,255,.03);
-                border: 1px solid rgba(255,255,255,.08);
+                border-radius: 16px;
+                background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.018));
+                border: 1px solid rgba(255,255,255,.07);
+                box-shadow: inset 0 1px 0 rgba(255,255,255,.025);
                 height: 100%;
             }
             .section-note {
                 padding: 14px 16px;
-                border-radius: 14px;
-                background: rgba(37, 99, 235, .14);
-                border: 1px solid rgba(96, 165, 250, .18);
+                border-radius: 16px;
+                background: linear-gradient(135deg, rgba(37,99,235,.16), rgba(14,165,233,.08));
+                border: 1px solid rgba(96,165,250,.22);
                 margin-bottom: 12px;
             }
             .tree-box {
                 padding: 14px;
-                border-radius: 14px;
-                background: rgba(255,255,255,.02);
+                border-radius: 16px;
+                background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.016));
                 border: 1px solid rgba(255,255,255,.07);
                 margin-bottom: 10px;
             }
-            .small-muted { opacity: .8; font-size: 12px; }
+            .small-muted { opacity: .82; font-size: 12px; color: var(--text-soft); }
+            .mind-label {
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: .12em;
+                color: var(--text-soft);
+                margin-bottom: 8px;
+            }
+            .score-row {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                margin-top: 6px;
+            }
+            .score-pill {
+                display: inline-flex;
+                align-items: center;
+                border-radius: 999px;
+                padding: 3px 10px;
+                border: 1px solid rgba(255,255,255,.10);
+                background: rgba(255,255,255,.04);
+                font-size: 12px;
+            }
+            .divider-line {
+                height: 1px;
+                background: linear-gradient(90deg, transparent, rgba(255,255,255,.08), transparent);
+                margin: 8px 0 10px 0;
+            }
+            div[data-testid="stExpander"] {
+                border: 1px solid rgba(255,255,255,.06);
+                border-radius: 16px;
+                background: linear-gradient(180deg, rgba(255,255,255,.028), rgba(255,255,255,.015));
+                margin-bottom: 10px;
+                overflow: hidden;
+            }
+            div[data-testid="stExpander"] details summary {
+                padding-top: .2rem;
+                padding-bottom: .2rem;
+            }
+            div[data-testid="stMetric"] {
+                background: linear-gradient(180deg, rgba(255,255,255,.035), rgba(255,255,255,.018));
+                border: 1px solid rgba(255,255,255,.07);
+                border-radius: 16px;
+                padding: 8px 10px;
+            }
+            div[data-testid="stHorizontalBlock"] > div:has(> div[data-testid="stMetric"]) {
+                align-self: stretch;
+            }
+            .stTabs [data-baseweb="tab-list"] {
+                gap: 8px;
+            }
+            .stTabs [data-baseweb="tab"] {
+                height: 42px;
+                border-radius: 14px;
+                background: rgba(255,255,255,.03);
+                border: 1px solid rgba(255,255,255,.06);
+                padding: 0 14px;
+            }
+            .stTabs [aria-selected="true"] {
+                background: rgba(25,230,140,.10) !important;
+                border-color: rgba(25,230,140,.28) !important;
+            }
+            section[data-testid="stSidebar"] > div {
+                background: linear-gradient(180deg, rgba(8,18,22,.98), rgba(8,18,22,.92));
+            }
         </style>
         """,
         unsafe_allow_html=True,
