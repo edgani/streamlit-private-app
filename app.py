@@ -16,7 +16,7 @@ try:
 except Exception:
     yf = None
 
-st.set_page_config(page_title="Macro Quad Transition Dashboard", layout="wide")
+st.set_page_config(page_title="Dashboard Macro Regime", layout="wide")
 
 SERIES = {
     "WEI": "WEI",
@@ -2871,14 +2871,14 @@ def secular_cycle_summary(signals: Dict[str, float]) -> Dict[str, object]:
 
 
 def render_advanced_process_overlay(signals: Dict[str, float], current_quad: str) -> None:
-    st.markdown("### Advanced Process Overlay")
-    with st.expander("Open signal states + out-quarter + country engine", expanded=False):
+    st.markdown("### Overlay Proses Lanjut")
+    with st.expander("Buka state sinyal + out-quarter + country engine", expanded=False):
         c1, c2 = st.columns(2)
         with c1:
-            st.markdown("**Formal Signal States**")
+            st.markdown("**State sinyal formal**")
             st.dataframe(build_formal_signal_state_df(signals), use_container_width=True, hide_index=True)
             beh = behavioral_process_summary(signals)
-            st.markdown("**Behavioral / Topping Process**")
+            st.markdown("**Proses topping / perilaku market**")
             st.markdown(
                 f"<div class='section-note'><b>{escape_text(beh['label'])}</b><br>Top score: {beh['top']}/100 | Distribution risk: {beh['distribution']}/100</div>",
                 unsafe_allow_html=True,
@@ -2886,7 +2886,7 @@ def render_advanced_process_overlay(signals: Dict[str, float], current_quad: str
             for line in beh["lines"]:
                 st.write(f"• {line}")
         with c2:
-            st.markdown("**Bayesian-lite Out-Quarter Module**")
+            st.markdown("**Modul out-quarter**")
             st.dataframe(build_outquarter_df(signals), use_container_width=True, hide_index=True)
             st.write("**Out-quarter quad scores:**", {k: round(v, 1) for k, v in signals.get("quad_scores_outquarter", {}).items()})
             st.write("**Out-quarter quad:**", signals.get("macro_quad_outquarter", "N/A"))
@@ -3120,7 +3120,7 @@ def forecast_summary(current_quad: str, current_score: float, paths: List[Dict[s
 
 
 def overview_metrics(signals: Dict[str, float], fg_info: Dict[str, object]) -> None:
-    st.markdown("### Macro Quad Engine")
+    st.markdown("### Mesin Macro Regime")
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("Blended Regime", str(max(signals["quad_scores"], key=signals["quad_scores"].get)))
     c2.metric("Quarterly Quad", str(signals.get("macro_quad_quarterly", "N/A")))
@@ -3136,7 +3136,7 @@ def overview_metrics(signals: Dict[str, float], fg_info: Dict[str, object]) -> N
 
     fg_text = "N/A" if np.isnan(signals["fg_norm"]) else f"{signals['fg_norm'] * 100:.0f}"
     fg_source = "CNN" if fg_info.get("status") == "ok" else "Manual / N.A."
-    st.markdown("### Separate Market / Risk Engines")
+    st.markdown("### Mesin Market / Risk")
     d1, d2, d3, d4 = st.columns(4)
     d1.metric("Credit Stress", f"{signals['credit_stress']:.2f}")
     d2.metric("Front-End Policy", f"{signals['front_end_policy']:.2f}")
@@ -3147,21 +3147,21 @@ def overview_metrics(signals: Dict[str, float], fg_info: Dict[str, object]) -> N
 def render_forecast_summary_row(current_quad: str, current_quad_score: float, validity: str, primary_path: Dict[str, object], driver_label: str) -> None:
     target_quad = str(primary_path["target"])
     target_meta = QUAD_META[target_quad]
-    st.markdown("### Forecast Snapshot")
+    st.markdown("### Snapshot Cepet")
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     with c1:
-        st.metric("Current Quad", current_quad)
+        st.metric("Quad sekarang", current_quad)
     with c2:
-        st.metric("Forecast Bias", current_quad)
+        st.metric("Bias forecast", current_quad)
         st.caption(driver_label)
     with c3:
-        st.metric("Current Validity", validity)
+        st.metric("Validity sekarang", validity)
     with c4:
-        st.metric("Next Likely Quad", target_quad)
+        st.metric("Quad berikutnya paling mungkin", target_quad)
     with c5:
-        st.metric("Transition Score", f"{primary_path['score']:.0f}/100")
+        st.metric("Skor transisi", f"{primary_path['score']:.0f}/100")
     with c6:
-        st.metric("Quad Fit", f"{current_quad_score:.0f}/100")
+        st.metric("Kecocokan quad", f"{current_quad_score:.0f}/100")
 
     st.markdown(
         f"""
@@ -3177,10 +3177,10 @@ def render_forecast_summary_row(current_quad: str, current_quad_score: float, va
 
 
 def render_engine_components(signals: Dict[str, float]) -> None:
-    st.markdown("### Engine Components")
+    st.markdown("### Isi Mesin")
     macro_left, macro_right = st.columns(2)
     with macro_left:
-        with st.expander("Macro Quad Engine", expanded=False):
+        with st.expander("Mesin Macro Regime", expanded=False):
             st.write("**GDP nowcast (quarterly):**", round(float(signals["gdp_nowcast_quarterly"]), 3))
             st.write("**GDP nowcast (monthly):**", round(float(signals["gdp_nowcast_monthly"]), 3))
             st.write("**CPI nowcast (quarterly):**", round(float(signals["cpi_nowcast_quarterly"]), 3))
@@ -3192,11 +3192,11 @@ def render_engine_components(signals: Dict[str, float]) -> None:
             st.write("**Out-quarter quad scores:**", {k: round(v, 1) for k, v in signals["quad_scores_outquarter"].items()})
             st.write("**Blended regime scores:**", {k: round(v, 1) for k, v in signals["quad_scores"].items()})
     with macro_right:
-        with st.expander("Policy / Transition Engine", expanded=False):
+        with st.expander("Mesin Policy / Transition", expanded=False):
             st.write("**Growth transition risk:**", round(float(signals["growth_transition"]), 3))
             st.write("**Labor softening:**", round(float(signals["labor_soft"]), 3))
             st.write("**Recession risk:**", round(float(signals["recession_risk"]), 3))
-            st.caption("Macro quad remains growth-vs-inflation. 2Y / 5Y / 10Y / 30Y live here as policy, rates, timing, and divergence lenses.")
+            st.caption("Core macro tetap growth vs inflation. 2Y / 5Y / 10Y / 30Y gua taro di sini buat baca policy, rates, timing, sama divergence.")
             st.write("**2Y front-end policy repricing:**", round(float(signals["front_end_policy"]), 3))
             st.write("**5Y belly policy repricing:**", round(float(signals["belly_policy"]), 3))
             st.write("**10Y/30Y long-end pressure:**", round(float(signals["long_end_pressure"]), 3))
@@ -3233,7 +3233,7 @@ def render_engine_components(signals: Dict[str, float]) -> None:
                     st.write(f"**{k.replace('_', ' ').title()}:** {float(v):.3f}")
 
 def render_meter_cards(signals: Dict[str, float]) -> None:
-    st.markdown("### Separate Market / Risk Engines")
+    st.markdown("### Mesin Market / Risk")
     cards = [
         ("Risk-Off Jangka Pendek", signals["short_risk_off"] * 100, "panic / de-risking tactical; driven by credit, vol, IWM fragility, fear", "short_risk_off"),
         ("Risk-On Jangka Pendek", signals["short_risk_on"] * 100, "breadth + sentiment + low vol / low credit stress tactical window", "short_risk_on"),
@@ -3568,7 +3568,7 @@ def render_item_tree(quad: str, item: str, direction: str, depth: int = 0, visit
         return
     related_keys = [rk for rk in _extract_related_keys(item, tree) if rk not in visited]
     if related_keys:
-        with st.expander("Open sub-matrix / sleeves", expanded=False):
+        with st.expander("Buka sub-matrix / sleeve", expanded=False):
             for rk in related_keys:
                 label = _display_label_from_key(rk)
                 with st.expander(label, expanded=False):
@@ -3921,7 +3921,7 @@ def render_compact_driver_compare(states_by_driver: Dict[str, DashboardState], a
 def render_phase_overlay_bundle(quad: str, signals: Dict[str, float], stage: str) -> None:
     c1, c2 = st.columns(2)
     with c1:
-        with st.expander("Current FX Overlay", expanded=False):
+        with st.expander("Overlay FX sekarang", expanded=False):
             for line in current_fx_overlay(quad, signals):
                 st.write(f"• {line}")
             render_ranked_overlay_matrix("Proxy Impact Ladder (strongest → spillover)", PROXY_IMPACT_MATRIX[quad])
@@ -4143,7 +4143,7 @@ def render_quad_detail(quad: str, signals: Dict[str, float], current_quad: str, 
             st.markdown(state_chip_html(validity), unsafe_allow_html=True)
         else:
             st.markdown("**Current Relevance**")
-            st.metric("Quad Fit", f"{quad_score:.0f}/100")
+            st.metric("Kecocokan quad", f"{quad_score:.0f}/100")
     with top_c3:
         st.metric("Primary Path", f"{primary_path['target']} | {primary_path['score']:.0f}")
         st.caption(f"Stage: {stage}")
@@ -4201,12 +4201,12 @@ def build_forecast_tables(signals: Dict[str, float], current_quad: str, active_s
                 "Logic": QUAD_META[q]["logic"],
                 "Fit Score": round(float(active_scores[q]), 1),
                 "Primary Path": primary["target"],
-                "Transition Score": round(float(primary["score"]), 1),
+                "Skor transisi": round(float(primary["score"]), 1),
                 "Likely If Right": primary["winners"],
                 "Likely Laggards": primary.get("laggards", ""),
             }
         )
-    quad_df = pd.DataFrame(quad_rows).sort_values(["Fit Score", "Transition Score"], ascending=False)
+    quad_df = pd.DataFrame(quad_rows).sort_values(["Fit Score", "Skor transisi"], ascending=False)
     return path_df, quad_df
 
 
