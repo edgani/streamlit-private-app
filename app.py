@@ -826,10 +826,10 @@ def size_rotation_engine(prices: pd.DataFrame, df: pd.DataFrame, fear_greed: Opt
         elif strength < 0.35: quality = "Weak"
         elif state=="Fading": quality = "Exhausting"
         sustain = "High" if strength>0.6 and quality=="Healthy" else ("Low" if quality in ["Frothy","Exhausting","Weak"] else "Medium")
-        conf = "Confirmed" if strength>0.45 else "Mixed"
+        conf = "Confirmed" if strength>0.60 else ("Partial" if strength>0.35 else "Not confirmed")
         out[name] = {"Direction": direction, "Strength": _bucket(strength), "State": state, "Quality": quality, "Sustainability": sustain, "Confirmation": conf}
     mk("US Small Caps vs Big Caps", "IWM", "SPY", "Small > Big", "Big > Small", speculative=True)
-    mk("IHSG Small / 2nd Liners vs Big Caps", "EIDO", "SPY", "Small/2nd liners > Big", "Big > Small/2nd liners", speculative=True)
+    mk("IHSG Small / 2nd Liners vs Big Caps (proxy)", "EIDO", "SPY", "Small/2nd liners > Big", "Big > Small/2nd liners", speculative=True)
     mk("Crypto Alts vs BTC", "ETH-USD", "BTC-USD", "Alts > BTC", "BTC > Alts", speculative=True)
     return out
 
@@ -1168,6 +1168,7 @@ with right:
 - **Live FRED** is used for the core macro backbone.
 - **Fear & Greed** and **IWM blow-off** are used only as **timing / top-bottom overlays**, not as core phase inputs.
 - **Correlation** is preserved inside **Transmission / Correlation** so it is easier to read instead of being scattered.
+- **IHSG small / 2nd-liner rotation** is still **proxy-based** for now, so read it as a local-beta / risk appetite sleeve, not a perfect official small-vs-big index split.
             """
         )
         st.markdown("</div>", unsafe_allow_html=True)
