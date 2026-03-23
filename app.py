@@ -472,148 +472,42 @@ PHASE_GUIDE = {
                     "communication services",
                     "financials",
                     "consumer discretionary",
-def _band(x: float, low: float = 0.18, high: float = 0.40) -> str:
-    if x < low:
-        return "Weak"
-    if x < high:
-        return "Medium"
-    return "Strong"
-
-
-def _state_from_diff(diff: float, froth: float) -> str:
-    ad = abs(diff)
-    if ad < 0.015:
-        return "Starting"
-    if ad < 0.035:
-        return "Building"
-    if froth > 0.72:
-        return "Peaking"
-    if ad > 0.10:
-        return "Extended"
-    return "Stable"
-
-
-def _quality_from_diff(diff: float, froth: float) -> str:
-    ad = abs(diff)
-    if froth > 0.78:
-        return "Frothy"
-    if froth > 0.58:
-        return "Narrow"
-    if ad > 0.05:
-        return "Healthy"
-    if ad < 0.015:
-        return "Mixed"
-    return "Okay"
-
-
-def _sustain_from_state(state: str, quality: str) -> str:
-    if quality in ["Frothy"] or state in ["Peaking", "Extended"]:
-        return "Low"
-    if quality in ["Healthy"] and state in ["Building", "Stable"]:
-        return "High"
-    return "Medium"
-
-
-def relative_engine(prices: pd.DataFrame, df: pd.DataFrame, state: PhaseState, fear_greed: Optional[float] = None) -> Dict[str, Dict[str, str]]:
-    fg = 50.0 if fear_greed is None else float(fear_greed)
-    rets_3m = prices.ffill().pct_change(63) if not prices.empty else pd.DataFrame()
-    rets_1m = prices.ffill().pct_change(21) if not prices.empty else pd.DataFrame()
-    last3 = rets_3m.iloc[-1].to_dict() if not rets_3m.empty else {}
-    last1 = rets_1m.iloc[-1].to_dict() if not rets_1m.empty else {}
-
-    usd_z = safe_zscore(df["DTWEXBGS"], 26) if "DTWEXBGS" in df else 0.0
-    oil_z = safe_zscore(df["DCOILWTICO"], 26) if "DCOILWTICO" in df else 0.0
-    nfci_z = safe_zscore(df["NFCI"], 26) if "NFCI" in df else 0.0
-    walcl_z = safe_zscore(df["WALCL"], 26) if "WALCL" in df else 0.0
-
-    iwm1 = float(last1.get("IWM", np.nan)) if last1 else np.nan
-    froth = clamp(max(fg - 70, 0) / 30.0 + max(iwm1 if np.isfinite(iwm1) else 0, 0.0) * 2.0)
-
-    def make_card(name: str, lhs: float, rhs: float, pos_label: str, neg_label: str, macro_confirm: bool, proxy_note: str = "") -> Dict[str, str]:
-        if np.isfinite(lhs) and np.isfinite(rhs):
-            diff = lhs - rhs
-            direction = pos_label if diff > 0.02 else (neg_label if diff < -0.02 else "Balanced")
-            strength = _band(abs(diff))
-            state_txt = _state_from_diff(diff, froth)
-            quality = _quality_from_diff(diff, froth)
-            sustain = _sustain_from_state(state_txt, quality)
-            confirm = "Confirmed" if macro_confirm and abs(diff) > 0.02 else ("Partial" if abs(diff) > 0.01 or macro_confirm else "Not confirmed")
-            read = "clean read" if confirm == "Confirmed" else ("proxy / mixed read" if confirm == "Partial" else "thin edge")
-        else:
-            # macro fallback only
-            diff = 0.0
-            direction = "Balanced"
-            strength = "Weak"
-            state_txt = "Fallback"
-            quality = "Mixed"
-            sustain = "Low"
-            confirm = "Not confirmed"
-            read = "no clean live price feed"
-        out = {
-            "direction": direction,
-            "strength": strength,
-            "state": state_txt,
-            "quality": quality,
-            "sustainability": sustain,
-            "confirmation": confirm,
-            "read": read if not proxy_note else f"{read} · {proxy_note}",
-        }
-        return out
-
-    spy3 = float(last3.get("SPY", np.nan)) if last3 else np.nan
-    eem3 = float(last3.get("EEM", np.nan)) if last3 else np.nan
-    jkse3 = float(last3.get("^JKSE", np.nan)) if last3 else np.nan
-    eido3 = float(last3.get("EIDO", np.nan)) if last3 else np.nan
-    btc3 = float(last3.get("BTC-USD", np.nan)) if last3 else np.nan
-    eth3 = float(last3.get("ETH-USD", np.nan)) if last3 else np.nan
-    qqq3 = float(last3.get("QQQ", np.nan)) if last3 else np.nan
-    iwm3 = float(last3.get("IWM", np.nan)) if last3 else np.nan
-
-    out: Dict[str, Dict[str, str]] = {}
-    out["US vs EM"] = make_card("US vs EM", spy3, eem3, "US stronger", "EM stronger", macro_confirm=((spy3 > eem3 and usd_z >= -0.1) or (eem3 > spy3 and usd_z <= 0.1)))
-    ihsg_proxy = jkse3 if np.isfinite(jkse3) else eido3
-    ihsg_proxy_note = "" if np.isfinite(jkse3) else "using EIDO proxy"
-    out["IHSG vs US"] = make_card("IHSG vs US", ihsg_proxy, spy3, "IHSG stronger", "US stronger", macro_confirm=((ihsg_proxy > spy3 and oil_z >= -0.1 and usd_z <= 0.35) or (spy3 > ihsg_proxy and usd_z >= 0.2)), proxy_note=ihsg_proxy_note)
-    out["IHSG vs EM"] = make_card("IHSG vs EM", ihsg_proxy, eem3, "IHSG stronger", "EM stronger", macro_confirm=((ihsg_proxy > eem3 and oil_z >= -0.1) or (eem3 > ihsg_proxy and usd_z >= 0.2)), proxy_note=ihsg_proxy_note)
-    out["Crypto vs Liquidity"] = make_card("Crypto vs Liquidity", btc3, qqq3, "Crypto leading", "Liquidity not confirming", macro_confirm=((btc3 > qqq3 and walcl_z >= -0.1 and nfci_z <= 0.2) or (qqq3 > btc3 and nfci_z >= 0.0)), proxy_note="QQQ/WALCL used as liquidity proxy")
-
-    # size rotation
-    out["US Small Caps vs Big Caps"] = make_card("US Small Caps vs Big Caps", iwm3, spy3, "Small > Big", "Big > Small", macro_confirm=((iwm3 > spy3 and state.current_phase in ['Q1','Q2']) or (spy3 > iwm3 and state.current_phase in ['Q3','Q4'])))
-    ihsg_small_signal = 0.18 * max(-usd_z, 0) + 0.22 * max(oil_z, 0) + (0.18 if state.current_phase in ["Q1","Q2"] else -0.08)
-    ihsg_big_signal = 0.15 * max(usd_z, 0) + (0.12 if state.current_phase in ["Q3","Q4"] else 0.0)
-    diff = ihsg_small_signal - ihsg_big_signal
-    out["IHSG Small / 2nd Liners vs Big Caps"] = {
-        "direction": "Small / 2nd liners > Big" if diff > 0.06 else ("Big Caps safer" if diff < -0.06 else "Balanced"),
-        "strength": _band(abs(diff), 0.05, 0.12),
-        "state": _state_from_diff(diff, clamp(max(fg - 72, 0) / 28.0)),
-        "quality": "Speculative" if state.current_phase == "Q2" and diff > 0.08 else ("Healthy" if state.current_phase == "Q1" and diff > 0.08 else "Mixed"),
-        "sustainability": "Medium" if abs(diff) > 0.06 and state.current_phase in ["Q1","Q2"] else "Low",
-        "confirmation": "Partial",
-        "read": "proxy only — local beta / risk appetite read, not an official small-cap index split",
-    }
-    alt_proxy = eth3
-    diff_alt = (alt_proxy - btc3) if np.isfinite(alt_proxy) and np.isfinite(btc3) else np.nan
-    if np.isfinite(diff_alt):
-        out["Crypto Alts vs BTC"] = {
-            "direction": "Alts > BTC" if diff_alt > 0.03 else ("BTC > Alts" if diff_alt < -0.03 else "Balanced"),
-            "strength": _band(abs(diff_alt), 0.03, 0.08),
-            "state": _state_from_diff(diff_alt, clamp(max(fg - 75, 0) / 25.0 + max(diff_alt, 0) * 2.0)),
-            "quality": "Frothy" if diff_alt > 0.08 and fg > 70 else ("Healthy" if diff_alt > 0.03 and fg < 65 else "Mixed"),
-            "sustainability": "Low" if diff_alt > 0.08 and fg > 70 else ("Medium" if diff_alt > 0.03 else "High"),
-            "confirmation": "Partial",
-            "read": "ETH/BTC proxy only — good enough for beta tone, not a full alt basket",
-        }
-    else:
-        out["Crypto Alts vs BTC"] = {
-            "direction": "Balanced",
-            "strength": "Weak",
-            "state": "Fallback",
-            "quality": "Mixed",
-            "sustainability": "Low",
-            "confirmation": "Not confirmed",
-            "read": "need ETH/BTC price feed",
-        }
-    return out
+                    "industrials",
+                    "materials",
+                ],
+            },
+            "Worst Equity Style Factors": {
+                "Historically Weak": [
+                    "small caps",
+                    "dividend yield",
+                    "value",
+                    "defensives",
+                    "size",
+                ],
+            },
+            "Worst Fixed Income Sectors": {
+                "Historically Weak": [
+                    "BDCs",
+                    "preferreds",
+                    "convertibles",
+                    "leveraged loans",
+                    "high-yield credit",
+                ],
+            },
+            "FX Lens": {
+                "Avoid / Weak": [
+                    "broad EM FX beta",
+                    "EUR, GBP, and high-beta cyclical FX during USD-up episodes",
+                    "JPY when USD rates impulse dominates and trend breaks lower",
+                ],
+            },
+            "Emerging Markets Lens": {
+                "Avoid / Weak": [
+                    "broad EM equities / FX, especially importers or countries reliant on easy dollar liquidity",
+                    "fragile balance-sheet EM and generic EEM beta during USD-up, oil-up stress",
+                ],
+            },
+            "Crypto / Digital Assets Lens": {
                 "Avoid / Weak": [
                     "alts, miners, and blockchain-beta equities when crash / stagflation risk is high",
                     "treating BTC like a guaranteed inflation hedge when the dollar and yields are dominating the tape",
