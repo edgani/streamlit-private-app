@@ -46,31 +46,31 @@ FRED_SERIES = {
 YF_SYMBOLS = ["SPY", "QQQ", "IWM", "EEM", "EIDO", "BTC-USD", "ETH-USD", "SOL-USD"]
 
 WHAT_IF_SCENARIO_MATRIX = [
-    ["Growth re-acceleration", "kalau growth breadth balik ngembang", "beta / cyclicals / small caps", "pure defensives / terlalu takut"],
-    ["Disinflationary slowdown", "growth adem tapi inflasi juga turun", "duration / quality / gold", "deep cyclicals"],
-    ["Stagflation fork", "growth lemah tapi inflasi ngeyel", "USD / gold / selective energy", "long-duration beta"],
+    ["Growth re-acceleration", "if growth breadth broadens again", "beta / cyclicals / small caps", "pure defensives / too fearful"],
+    ["Disinflationary slowdown", "growth cools but inflation cools too", "duration / quality / gold", "deep cyclicals"],
+    ["Stagflation fork", "growth weak tapi inflasi ngeyel", "USD / gold / selective energy", "long-duration beta"],
     ["Bottoming / recovery", "stress reda terus breadth mulai pulih", "beta / cyclicals / EM", "defensive overcrowding"],
 ]
 
 DIVERGENCE_RULES = [
-    ["US weak tapi IHSG / Indo kuat", "regional decoupling; cek commodity sama FX support"],
-    ["Crypto kuat tapi equities males", "liquidity selective / risk-on belum broad"],
+    ["US weak while IHSG / Indonesia stays strong", "regional decoupling; check commodity support and FX"],
+    ["Crypto strong tapi equities males", "liquidity selective / risk-on belum broad"],
     ["Bonds ga rally padahal slowdown", "inflation persistence / supply shock / term premium naik"],
-    ["Gold dan USD sama-sama kuat", "stress / stagflation / geopolitical hedge demand"],
+    ["Gold dan USD sama-sama strong", "stress / stagflation / geopolitical hedge demand"],
 ]
 
 CORRELATION_TRANSMISSION_PRIORS = [
-    ["Oil naik → inflation tail", "tinggi", "bias ke stagflation / energy-sensitive names"],
-    ["USD naik → EM ketekan", "tinggi", "financial conditions global jadi lebih ketat"],
-    ["Real yields turun → growth/crypto relief", "lumayan tinggi", "bagus buat duration-sensitive assets kalau stress nggak dominan"],
-    ["Fear & Greed extreme + IWM ngebut", "sedang", "sering jadi tanda beta chase / rawan kecapean"],
+    ["Oil naik → inflation tail", "high", "bias ke stagflation / energy-sensitive names"],
+    ["USD naik → EM ketekan", "high", "financial conditions global jadi lebih tight"],
+    ["Real yields down → growth/crypto relief", "fairly high", "helps duration-sensitive assets when stress is not dominant"],
+    ["Fear & Greed extreme + IWM ngebut", "medium", "sering jadi tanda beta chase / rawan kecapean"],
 ]
 
 CRASH_TYPES = [
     ["Liquidity accident", "de-risking cepet; breadth dan beta biasanya jebol duluan"],
-    ["Growth scare", "cyclicals rollover, duration suka stabil duluan"],
-    ["Inflation shock", "duration susah; USD / gold / selective commodities bisa menang"],
-    ["Geopolitical shock", "oil / gold / USD bisa jalan beda dari textbook"],
+    ["Growth scare", "cyclicals rollover, duration suka stable duluan"],
+    ["Inflation shock", "duration struggles; USD / gold / selective commodities can work"],
+    ["Geopolitical shock", "oil / gold / USD can move differently than textbook"],
 ]
 
 CRASH_RECOVERY_ORDER = [
@@ -81,10 +81,10 @@ CRASH_RECOVERY_ORDER = [
 ]
 
 FALSE_RECOVERY_MAP = [
-    ["Bottoming tanpa breadth", "baru provisional bottom, lower-bottom risk masih ada"],
-    ["Soft-landing trap", "kelihatan aman bentar, terus growth jeblok lagi"],
+    ["Bottoming without breadth", "only a provisional bottom; lower-bottom risk is still alive"],
+    ["Soft-landing trap", "looks safe for a bit, then growth slips again"],
     ["Re-acceleration fakeout", "risk-on mekar sebentar doang tanpa macro breadth"],
-    ["Second-leg / double-dip", "recovery gagal dan turun lagi"],
+    ["Second-leg / double-dip", "recovery fails and price rolls lower again"],
 ]
 
 WATCH_EVENTS = ["CPI", "NFP", "FOMC", "PCE", "Jobless Claims", "Retail Sales"]
@@ -173,7 +173,7 @@ def q_label(q: str) -> str:
     }.get(q, q)
 
 
-def text_band(x: float, bands: Tuple[float, float] = (0.45, 0.70), words=("lemah", "sedang", "kuat")) -> str:
+def text_band(x: float, bands: Tuple[float, float] = (0.45, 0.70), words=("weak", "medium", "strong")) -> str:
     if x < bands[0]:
         return words[0]
     if x < bands[1]:
@@ -182,22 +182,22 @@ def text_band(x: float, bands: Tuple[float, float] = (0.45, 0.70), words=("lemah
 
 
 def conf_text(x: float) -> str:
-    return "cukup jelas" if x >= 0.70 else ("lumayan kebaca" if x >= 0.50 else "masih campur aduk")
+    return "clear enough" if x >= 0.70 else ("fairly clear" if x >= 0.50 else "mixed")
 
 
 def frag_text(x: float) -> str:
-    return "stabil" if x < 0.35 else ("mulai rapuh" if x < 0.65 else "rapuh")
+    return "stable" if x < 0.35 else ("starting to crack" if x < 0.65 else "fragile")
 
 
 def timing_text(x: float) -> str:
-    return "rendah" if x < 0.35 else ("mulai naik" if x < 0.65 else "cukup tinggi")
+    return "low" if x < 0.35 else ("building" if x < 0.65 else "fairly high")
 
 
 def quality_text(score: float, froth: float) -> str:
     if froth > 0.72:
-        return "frothy / rawan capek"
+        return "frothy / getting tired"
     if froth > 0.52:
-        return "narrow / agak spekulatif"
+        return "narrow / a bit speculative"
     if score > 0.58:
         return "healthy"
     return "mixed"
@@ -337,7 +337,7 @@ def build_phase_state(df: pd.DataFrame, fear_greed: Optional[float], iwm_blowoff
     phase_strength = clamp(vals[0] - vals[-1])
     breadth = clamp((sum(x > 0 for x in g_m_parts) / len(g_m_parts) + sum(x > 0 for x in i_m_parts) / len(i_m_parts)) / 2)
     fragility = clamp(0.45 * ambiguity + 0.35 * max(stress_m, 0) + 0.20 * max(0, 0.5 - breadth))
-    validity = "stabil" if confidence > 0.72 and phase_strength > 0.35 else ("mulai rapuh" if confidence > 0.55 else "agak goyang")
+    validity = "stable" if confidence > 0.72 and phase_strength > 0.35 else ("starting to crack" if confidence > 0.55 else "a bit shaky")
 
     if current_phase == "Q2":
         sub_phase = "early reflation" if g_m > 0.25 and stress_m < 0 else ("late reflation / topping" if stress_m > 0.2 else "mid reflation")
@@ -386,17 +386,17 @@ def build_phase_state(df: pd.DataFrame, fear_greed: Optional[float], iwm_blowoff
 
 
 def timing_engine(state: PhaseState) -> Dict[str, str]:
-    entry = "enak" if state.confidence > 0.72 and state.transition_pressure < 0.35 else ("lumayan" if state.confidence > 0.55 else "jangan terlalu agresif")
+    entry = "good" if state.confidence > 0.72 and state.transition_pressure < 0.35 else ("okay" if state.confidence > 0.55 else "do not get too aggressive")
     if state.top_score > 0.65:
-        rotation = "late / jangan ngejar terlalu kenceng"
+        rotation = "late / do not chase too hard"
     elif state.bottom_score > 0.60:
-        rotation = "lagi bottoming / probe tipis aja"
+        rotation = "bottoming / probe lightly"
     elif state.transition_pressure > 0.45:
-        rotation = "lagi transisi / review lebih rapet"
+        rotation = "in transition / review more often"
     else:
-        rotation = "masih ikutin base playbook"
-    hold = "bisa agak panjang" if state.stay_probability > 0.68 else ("medium" if state.stay_probability > 0.50 else "lebih pendek")
-    inval = "ketat" if state.validity != "stabil" or state.transition_pressure > 0.42 else "normal"
+        rotation = "still follow the base playbook"
+    hold = "can stretch longer" if state.stay_probability > 0.68 else ("medium" if state.stay_probability > 0.50 else "shorter")
+    inval = "tight" if state.validity != "stable" or state.transition_pressure > 0.42 else "normal"
     return {"Entry Quality": entry, "Rotation Timing": rotation, "Hold Bias": hold, "Invalidation Window": inval}
 
 
@@ -450,9 +450,9 @@ def last_change(prices: pd.DataFrame, sym: str, lookback: int = 21) -> float:
 
 def build_rel_card(diff: float, froth: float = 0.0) -> Dict[str, str]:
     strength_num = clamp(0.5 + abs(diff) * 4)
-    direction = "balanced / imbang" if abs(diff) < 0.02 else ("yang kiri lebih kuat" if diff > 0 else "yang kanan lebih kuat")
+    direction = "balanced / imbang" if abs(diff) < 0.02 else ("yang kiri lebih strong" if diff > 0 else "yang kanan lebih strong")
     state = "starting" if abs(diff) < 0.03 else ("building" if abs(diff) < 0.07 else ("stable" if froth < 0.55 else "peaking"))
-    sustain = "masih oke" if froth < 0.45 and abs(diff) > 0.03 else ("mulai capek" if froth < 0.70 else "rawan gagal / terlalu panas")
+    sustain = "still okay" if froth < 0.45 and abs(diff) > 0.03 else ("starting to fade" if froth < 0.70 else "at risk / overheated")
     return {"direction": direction, "strength": text_band(strength_num), "strength_num": pct(strength_num), "state": state, "quality": quality_text(strength_num, froth), "sustain": sustain}
 
 
@@ -484,50 +484,50 @@ def relative_engine(prices: pd.DataFrame, df: pd.DataFrame, state: PhaseState, f
         x = build_rel_card(eido - spy, froth * 0.4)
         x["direction"] = "IHSG stronger" if eido > spy + 0.02 else ("US stronger" if spy > eido + 0.02 else "Balanced")
     else:
-        x = {"direction": "IHSG stronger" if oil_z > 0.4 and usd_z <= 0.2 else ("US stronger" if usd_z > 0.5 else "Balanced"), "strength": text_band(clamp((abs(oil_z) + abs(usd_z))/3)), "strength_num": pct(clamp((abs(oil_z) + abs(usd_z))/3)), "state": "macro fallback", "quality": "mixed", "sustain": "cek commodity + FX"}
+        x = {"direction": "IHSG stronger" if oil_z > 0.4 and usd_z <= 0.2 else ("US stronger" if usd_z > 0.5 else "Balanced"), "strength": text_band(clamp((abs(oil_z) + abs(usd_z))/3)), "strength_num": pct(clamp((abs(oil_z) + abs(usd_z))/3)), "state": "macro fallback", "quality": "mixed", "sustain": "check commodity support + FX"}
     out["IHSG vs US"] = x
 
     if np.isfinite(eido) and np.isfinite(eem):
         x = build_rel_card(eido - eem, froth * 0.35)
         x["direction"] = "IHSG stronger" if eido > eem + 0.02 else ("EM stronger" if eem > eido + 0.02 else "Balanced")
     else:
-        x = {"direction": "IHSG stronger" if oil_z > 0.4 else ("EM stronger" if usd_z > 0.6 else "Balanced"), "strength": text_band(clamp(abs(oil_z)/2)), "strength_num": pct(clamp(abs(oil_z)/2)), "state": "macro fallback", "quality": "mixed", "sustain": "cek commodity support"}
+        x = {"direction": "IHSG stronger" if oil_z > 0.4 else ("EM stronger" if usd_z > 0.6 else "Balanced"), "strength": text_band(clamp(abs(oil_z)/2)), "strength_num": pct(clamp(abs(oil_z)/2)), "state": "macro fallback", "quality": "mixed", "sustain": "check commodity support"}
     out["IHSG vs EM"] = x
 
     if np.isfinite(btc) and np.isfinite(qqq):
         x = build_rel_card(btc - qqq, clamp(max(fg-75,0)/25))
         x["direction"] = "Crypto leading" if btc > qqq + 0.05 else ("Liquidity not confirming" if qqq > btc + 0.05 else "Aligned")
     else:
-        x = {"direction": "Crypto leading" if walcl_z > 0.4 and fg > 60 else ("Liquidity not confirming" if fci_z > 0.4 or fg < 35 else "Aligned"), "strength": text_band(clamp((abs(walcl_z)+abs(fci_z))/3)), "strength_num": pct(clamp((abs(walcl_z)+abs(fci_z))/3)), "state": "macro fallback", "quality": "mixed", "sustain": "jangan terlalu ngebut kalau likuiditas belum confirm"}
+        x = {"direction": "Crypto leading" if walcl_z > 0.4 and fg > 60 else ("Liquidity not confirming" if fci_z > 0.4 or fg < 35 else "Aligned"), "strength": text_band(clamp((abs(walcl_z)+abs(fci_z))/3)), "strength_num": pct(clamp((abs(walcl_z)+abs(fci_z))/3)), "state": "macro fallback", "quality": "mixed", "sustain": "do not push too hard if liquidity is not confirming"}
     out["Crypto vs Liquidity"] = x
 
     # size rotation blocks
     if np.isfinite(iwm) and np.isfinite(last_change(prices, "SPY", 21)):
         x = build_rel_card(iwm - last_change(prices, "SPY", 21), froth)
         x["direction"] = "Small > Big" if iwm > last_change(prices, "SPY", 21) + 0.015 else ("Big > Small" if last_change(prices, "SPY", 21) > iwm + 0.015 else "imbang")
-        x["read"] = "early breadth expansion" if x["quality"] == "healthy" and x["state"] in ["starting","building"] else ("late beta chase" if x["quality"].startswith("frothy") or x["state"] == "peaking" else "masih mixed")
+        x["read"] = "early breadth expansion" if x["quality"] == "healthy" and x["state"] in ["starting","building"] else ("late beta chase" if x["quality"].startswith("frothy") or x["state"] == "peaking" else "mixed")
         out["US Size Rotation"] = x
     else:
-        out["US Size Rotation"] = {"direction": "nggak kebaca bersih", "strength": "sedang", "state": "mixed", "quality": "mixed", "sustain": "lihat breadth", "read": "butuh data harga yang lebih lengkap"}
+        out["US Size Rotation"] = {"direction": "not reading cleanly", "strength": "medium", "state": "mixed", "quality": "mixed", "sustain": "check breadth", "read": "needs cleaner price data"}
 
     ihsg_froth = clamp(max((fg - 72)/28, 0) + max(oil_z,0)*0.15)
-    out["IHSG Size Rotation"] = {"direction": "second liners > big caps" if state.current_phase in ["Q1","Q2"] else "big caps lebih aman", "strength": "sedang" if state.current_phase in ["Q1","Q2"] else "lemah", "state": "building" if state.current_phase == "Q1" else ("peaking" if state.current_phase == "Q2" else "mixed"), "quality": "healthy" if state.current_phase == "Q1" else ("speculative" if state.current_phase == "Q2" else "mixed"), "sustain": "masih oke kalau big caps nggak jeblok" if ihsg_froth < 0.55 else "mulai capek / jangan overchase", "read": "local risk-on / second-line chase"}
+    out["IHSG Size Rotation"] = {"direction": "second liners > big caps" if state.current_phase in ["Q1","Q2"] else "big caps safer", "strength": "medium" if state.current_phase in ["Q1","Q2"] else "weak", "state": "building" if state.current_phase == "Q1" else ("peaking" if state.current_phase == "Q2" else "mixed"), "quality": "healthy" if state.current_phase == "Q1" else ("speculative" if state.current_phase == "Q2" else "mixed"), "sustain": "still okay if big caps are not breaking down" if ihsg_froth < 0.55 else "starting to fade / do not overchase", "read": "local risk-on / second-line chase"}
 
     alt_froth = clamp(max((fg - 75)/25, 0) + max((eth if np.isfinite(eth) else 0) - (btc if np.isfinite(btc) else 0), 0)*2)
-    out["Crypto Size Rotation"] = {"direction": "alts > BTC" if np.isfinite(eth) and np.isfinite(btc) and eth > btc + 0.03 else "BTC masih leader / lebih aman", "strength": "kuat" if alt_froth > 0.7 else ("sedang" if alt_froth > 0.45 else "lemah"), "state": "peaking" if alt_froth > 0.7 else ("building" if state.current_phase in ["Q1","Q2"] else "mixed"), "quality": "frothy / rawan capek" if alt_froth > 0.7 else ("healthy" if state.current_phase == "Q1" else "mixed"), "sustain": "rendah" if alt_froth > 0.7 else ("masih oke" if state.current_phase == "Q1" else "hati-hati"), "read": "healthy alt expansion" if state.current_phase == "Q1" and alt_froth < 0.6 else "late alt froth / jangan kebablasan"}
+    out["Crypto Size Rotation"] = {"direction": "alts > BTC" if np.isfinite(eth) and np.isfinite(btc) and eth > btc + 0.03 else "BTC still leads / safer", "strength": "strong" if alt_froth > 0.7 else ("medium" if alt_froth > 0.45 else "weak"), "state": "peaking" if alt_froth > 0.7 else ("building" if state.current_phase in ["Q1","Q2"] else "mixed"), "quality": "frothy / getting tired" if alt_froth > 0.7 else ("healthy" if state.current_phase == "Q1" else "mixed"), "sustain": "low" if alt_froth > 0.7 else ("still okay" if state.current_phase == "Q1" else "be careful"), "read": "healthy alt expansion" if state.current_phase == "Q1" and alt_froth < 0.6 else "late alt froth / do not overchase"}
     return out
 
 
 def sentiment_overlay(prices: pd.DataFrame, state: PhaseState, fear_greed: Optional[float]) -> Dict[str, str]:
     iwm_1m = last_change(prices, "IWM", 21)
     if np.isfinite(iwm_1m) and iwm_1m > 0.09 and state.top_score > 0.55:
-        iwm_note = "IWM lagi ngebut, ini bisa jadi beta chase / rawan blow-off"
+        iwm_note = "IWM is ripping; this can mean beta chase / blow-off risk"
     elif np.isfinite(iwm_1m) and iwm_1m > 0.04:
-        iwm_note = "IWM masih lumayan kuat, tapi cek breadth masih sehat atau nggak"
+        iwm_note = "IWM is still fairly strong, but check whether breadth is still healthy"
     else:
-        iwm_note = "IWM belum terlalu jadi warning top sekarang"
+        iwm_note = "IWM is not yet a major top warning"
     fg = 50.0 if fear_greed is None else float(fear_greed)
-    fg_note = "greed lumayan tinggi" if fg >= 60 else ("lagi fear / defensif" if fg <= 35 else "masih tengah-tengah")
+    fg_note = "greed is elevated" if fg >= 60 else ("fearful / defensive" if fg <= 35 else "still neutral")
     return {"fear_greed": fg_note, "iwm": iwm_note}
 
 
@@ -543,43 +543,43 @@ def path_to_next(state: PhaseState) -> Dict[str, str]:
         status = "Valid"
     else:
         status = "Confirmed"
-    return {"target": target, "status": status, "confidence": pct(state.confidence), "fail": pct(1 - state.stay_probability), "note": "ini jalur paling mungkin sekarang, tapi tetap cek trigger data berikutnya"}
+    return {"target": target, "status": status, "confidence": pct(state.confidence), "fail": pct(1 - state.stay_probability), "note": "this is the most likely path for now, but keep checking the next data triggers"}
 
 
 def event_watch() -> List[str]:
-    return [f"{x} — cek lagi pas rilis besar / update harian" for x in WATCH_EVENTS[:4]]
+    return [f"{x} — review again on major releases / daily refresh" for x in WATCH_EVENTS[:4]]
 
 
 def shock_engine(df: pd.DataFrame, fear_greed: Optional[float], state: PhaseState) -> Dict[str, Tuple[str, str]]:
     def sev(v: float) -> str:
-        return "tinggi" if v > 0.67 else ("sedang" if v > 0.40 else "rendah")
+        return "high" if v > 0.67 else ("medium" if v > 0.40 else "low")
     walcl_mom = pct_z(df["WALCL"], 4, 40) if "WALCL" in df else 0.0
     policy = clamp(max(diff_z(df["FEDFUNDS"], 3, 24) if "FEDFUNDS" in df else 0.0, 0.0) * 0.5 + max(diff_z(df["DGS2"], 4, 24) if "DGS2" in df else 0.0, 0.0) * 0.5)
     geo = clamp(max(yoy_z(df["DCOILWTICO"], 24) if "DCOILWTICO" in df else 0.0, 0.0) * 0.6 + (0.4 if state.top_score > 0.55 and (fear_greed or 50) > 70 else 0.0))
     liq = clamp(max(-walcl_mom, 0.0) * 0.7 + max(diff_z(df["NFCI"], 4, 24) if "NFCI" in df else 0.0, 0.0) * 0.3)
     infl = clamp(max(yoy_z(df["CPIAUCSL"], 24) if "CPIAUCSL" in df else 0.0, 0.0) * 0.6 + max(yoy_z(df["PPIACO"], 24) if "PPIACO" in df else 0.0, 0.0) * 0.4)
     growth = clamp(max(-pct_z(df["RSAFS"], 3, 24) if "RSAFS" in df else 0.0, 0.0) * 0.4 + max(diff_z(df["UNRATE"], 3, 24) if "UNRATE" in df else 0.0, 0.0) * 0.6)
-    anomaly = clamp(abs(max(state.monthly_probs.values()) - max(state.quarterly_probs.values())) * 0.6 + (0.25 if state.validity != "stabil" else 0.0))
+    anomaly = clamp(abs(max(state.monthly_probs.values()) - max(state.quarterly_probs.values())) * 0.6 + (0.25 if state.validity != "stable" else 0.0))
     return {
         "Policy Shock": (sev(policy), "Fed / front-end / policy repricing"),
         "Geopolitical Shock": (sev(geo), "oil / war / commodity disruption sensitivity"),
         "Liquidity Shock": (sev(liq), "funding / financial conditions / balance-sheet stress"),
         "Inflation Shock": (sev(infl), "re-acceleration / commodity / pricing pressure"),
         "Growth Shock": (sev(growth), "demand / labor / slowdown deterioration"),
-        "Anomaly Flag": (sev(anomaly), "correlation break / data divergence / low-transmission clarity"),
+        "Anomaly Flag": (sev(anomaly), "correlation break / data divergence / low transmission clarity"),
     }
 
 
 def build_what_if(state: PhaseState, shocks: Dict[str, Tuple[str, str]]) -> List[Dict[str, str]]:
     nxt = top2(state.next_phase_probs)
     out = [
-        {"Scenario": "Base Case", "Probability": pct_fmt(state.next_phase_probs[nxt[0]]), "Impact": f"Current {state.current_phase} paling mungkin geser ke {nxt[0]}", "Trigger": "nggak ada shock gede; blended core tetap dominan"},
-        {"Scenario": "Re-acceleration", "Probability": pct_fmt(state.next_phase_probs.get("Q1", 0.0) if state.current_phase != "Q1" else state.stay_probability), "Impact": "beta / cyclicals / growth-sensitive assets bisa enakan lagi", "Trigger": "growth breadth membaik, labor stabil, inflasi mendingan"},
-        {"Scenario": "Stagflation Fork", "Probability": pct_fmt(state.next_phase_probs.get("Q3", 0.0)), "Impact": "gold / USD / selective commodities biasanya lebih kepake", "Trigger": "growth roll over tapi inflasi / commodity pressure masih nempel"},
-        {"Scenario": "Bottoming / Recovery", "Probability": pct_fmt(state.bottom_score * 0.5), "Impact": "boleh mulai probe duration + quality, beta tunggu konfirmasi", "Trigger": "bottom ladder membaik dan lower-bottom risk turun"},
+        {"Scenario": "Base Case", "Probability": pct_fmt(state.next_phase_probs[nxt[0]]), "Impact": f"Current {state.current_phase} paling mungkin geser ke {nxt[0]}", "Trigger": "no major shock; blended core stays dominant"},
+        {"Scenario": "Re-acceleration", "Probability": pct_fmt(state.next_phase_probs.get("Q1", 0.0) if state.current_phase != "Q1" else state.stay_probability), "Impact": "beta / cyclicals / growth-sensitive assets can improve again", "Trigger": "growth breadth membaik, labor stable, inflasi mendingan"},
+        {"Scenario": "Stagflation Fork", "Probability": pct_fmt(state.next_phase_probs.get("Q3", 0.0)), "Impact": "gold / USD / selective commodities usually work better", "Trigger": "growth rolls over while inflation / commodity pressure stays sticky"},
+        {"Scenario": "Bottoming / Recovery", "Probability": pct_fmt(state.bottom_score * 0.5), "Impact": "can start probing duration + quality; wait for beta confirmation", "Trigger": "bottom ladder improves and lower-bottom risk falls"},
     ]
-    if shocks["Geopolitical Shock"][0] in ["sedang", "tinggi"]:
-        out.append({"Scenario": "War / Oil Shock", "Probability": shocks["Geopolitical Shock"][0], "Impact": "commodity, gold, USD, selective exporters bisa lebih kuat", "Trigger": "energy, shipping, atau sanctions escalation"})
+    if shocks["Geopolitical Shock"][0] in ["medium", "high"]:
+        out.append({"Scenario": "War / Oil Shock", "Probability": shocks["Geopolitical Shock"][0], "Impact": "commodity, gold, USD, selective exporters can turn stronger", "Trigger": "energy, shipping, or sanctions escalation"})
     return out
 
 
@@ -603,12 +603,12 @@ def card(title: str, main: str, sub: str = "", pills: Optional[List[str]] = None
 
 
 inject_css()
-st.markdown(f"<div class='hero'><div class='title'>{APP_NAME}</div><div class='big'>macro regime map yang gampang dibaca, nggak kaku, tapi hitungan dalemnya tetap ada</div><div class='muted'>core-nya tetap {CORE_NAME}. yang di layar ini sengaja dibikin lebih manusiawi: current, next, playbook, relative, sama shocks/what-if.</div></div>", unsafe_allow_html=True)
+st.markdown(f"<div class='hero'><div class='title'>{APP_NAME}</div><div class='big'>macro regime map that stays readable while keeping the math under the hood</div><div class='muted'>core stays on {CORE_NAME}. screen layout stays simple: current, next, playbook, relative, and shocks/what-if.</div></div>", unsafe_allow_html=True)
 
 with st.sidebar:
-    st.header("Setelan")
-    show_details = st.toggle("Buka detail angka", value=False)
-    price_period = st.selectbox("Lookback harga", ["6mo", "1y", "2y", "3y"], index=2)
+    st.header("Settings")
+    show_details = st.toggle("Show detail numbers", value=False)
+    price_period = st.selectbox("Price lookback", ["6mo", "1y", "2y", "3y"], index=2)
 
 macro = fetch_all_fred(FRED_SERIES)
 prices = fetch_prices(YF_SYMBOLS, price_period)
@@ -626,34 +626,34 @@ timing = timing_engine(state)
 
 c1, c2, c3, c4 = st.columns(4)
 with c1:
-    card("Current", q_label(state.current_phase), f"inti ceritanya: {state.sub_phase}", [f"confidence: {pct(state.confidence)}", f"fragility: {pct(state.fragility)}"])
+    card("Current", q_label(state.current_phase), f"main read: {state.sub_phase}", [f"confidence: {pct(state.confidence)}", f"fragility: {pct(state.fragility)}"])
 with c2:
     card("Next", q_label(top1(state.next_phase_probs)), f"path ke next Q: {path['status']}", [f"conf: {path['confidence']}", f"failure risk: {path['fail']}"])
 with c3:
     us_pick = playbook["US Stocks"]["Winners"][0]
     card("Playbook", us_pick, "ini yang paling masuk akal buat dibaca dulu", [f"phase strength: {pct(state.phase_strength)}", f"breadth: {pct(state.breadth)}"])
 with c4:
-    card("Top / Bottom", f"Top {pct(state.top_score)} | Bottom {pct(state.bottom_score)}", "buat baca lagi rawan topping atau lagi nyoba bottoming", [f"higher top risk: {pct(state.higher_top_risk)}", f"lower bottom risk: {pct(state.lower_bottom_risk)}"])
+    card("Top / Bottom", f"Top {pct(state.top_score)} | Bottom {pct(state.bottom_score)}", "reads whether market is getting top-heavy or trying to bottom", [f"higher top risk: {pct(state.higher_top_risk)}", f"lower bottom risk: {pct(state.lower_bottom_risk)}"])
 
 tab_current, tab_next, tab_play, tab_rel, tab_shock = st.tabs(["Current", "Next", "Playbook", "Relative", "Shocks / What-If"])
 
 with tab_current:
     a, b = st.columns([1.15, 1])
     with a:
-        st.subheader("Sekarang lagi gimana?")
-        st.markdown(f"- **Fase utama:** {q_label(state.current_phase)}")
-        st.markdown(f"- **Bacaan model:** **{pct(state.confidence)}**")
+        st.subheader("What is happening now?")
+        st.markdown(f"- **Main phase:** {q_label(state.current_phase)}")
+        st.markdown(f"- **Model read:** **{pct(state.confidence)}**")
         st.markdown(f"- **Sub-phase:** **{state.sub_phase}**")
-        st.markdown(f"- **Kekuatan fase:** **{pct(state.phase_strength)}**")
+        st.markdown(f"- **Phase strength:** **{pct(state.phase_strength)}**")
         st.markdown(f"- **Breadth:** **{pct(state.breadth)}**")
         st.markdown(f"- **Fragility:** **{pct(state.fragility)}**")
-        st.info("Intinya: angka tetap dihitung di belakang, tapi yang keluar ke layar gue bikin pake bahasa yang lebih gampang dicerna dulu.")
+        st.info("Core math still runs in the background; front-end wording is kept cleaner and easier to scan.")
     with b:
         st.subheader("Risk engine snapshot")
         snap = [
             ("Growth stress", pct(clamp(state.transition_pressure * 0.9 + state.top_score * 0.35 - state.bottom_score * 0.2))),
             ("Inflation stress", pct(clamp(1 - state.bottom_score * 0.2 + state.higher_top_risk * 0.35))),
-            ("Sentiment stretch", "lumayan panas" if (fear_greed or 50) > 70 else ("takut / defensif" if (fear_greed or 50) < 30 else "masih normal")),
+            ("Sentiment stretch", "pretty hot" if (fear_greed or 50) > 70 else ("fearful / defensive" if (fear_greed or 50) < 30 else "still normal")),
             ("Signal quality", "clean" if state.confidence > 0.72 and state.fragility < 0.4 else ("mixed" if state.confidence > 0.5 else "fragile")),
         ]
         for k, v in snap:
@@ -674,28 +674,28 @@ with tab_next:
         st.markdown(f"- **Confidence:** {path['confidence']}")
         st.markdown(f"- **Failure risk:** {path['fail']}")
         st.markdown(f"- **Transition conviction:** **{pct(state.transition_pressure)}**")
-        st.markdown(f"- **Catatan:** {path['note']}")
+        st.markdown(f"- **Note:** {path['note']}")
         st.markdown("### Transition tree mini")
         tp = top2(state.next_phase_probs)
         st.markdown(f"- **Base:** {state.current_phase} → {tp[0]}")
-        st.markdown(f"- **Alt 1:** stay di {state.current_phase}")
+        st.markdown(f"- **Alt 1:** stay in {state.current_phase}")
         st.markdown(f"- **Alt 2:** {state.current_phase} → {tp[1]}")
     with b:
         st.subheader("Timing / turning point")
         st.markdown(f"- **Top risk:** {pct(state.top_score)}")
         st.markdown(f"- **Bottom risk:** {pct(state.bottom_score)}")
-        st.markdown(f"- **Di atas top masih ada top?:** {pct(state.higher_top_risk)}")
-        st.markdown(f"- **Di bawah bottom masih ada bottom?:** {pct(state.lower_bottom_risk)}")
+        st.markdown(f"- **Higher-top risk:** {pct(state.higher_top_risk)}")
+        st.markdown(f"- **Lower-bottom risk:** {pct(state.lower_bottom_risk)}")
         st.markdown(f"- **Entry quality:** {timing['Entry Quality']}")
         st.markdown(f"- **Rotation timing:** {timing['Rotation Timing']}")
         st.markdown(f"- **Hold bias:** {timing['Hold Bias']}")
-        st.warning("Kalau top/bottom baru tahap awal, jangan langsung anggap final. Real life sering masih ada higher-top atau lower-bottom.")
+        st.warning("If top/bottom is still early-stage, do not treat it as final. Real life often still has higher-top or lower-bottom risk.")
 
 with tab_play:
     st.subheader("Current vs next playbook mini")
     cols = st.columns(2)
     next_hint_win, next_hint_avoid = [x.lower() for x in top2(state.next_phase_probs)], [x.lower() for x in top2(state.blended_probs)]
-    for idx, label in enumerate(["Playbook sekarang", "Kalau next phase jalan"]):
+    for idx, label in enumerate(["Playbook now", "If next phase starts to work"]):
         with cols[idx]:
             st.markdown(f"### {label}")
             source = playbook if idx == 0 else playbook
@@ -706,13 +706,13 @@ with tab_play:
                     st.markdown(f"- {p}")
     posture = "defensive" if state.current_phase in ["Q3","Q4"] else ("balanced" if state.transition_pressure > 0.4 else "aggressive")
     st.markdown(f"**Positioning posture:** {posture}")
-    st.subheader("Yang rawan")
+    st.subheader("What looks vulnerable")
     for asset, picks in playbook.items():
         st.markdown(f"- **{asset}:** {', '.join(picks['Losers'][:2])}")
     st.subheader("Invalidation mini-box")
-    st.markdown("- kalau inflasi panas lagi, mode defensif / gold / USD bisa naik prioritas")
-    st.markdown("- kalau growth breadth mendadak membaik, jangan keras kepala di mode defensif")
-    st.markdown("- kalau shock perang / likuiditas reda cepat, beberapa edge bisa cepat pudar")
+    st.markdown("- if inflation reheats, defensive / gold / USD setups can move up in priority")
+    st.markdown("- if growth breadth improves fast, do not stay stubbornly defensive")
+    st.markdown("- if war / liquidity shock fades quickly, some edges can fade fast")
 
 with tab_rel:
     st.subheader("Relative & size rotation")
@@ -722,14 +722,14 @@ with tab_rel:
         v = rel[k]
         with cols[i % 2]:
             st.markdown(f"### {k}")
-            st.markdown(f"- **Arah:** {v['direction']}")
+            st.markdown(f"- **Direction:** {v['direction']}")
             st.markdown(f"- **Strength:** {v['strength_num']} ({v['strength']})")
             st.markdown(f"- **State:** {v['state']}")
             st.markdown(f"- **Quality:** {v['quality']}")
-            st.markdown(f"- **Sustain:** {v['sustain']}")
+            st.markdown(f"- **Sustainability:** {v['sustain']}")
             if 'read' in v:
                 st.markdown(f"- **Read:** {v['read']}")
-    st.info("Kalau small caps > big caps, jangan langsung nganggep bullish terus. Harus lihat juga: healthy breadth atau cuma froth / beta chase doang.")
+    st.info("If small caps > big caps, do not auto-label it bullish. Check whether it is healthy breadth or just froth / beta chase.")
 
 with tab_shock:
     st.subheader("Transmission / correlation")
@@ -754,10 +754,10 @@ with tab_shock:
     for k, v in shocks.items():
         st.markdown(f"- **{k}:** {v[0]} — {v[1]}")
     st.markdown("### Base case vs override")
-    active_override = any(v[0] in ["sedang", "tinggi"] for v in shocks.values() if "Anomaly" not in v[1])
-    st.markdown(f"- **Mode sekarang:** {'Override active' if active_override else 'Base case / watch only'}")
-    st.markdown("### What-if yang kepake")
+    active_override = any(v[0] in ["medium", "high"] for v in shocks.values() if "Anomaly" not in v[1])
+    st.markdown(f"- **Current mode:** {'Override active' if active_override else 'Base case / watch only'}")
+    st.markdown("### Useful what-if paths")
     for w in whatifs:
         st.markdown(f"- **{w['Scenario']}** ({w['Probability']}): {w['Impact']} | trigger: {w['Trigger']}")
 
-st.caption("Catatan: backend tetap pakai phase/quad logic sebagai anchor, tapi tampilan depan sengaja dibikin lebih manusiawi biar nggak bikin capek baca.")
+st.caption("Note: backend still uses phase/quad logic as the anchor, while the front end stays lighter so it is easier to scan.")
