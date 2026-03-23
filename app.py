@@ -56,6 +56,48 @@ YF_SYMBOLS = [
     "BTC-USD", "ETH-USD", "SOL-USD", "^JKSE", "EEM", "INDA", "EIDO"
 ]
 
+WHAT_IF_SCENARIO_MATRIX = [
+    ["Growth re-acceleration", "Risk-on broadens if growth breadth improves", "Beta / cyclicals / small caps", "Pure duration defensives"],
+    ["Disinflationary slowdown", "Growth cools while inflation eases", "Duration / quality / gold", "Deep cyclicals"],
+    ["Stagflation fork", "Growth weakens while inflation re-heats", "USD / gold / select energy", "Long-duration beta"],
+    ["Bottoming / recovery", "Stress fades and breadth stabilizes", "Beta / cyclicals / EM", "Defensive overcrowding"],
+]
+
+DIVERGENCE_RULES = [
+    ["US weak but IHSG / Indonesia stronger", "Regional decoupling; check commodity and FX support"],
+    ["Crypto strong but equities lag", "Liquidity is selective or equity risk appetite is not confirming"],
+    ["Bonds fail to rally in slowdown", "Possible inflation persistence / supply shock / term premium rise"],
+    ["Gold and USD both firm", "Stress / stagflation / geopolitical hedge demand"],
+]
+
+CORRELATION_TRANSMISSION_PRIORS = [
+    ["Oil up → inflation tail", "High", "Supports stagflation and energy-sensitive rotation"],
+    ["USD up → EM pressure", "High", "Tighter global financial conditions usually hurt EM beta"],
+    ["Real yields down → growth / crypto relief", "Medium-High", "Helps duration-sensitive assets if macro stress is not dominant"],
+    ["Fear & Greed extreme + IWM blow-off", "Medium", "Flags exhaustion / crowded beta chase rather than core phase change"],
+]
+
+CRASH_TYPES = [
+    ["Liquidity accident", "Fast de-risking; breadth and beta usually break first"],
+    ["Growth scare", "Cyclicals roll over, duration tends to stabilize first"],
+    ["Inflation shock", "Duration weak; USD / gold / select commodities can outperform"],
+    ["Geopolitical shock", "Oil / gold / USD can diverge from normal growth playbook"],
+]
+
+CRASH_RECOVERY_ORDER = [
+    ["Liquidity accident", "Policy / duration → quality → broad beta"],
+    ["Growth scare", "Duration / defensives → quality cyclicals → broad beta"],
+    ["Inflation shock", "USD / gold → selective cyclicals → duration later"],
+    ["Geopolitical shock", "Hedges first, then normalization by region / sector"],
+]
+
+FALSE_RECOVERY_MAP = [
+    ["Bottoming without breadth", "Provisional bottom only; lower-bottom risk remains"],
+    ["Soft-landing trap", "Looks stable, then growth rolls again"],
+    ["Re-acceleration fakeout", "Short burst in growth-sensitive assets without durable macro breadth"],
+    ["Second-leg / double-dip", "Recovery fails and downside resumes"],
+]
+
 DEFAULT_FRED_LOOKBACK_YEARS = 15
 
 # =========================
@@ -152,18 +194,47 @@ def fetch_all_fred(series_map: Dict[str, str]) -> pd.DataFrame:
 
 @st.cache_data(ttl=60 * 60, show_spinner=False)
 def fetch_yf_prices(symbols: List[str], period: str = "3y") -> pd.DataFrame:
-    if yf is None:
+    frames: List[pd.DataFrame] = []
+    if yf is not None:
+        try:
+            data = yf.download(symbols, period=period, auto_adjust=True, progress=False, threads=False)
+            if isinstance(data.columns, pd.MultiIndex) and "Close" in data.columns.get_level_values(0):
+                close = data["Close"].copy()
+                frames.append(close)
+            elif "Close" in getattr(data, "columns", []):
+                close = data[["Close"]].copy()
+                close.columns = symbols[:1]
+                frames.append(close)
+        except Exception:
+            pass
+
+    # Lightweight fallback for common ETF proxies when Yahoo is unavailable.
+    stooq_map = {
+        "SPY": "spy.us", "QQQ": "qqq.us", "IWM": "iwm.us", "TLT": "tlt.us",
+        "GLD": "gld.us", "UUP": "uup.us", "HYG": "hyg.us", "DBC": "dbc.us",
+        "EEM": "eem.us", "EIDO": "eido.us", "INDA": "inda.us",
+    }
+    stooq_frames = []
+    for sym in symbols:
+        if sym not in stooq_map:
+            continue
+        try:
+            url = f"https://stooq.com/q/d/l/?s={stooq_map[sym]}&i=d"
+            tmp = pd.read_csv(url)
+            if {"Date", "Close"}.issubset(tmp.columns):
+                tmp["Date"] = pd.to_datetime(tmp["Date"])
+                s = pd.to_numeric(tmp["Close"], errors="coerce")
+                stooq_frames.append(pd.Series(s.values, index=tmp["Date"], name=sym))
+        except Exception:
+            continue
+    if stooq_frames:
+        frames.append(pd.concat(stooq_frames, axis=1))
+
+    if not frames:
         return pd.DataFrame()
-    try:
-        data = yf.download(symbols, period=period, auto_adjust=True, progress=False)
-        if isinstance(data.columns, pd.MultiIndex):
-            close = data["Close"].copy()
-        else:
-            close = data[["Close"]].copy()
-            close.columns = symbols[:1]
-        return close.dropna(how="all")
-    except Exception:
-        return pd.DataFrame()
+    close = pd.concat(frames, axis=1)
+    close = close.loc[:, ~close.columns.duplicated(keep="first")]
+    return close.sort_index().dropna(how="all")
 
 
 # =========================
@@ -472,41 +543,43 @@ def build_playbook(state: PhaseState) -> Dict[str, Dict[str, List[str]]]:
     return playbook
 
 
-def relative_engine(prices: pd.DataFrame) -> Dict[str, str]:
-    if prices.empty:
-        return {
-            "US vs EM": "No live price feed",
-            "IHSG vs US": "No live price feed",
-            "IHSG vs EM": "No live price feed",
-            "Crypto vs Liquidity": "No live price feed",
-        }
-
-    out = {}
-    rets_3m = prices.ffill().pct_change(63)
+def relative_engine(prices: pd.DataFrame, df: pd.DataFrame, fear_greed: Optional[float] = None) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    rets_3m = prices.ffill().pct_change(63) if not prices.empty else pd.DataFrame()
     last = rets_3m.iloc[-1].to_dict() if not rets_3m.empty else {}
 
+    # Use EIDO as Indonesia/IHSG liquid proxy if ^JKSE is unavailable.
     spy = last.get("SPY", np.nan)
     eem = last.get("EEM", np.nan)
-    jkse = last.get("^JKSE", np.nan)
+    jkse = last.get("^JKSE", last.get("EIDO", np.nan))
     btc = last.get("BTC-USD", np.nan)
     qqq = last.get("QQQ", np.nan)
+
+    usd_z = safe_zscore(df["DTWEXBGS"], 26) if "DTWEXBGS" in df else 0.0
+    oil_z = safe_zscore(df["DCOILWTICO"], 26) if "DCOILWTICO" in df else 0.0
+    fci_z = safe_zscore(df["NFCI"], 26) if "NFCI" in df else 0.0
+    walcl_z = safe_zscore(df["WALCL"], 26) if "WALCL" in df else 0.0
 
     if pd.notna(spy) and pd.notna(eem):
         out["US vs EM"] = "US stronger" if spy > eem + 0.03 else ("EM stronger" if eem > spy + 0.03 else "Balanced")
     else:
-        out["US vs EM"] = "Insufficient price data"
+        out["US vs EM"] = "US stronger" if usd_z > 0.5 and fci_z > 0 else ("EM stronger" if usd_z < -0.4 and oil_z > 0 else "Balanced macro fallback")
+
     if pd.notna(jkse) and pd.notna(spy):
         out["IHSG vs US"] = "IHSG stronger" if jkse > spy + 0.03 else ("US stronger" if spy > jkse + 0.03 else "Balanced")
     else:
-        out["IHSG vs US"] = "Insufficient price data"
+        out["IHSG vs US"] = "IHSG stronger" if oil_z > 0.4 and usd_z <= 0.2 else ("US stronger" if usd_z > 0.5 else "Balanced macro fallback")
+
     if pd.notna(jkse) and pd.notna(eem):
         out["IHSG vs EM"] = "IHSG stronger" if jkse > eem + 0.03 else ("EM stronger" if eem > jkse + 0.03 else "Balanced")
     else:
-        out["IHSG vs EM"] = "Insufficient price data"
+        out["IHSG vs EM"] = "IHSG stronger" if oil_z > 0.4 else ("EM stronger" if usd_z > 0.6 else "Balanced macro fallback")
+
     if pd.notna(btc) and pd.notna(qqq):
         out["Crypto vs Liquidity"] = "Crypto leading" if btc > qqq + 0.05 else ("Liquidity not confirming" if qqq > btc + 0.05 else "Aligned")
     else:
-        out["Crypto vs Liquidity"] = "Insufficient price data"
+        fg = 50.0 if fear_greed is None else float(fear_greed)
+        out["Crypto vs Liquidity"] = "Crypto leading" if walcl_z > 0.4 and fg > 60 else ("Liquidity not confirming" if fci_z > 0.4 or fg < 35 else "Aligned")
     return out
 
 
@@ -669,7 +742,7 @@ else:
     playbook_order = []
 if not playbook_order:
     playbook_order = ['Balanced / wait for stronger edge']
-relative = relative_engine(prices)
+relative = relative_engine(prices, fred, float(fear_greed))
 shocks = shock_engine(fred, float(fear_greed), state)
 what_if_cases = build_what_if(state, shocks)
 
