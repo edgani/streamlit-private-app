@@ -653,6 +653,22 @@ prices = fetch_yf_prices(YF_SYMBOLS, period="3y") if use_yf else pd.DataFrame()
 state = build_phase_state(fred, fear_greed=float(fear_greed), iwm_blowoff=float(iwm_blowoff))
 timing = timing_engine(state)
 playbook = build_playbook(state)
+# Compact headline order used by hero cards; prefer US Stocks winners, then any winners found.
+_playbook_headline = []
+if isinstance(playbook, dict):
+    if 'US Stocks' in playbook and isinstance(playbook['US Stocks'], dict):
+        _playbook_headline = list(playbook['US Stocks'].get('Winners', []))
+    if not _playbook_headline:
+        for _asset_class, _mapping in playbook.items():
+            if isinstance(_mapping, dict):
+                _playbook_headline.extend(list(_mapping.get('Winners', [])))
+    # preserve order while removing duplicates
+    seen = set()
+    playbook_order = [x for x in _playbook_headline if not (x in seen or seen.add(x))]
+else:
+    playbook_order = []
+if not playbook_order:
+    playbook_order = ['Balanced / wait for stronger edge']
 relative = relative_engine(prices)
 shocks = shock_engine(fred, float(fear_greed), state)
 what_if_cases = build_what_if(state, shocks)
