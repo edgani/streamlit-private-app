@@ -882,6 +882,27 @@ def pill(label: str, color: Optional[str] = None) -> str:
     return f"<span class='pill'{style}>{label}</span>"
 
 
+def render_compact_matrix(title: str, rows: list[list[str]], columns: list[str], lens_width: str = "28%"):
+    st.markdown(f"**{title}**")
+    headers = ''.join([f"<th>{c}</th>" for c in columns])
+    body = ''
+    for row in rows:
+        body += '<tr>' + ''.join([f"<td>{cell}</td>" for cell in row]) + '</tr>'
+    html = f"""
+    <style>
+    .compact-matrix {{width:100%; border-collapse:collapse; table-layout:fixed; font-size:12px;}}
+    .compact-matrix th, .compact-matrix td {{border:1px solid rgba(148,163,184,.18); padding:8px 10px; vertical-align:top; word-wrap:break-word; overflow-wrap:anywhere;}}
+    .compact-matrix th {{color:#94a3b8; font-weight:600; background:rgba(255,255,255,.02);}}
+    .compact-matrix td:first-child, .compact-matrix th:first-child {{width:{lens_width};}}
+    </style>
+    <table class="compact-matrix">
+      <thead><tr>{headers}</tr></thead>
+      <tbody>{body}</tbody>
+    </table>
+    """
+    st.markdown(html, unsafe_allow_html=True)
+
+
 def prob_bar(prob_map: Dict[str, float]) -> pd.DataFrame:
     return pd.DataFrame({"Phase": list(prob_map.keys()), "Probability": list(prob_map.values())}).sort_values("Probability", ascending=False)
 
@@ -1071,18 +1092,25 @@ with right:
     rel_tab, shock_tab, notes_tab = st.tabs(["Relative", "Shocks / What-If", "Notes"])
 
     with rel_tab:
-        st.markdown("<div class='card'><div class='section-title'>RELATIVE MAP</div>", unsafe_allow_html=True)
+        st.markdown("<div class='card'><div class='section-title'>RELATIVE</div>", unsafe_allow_html=True)
         rel_rows = []
         for k, v in relative_detail.items():
             rel_rows.append([k, v["Direction"], v["Strength"], v["State"], v["Quality"], v["Sustainability"], v["Confirmation"]])
-        rel_df = pd.DataFrame(rel_rows, columns=["Relative Lens", "Direction", "Strength", "State", "Quality", "Sustainability", "Confirmation"])
-        st.dataframe(rel_df, use_container_width=True, hide_index=True)
-        st.markdown("**SIZE ROTATION**")
+        render_compact_matrix(
+            "RELATIVE MAP",
+            rel_rows,
+            ["Relative Lens", "Direction", "Strength", "State", "Quality", "Sustainability", "Confirmation"],
+            lens_width="26%",
+        )
         sr_rows = []
         for k, v in size_rotation.items():
             sr_rows.append([k, v["Direction"], v["Strength"], v["State"], v["Quality"], v["Sustainability"], v["Confirmation"]])
-        sr_df = pd.DataFrame(sr_rows, columns=["Rotation Lens", "Direction", "Strength", "State", "Quality", "Sustainability", "Confirmation"])
-        st.dataframe(sr_df, use_container_width=True, hide_index=True)
+        render_compact_matrix(
+            "SIZE ROTATION",
+            sr_rows,
+            ["Rotation Lens", "Direction", "Strength", "State", "Quality", "Sustainability", "Confirmation"],
+            lens_width="30%",
+        )
         st.markdown("</div>", unsafe_allow_html=True)
 
     with shock_tab:
