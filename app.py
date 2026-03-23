@@ -5050,7 +5050,7 @@ def render_quad_macro_only_summary(quad: str, signals: Dict[str, float]) -> None
     with st.expander("Open full probability / range / timing table", expanded=False):
         st.dataframe(df, use_container_width=True, hide_index=True)
 
-def render_bottom_toggle_sections(signals: Dict[str, float], state: DashboardState, news_query: str, states_by_driver: Optional[Dict[str, DashboardState]] = None) -> None:
+def render_bottom_toggle_sections(signals: Dict[str, float], state: DashboardState, news_query: str, states_by_driver: Optional[Dict[str, DashboardState]] = None, perf_mode: bool = True) -> None:
     st.markdown("### Bottom Toggles")
     t1, t2, t3, t4 = st.columns(4)
     with t1:
@@ -5061,6 +5061,9 @@ def render_bottom_toggle_sections(signals: Dict[str, float], state: DashboardSta
         show_news = st.toggle("Live news / what-if / correlation", value=False, key="bottom_live_news")
     with t4:
         show_advanced = st.toggle("Advanced process", value=False, key="bottom_advanced_process")
+
+    if perf_mode:
+        st.caption("Performance mode aktif: section berat dipotong jadi tab/opsi bertahap supaya buka isi terasa lebih smooth.")
 
     if show_selected:
         if states_by_driver:
@@ -5079,13 +5082,32 @@ def render_bottom_toggle_sections(signals: Dict[str, float], state: DashboardSta
                 render_quad_detail(state.quad.current_quad, signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
     if show_playbook:
         with st.expander("Quad playbook + integrated overlays", expanded=False):
-            render_playbook_all_quads(signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
-            render_macro_only_asset_panel(signals)
+            p1, p2 = st.tabs(["Current Quad", "Asset Probabilities"]) if perf_mode else st.tabs(["Current Quad", "All Quads", "Asset Probabilities"])
+            with p1:
+                render_phase_matrix(state.quad.current_quad)
+                render_phase_overlay_bundle(state.quad.current_quad, signals, state.quad.stage)
+            if perf_mode:
+                with p2:
+                    render_macro_only_asset_panel(signals)
+                    load_all_quads = st.checkbox("Load full all-quads playbook matrix", value=False, key="load_all_quads_matrix")
+                    if load_all_quads:
+                        render_playbook_all_quads(signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
+                    else:
+                        st.caption("Full all-quads matrix ditahan dulu biar section ini tetap smooth. Aktifkan kalau memang perlu detail penuh.")
+            else:
+                with p2:
+                    render_playbook_all_quads(signals, state.quad.current_quad, state.quad.active_scores, state.quad.source_key)
+                with st.tabs(["Asset Probabilities"])[0]:
+                    render_macro_only_asset_panel(signals)
     if show_news:
         with st.expander("Live news / what-if / correlation", expanded=False):
+            if perf_mode:
+                st.caption("News/correlation panel dibuat bertahap karena ini salah satu bagian paling berat.")
             render_live_news_overlay(signals, state.quad.current_quad, news_query)
     if show_advanced:
         with st.expander("Advanced process overlay", expanded=False):
+            if perf_mode:
+                st.caption("Advanced process tetap ada, tapi sengaja tetap collapsed agar tidak bikin buka dashboard terasa lag.")
             render_advanced_process_overlay(signals, state.quad.current_quad)
 
 
@@ -5109,6 +5131,7 @@ def main() -> None:
         "cfg_show_raw": False,
         "cfg_quad_driver": "Monthly (Hedgeye-style current call)",
         "cfg_news_query": DEFAULT_NEWS_QUERY,
+        "cfg_perf_mode": True,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -5125,6 +5148,7 @@ def main() -> None:
             index=["Monthly (Hedgeye-style current call)", "Blended Regime", "Quarterly Anchor"].index(st.session_state["cfg_quad_driver"]),
         )
         news_query_in = st.text_input("Live News Query", value=st.session_state["cfg_news_query"])
+        perf_mode_in = st.checkbox("Performance mode (lighter UI)", value=bool(st.session_state["cfg_perf_mode"]))
         applied = st.form_submit_button("Apply settings")
 
     if applied:
@@ -5134,6 +5158,7 @@ def main() -> None:
         st.session_state["cfg_show_raw"] = bool(show_raw_in)
         st.session_state["cfg_quad_driver"] = quad_driver_in
         st.session_state["cfg_news_query"] = news_query_in
+        st.session_state["cfg_perf_mode"] = bool(perf_mode_in)
 
     fred_key = st.session_state["cfg_fred_key"]
     fg_mode = st.session_state["cfg_fg_mode"]
@@ -5141,6 +5166,7 @@ def main() -> None:
     show_raw = bool(st.session_state["cfg_show_raw"])
     quad_driver = st.session_state["cfg_quad_driver"]
     news_query = st.session_state["cfg_news_query"]
+    perf_mode = bool(st.session_state["cfg_perf_mode"])
     st.sidebar.caption("Sidebar sekarang pakai Apply settings supaya nggak rerun tiap kali ketik/ganti opsi.")
 
     if not fred_key:
@@ -5184,7 +5210,7 @@ def main() -> None:
     render_driver_path_compare(states_by_driver)
     st.markdown("---")
 
-    render_bottom_toggle_sections(signals, state, news_query, states_by_driver)
+    render_bottom_toggle_sections(signals, state, news_query, states_by_driver, perf_mode=perf_mode)
 
     if show_raw:
         st.markdown("### Raw Signal Table")
