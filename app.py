@@ -331,24 +331,24 @@ def compute_core() -> Dict[str, object]:
 
     if margin > 0.05:
         if transition_conviction > 0.70:
-            path_status = "Building (not current yet)"
+            path_status = "Valid"
         elif transition_conviction > 0.48:
-            path_status = "Early build (not current yet)"
+            path_status = "Building"
         elif transition_conviction > 0.28:
-            path_status = "Very early path"
+            path_status = "Starting"
         else:
-            path_status = "No clean shift yet"
+            path_status = "Stable / no clean shift"
     else:
         if transition_conviction > 0.78 and next_p > current_p - 0.01:
-            path_status = "Confirmed shift"
+            path_status = "Confirmed"
         elif transition_conviction > 0.60:
-            path_status = "Building (not current yet)"
+            path_status = "Valid"
         elif transition_conviction > 0.42:
-            path_status = "Early build (not current yet)"
+            path_status = "Building"
         elif transition_conviction > 0.26:
-            path_status = "Very early path"
+            path_status = "Starting"
         else:
-            path_status = "No clean shift yet"
+            path_status = "Stable / no clean shift"
 
     return {
         "monthly": monthly,
@@ -379,6 +379,25 @@ def compute_core() -> Dict[str, object]:
     }
 
 core = compute_core()
+
+def ladder_state(score: float, ext_score: float, side: str) -> str:
+    if side == "top":
+        if score < 0.18:
+            return "No clean top"
+        if score < 0.35:
+            return "Building top"
+        if score < 0.55:
+            return "Provisional top"
+        return "Extended / blow-off risk"
+    else:
+        if score < 0.18:
+            return "No clean bottom"
+        if score < 0.35:
+            return "Building bottom"
+        if score < 0.55:
+            return "Provisional bottom"
+        return "Capitulation / deep washout"
+
 
 # ---------- relative / size ----------
 def rel_state(spread: float) -> str:
@@ -607,7 +626,7 @@ FAMILY_SCORE_BY_QUAD = {
 }
 FAMILY_TO_ASSETS = {
     "duration": {"US Stocks": ["duration-sensitive quality", "defensives"], "Futures / Commodities": ["rates duration"], "Forex": ["funding currencies"], "Crypto": ["BTC over alts"], "IHSG": ["defensives / rate-sensitive"]},
-    "usd": {"US Stocks": ["selective exporters"], "Futures / Commodities": ["USD tailwind / defensive bias"], "Forex": ["USD bias still firm"], "Crypto": ["pressure on weaker beta"], "IHSG": ["IDR-sensitive caution"]},
+    "usd": {"US Stocks": ["selective exporters"], "Futures / Commodities": ["USD tailwind trades"], "Forex": ["USD stronger"], "Crypto": ["pressure on weaker beta"], "IHSG": ["IDR-sensitive caution"]},
     "gold": {"US Stocks": ["gold miners"], "Futures / Commodities": ["gold"], "Forex": ["gold-linked defensives"], "Crypto": ["less beta than alts"], "IHSG": ["commodity hedges"]},
     "beta": {"US Stocks": ["small caps / cyclicals"], "Futures / Commodities": ["equity beta"], "Forex": ["high beta FX"], "Crypto": ["alts"], "IHSG": ["local beta"]},
     "cyclical": {"US Stocks": ["industrials", "materials"], "Futures / Commodities": ["industrial commodities"], "Forex": ["commodity FX"], "Crypto": ["risk-on rotation"], "IHSG": ["commodities / cyclicals"]},
@@ -646,7 +665,7 @@ event_rows = [[name, dt.isoformat(), f"{(dt - today).days}d"] for name, dt in ev
 
 # ---------- shell ----------
 st.title(APP_NAME)
-st.markdown("<div class='small-muted'>Core alpha engine: Baseline_Blended_Core • Visual shell: mind-map card layout • Attachment-2 layout frozen</div>", unsafe_allow_html=True)
+st.markdown("<div class='small-muted'>Core alpha engine: Baseline_Blended_Core • Visual shell: mind-map card layout • Live backbone: FRED + optional Yahoo</div>", unsafe_allow_html=True)
 st.write("")
 
 hero_cols = st.columns(5)
@@ -670,7 +689,7 @@ for col, (title, value, sub_html) in zip(hero_cols, hero_items):
 mini_cols = st.columns(5)
 mini = [
     ("CURRENT", core["current_q"], pill_html("Decaying", red=True) if core["fragility"] > 0.55 else pill_html("Stable")),
-    ("NEXT", core["next_q"], pill_html(f"Transition {pct(core['transition_pressure'])}")),
+    ("NEXT", core["next_q"], pill_html(f"Hazard {pct(core['transition_pressure'])}")),
     ("PLAYBOOK", ", ".join(play_cur["US Stocks"][:1]), pill_html(f"Conviction {pct(core['confidence'])}")),
     ("RELATIVE", relative_rows[0]["Read"], pill_html(relative_rows[1]["Read"])),
     ("SHOCKS", "Overlay", pill_html(f"Top {pct(core['top_score'])} / Bottom {pct(core['bottom_score'])}")),
@@ -703,9 +722,9 @@ with t_current:
         st.markdown(f"**Breadth ➜ {pct(core['breadth'])}**")
         st.markdown(f"**Fragility ➜ {pct(core['fragility'])}**")
         explanation = (
-            f"Still **{core['current_q']}** for now. Inside that, the model reads **{core['sub_phase']}**. "
-            f"So this is not a flat {core['current_q']} read. Path to **{core['next_q']}** is **{core['path_status']}**, "
-            f"while the current regime still looks **{'fragile' if core['fragility'] > 0.5 else 'fairly stable'}**."
+            f"Still {core['current_q']} for now. Inside that, the model reads {core['sub_phase']}. "
+            f"So this is not a flat {core['current_q']} read. Path to {core['next_q']} is {core['path_status'].lower()}, "
+            f"while the current regime still looks {'fragile' if core['fragility'] > 0.5 else 'fairly stable'}."
         )
         st.markdown(f"<div class='note-box'>{explanation}</div>", unsafe_allow_html=True)
         st.write("")
@@ -732,6 +751,9 @@ with t_current:
         st.markdown("**Risk Engine Snapshot**")
         st.markdown(table_html(["Engine", "Score", "Read"], risk_rows), unsafe_allow_html=True)
         st.write("")
+        st.markdown(f"**Top state ➜ {ladder_state(core['top_score'], core['higher_top'], 'top')}**")
+        st.markdown(f"**Bottom state ➜ {ladder_state(core['bottom_score'], core['lower_bottom'], 'bottom')}**")
+        st.write("")
         st.markdown("**Event Watch**")
         st.markdown(table_html(["Event", "Date", "In"], event_rows), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
@@ -740,10 +762,9 @@ with t_next:
     n1, n2 = st.columns([1.05, 0.95], gap="large")
     with n1:
         st.markdown("<div class='card'><div class='section-title'>NEXT MAP</div>", unsafe_allow_html=True)
-        st.markdown(f"**Most likely next ➜ {core['next_q']} (not current yet)**")
+        st.markdown(f"**Most likely next ➜ {core['next_q']}**")
         st.markdown(f"**Path to Next Q ➜ {core['current_q']} → {core['next_q']}**")
         st.markdown(f"**Status ➜ {core['path_status']}**")
-        st.markdown("**Interpretation ➜ Next path is a setup, not the current regime unless a confirmed shift is shown.**")
         st.markdown(f"**Transition Conviction ➜ {pct(core['transition_conviction'])}**")
         st.markdown(f"**Stay Probability ➜ {pct(core['stay_probability'])}**")
         st.markdown(f"**Transition Pressure ➜ {pct(core['transition_pressure'])}**")
@@ -766,7 +787,6 @@ with t_play:
     p1, p2 = st.columns([1.05, 0.95], gap="large")
     with p1:
         st.markdown("<div class='card'><div class='section-title'>CURRENT vs NEXT PLAYBOOK</div>", unsafe_allow_html=True)
-        st.markdown("**Current = what fits now. Next = what fits if the transition completes; it is not the current regime by default.**")
         rows = []
         for bucket_name in ["US Stocks", "Futures / Commodities", "Forex", "Crypto", "IHSG"]:
             rows.append([bucket_name, ", ".join(play_cur[bucket_name]), ", ".join(play_next[bucket_name])])
@@ -775,7 +795,6 @@ with t_play:
     with p2:
         st.markdown("<div class='card'><div class='section-title'>POSITIONING / INVALIDATION</div>", unsafe_allow_html=True)
         st.markdown(f"**Positioning posture ➜ {posture}**")
-        st.markdown("**How to read this ➜ Current = what fits now. Next = what fits if the transition completes.**")
         st.markdown(f"**Winners ➜ {', '.join(play_cur['US Stocks'])}**")
         st.markdown(f"**Losers ➜ beta if fragility rises**")
         st.markdown("**Invalidation mini-box**")
@@ -790,13 +809,13 @@ with t_rel:
     rel_rows = []
     for row in relative_rows:
         rel_rows.append([row["Lens"], row["Direction"], row["Strength"], row["StrengthScore"], row["State"], row["Quality"], row["Sustainability"], row["Confirmation"]])
-    st.markdown(table_html(["Relative Lens", "Dir", "Str", "Score", "State", "Quality", "Sustain", "Confirm"], rel_rows), unsafe_allow_html=True)
+    st.markdown(table_html(["Lens", "Dir", "Str", "Score", "State", "Qual", "Sustain", "Conf"], rel_rows), unsafe_allow_html=True)
     st.write("")
     st.markdown("**SIZE ROTATION**")
     sr_rows = []
     for row in size_rows:
         sr_rows.append([row["Lens"], row["Direction"], row["Strength"], row["StrengthScore"], row["State"], row["Quality"], row["Sustainability"], row["Confirmation"]])
-    st.markdown(table_html(["Rotation Lens", "Dir", "Str", "Score", "State", "Quality", "Sustain", "Confirm"], sr_rows), unsafe_allow_html=True)
+    st.markdown(table_html(["Lens", "Dir", "Str", "Score", "State", "Qual", "Sustain", "Conf"], sr_rows), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_shock:
@@ -823,11 +842,11 @@ with t_notes:
     st.markdown("<div class='card'><div class='section-title'>NOTES</div>", unsafe_allow_html=True)
     st.markdown(f"""
 - **Core model actually used**: `{CORE_NAME}`
-- **Layout is frozen to attachment-2 shell**
-- **Q should only change if the same core engine changes (not because the shell/layout changed)**
+- **Layout is frozen to the attachment-2 shell**
+- **Q should only change if the same core engine changes**
 - **IHSG size rotation is removed**
 - **Crypto alt basket vs BTC** uses a basket proxy
-- **Crypto vs Liquidity** uses a composite proxy (WALCL, M2, USD inverse, NFCI inverse). This is a backdrop read, not a guaranteed straight-line trade.
+- **Crypto vs Liquidity** uses a composite proxy (WALCL, M2, USD inverse, NFCI inverse)
 """)
     st.markdown("</div>", unsafe_allow_html=True)
 
