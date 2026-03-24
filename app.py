@@ -18,7 +18,9 @@ st.set_page_config(page_title="QuantFinalV4_Max", layout="wide")
 APP_NAME = "QuantFinalV4_Max"
 CORE_NAME = "Baseline_Blended_Core"
 
-# ---------- STYLE: freeze to attachment-2 shell ----------
+# --------------------
+# VISUAL SHELL (attachment-2 style)
+# --------------------
 st.markdown("""
 <style>
 :root {
@@ -33,7 +35,7 @@ html, body, [data-testid="stAppViewContainer"] {
   background: var(--bg);
   color: var(--text);
 }
-.block-container {padding-top: 1.7rem; padding-bottom: 2.2rem;}
+.block-container {padding-top: 1.6rem; padding-bottom: 2.0rem; max-width: 1500px;}
 h1,h2,h3,h4,h5,h6,p,span,div,label {color: var(--text);}
 .card {
   background: linear-gradient(180deg, rgba(16,24,41,0.98), rgba(10,17,30,0.98));
@@ -119,12 +121,20 @@ h1,h2,h3,h4,h5,h6,p,span,div,label {color: var(--text);}
   border-radius:12px;
   padding:12px 14px;
 }
-div[data-baseweb="tab-list"] {gap: 0.35rem;}
-button[data-baseweb="tab"] {padding-left:0.2rem; padding-right:0.2rem;}
+.mini-caption {
+  color: var(--muted);
+  font-size: .82rem;
+  margin-top: 2px;
+  margin-bottom: 8px;
+}
+div[data-baseweb="tab-list"] {gap: 0.45rem;}
+button[data-baseweb="tab"] {padding-left:0.15rem; padding-right:0.15rem;}
 </style>
 """, unsafe_allow_html=True)
 
-# ---------- HELPERS ----------
+# --------------------
+# HELPERS
+# --------------------
 def clamp01(x: float) -> float:
     return float(max(0.0, min(1.0, x)))
 
@@ -134,7 +144,7 @@ def sigmoid(x: float) -> float:
 def pct(x: float) -> str:
     return f"{100*x:.1f}%"
 
-def pill_html(text: str, red: bool=False) -> str:
+def pill_html(text: str, red: bool = False) -> str:
     cls = "pill-red" if red else "pill"
     return f"<span class='{cls}'>{text}</span>"
 
@@ -165,6 +175,24 @@ def table_html(headers: List[str], rows: List[List[str]]) -> str:
         cells = "".join([f"<td>{cell}</td>" for cell in row])
         trs.append(f"<tr>{cells}</tr>")
     return f"<div class='tight-table'><table><thead><tr>{th}</tr></thead><tbody>{''.join(trs)}</tbody></table></div>"
+
+def ladder_state(score: float, side: str) -> str:
+    if side == "top":
+        if score < 0.18:
+            return "No clean top"
+        if score < 0.35:
+            return "Building top"
+        if score < 0.55:
+            return "Provisional top"
+        return "Extended / blow-off risk"
+    else:
+        if score < 0.18:
+            return "No clean bottom"
+        if score < 0.35:
+            return "Building bottom"
+        if score < 0.55:
+            return "Provisional bottom"
+        return "Deep washout / capitulation"
 
 @st.cache_data(ttl=60*60*6, show_spinner=False)
 def fred_series(series_id: str) -> pd.Series:
@@ -211,7 +239,9 @@ def stretch_n(s: pd.Series, n: int = 63) -> float:
         return 0.0
     return float((s.iloc[-1] / s.iloc[-n:].mean()) - 1)
 
-# ---------- DATA ----------
+# --------------------
+# DATA
+# --------------------
 SER = {
     "INDPRO": fred_series("INDPRO"),
     "RSAFS": fred_series("RSAFS"),
@@ -230,7 +260,9 @@ SER = {
     "USD": fred_series("DTWEXBGS"),
 }
 
-# ---------- CORE: one source of truth ----------
+# --------------------
+# CORE ENGINE (single source of truth)
+# --------------------
 def compute_core() -> Dict[str, object]:
     growth_inputs = [
         robust_z(SER["INDPRO"].pct_change(12)),
@@ -380,26 +412,9 @@ def compute_core() -> Dict[str, object]:
 
 core = compute_core()
 
-def ladder_state(score: float, ext_score: float, side: str) -> str:
-    if side == "top":
-        if score < 0.18:
-            return "No clean top"
-        if score < 0.35:
-            return "Building top"
-        if score < 0.55:
-            return "Provisional top"
-        return "Extended / blow-off risk"
-    else:
-        if score < 0.18:
-            return "No clean bottom"
-        if score < 0.35:
-            return "Building bottom"
-        if score < 0.55:
-            return "Provisional bottom"
-        return "Capitulation / deep washout"
-
-
-# ---------- relative / size ----------
+# --------------------
+# RELATIVE / SIZE
+# --------------------
 def rel_state(spread: float) -> str:
     if spread > 0.08:
         return "Building"
@@ -543,7 +558,9 @@ def compute_size() -> List[Dict[str, str]]:
 relative_rows = compute_relative()
 size_rows = compute_size()
 
-# ---------- overlays ----------
+# --------------------
+# OVERLAYS
+# --------------------
 def fear_greed_value() -> Tuple[int, str]:
     try:
         r = requests.get("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", timeout=8)
@@ -617,7 +634,9 @@ def build_shocks() -> Dict[str, Tuple[str, str]]:
 shocks = build_shocks()
 override_active = any(v[0] in ["medium", "high"] for v in shocks.values())
 
-# ---------- playbook ----------
+# --------------------
+# PLAYBOOK
+# --------------------
 FAMILY_SCORE_BY_QUAD = {
     "Q1": {"duration": 0.0, "usd": -0.4, "gold": -0.2, "beta": 0.8, "cyclical": 0.7},
     "Q2": {"duration": -0.8, "usd": 0.0, "gold": 0.0, "beta": 0.6, "cyclical": 0.9},
@@ -658,12 +677,16 @@ def current_vs_next_playbook() -> Tuple[Dict[str, List[str]], Dict[str, List[str
 
 play_cur, play_next, posture = current_vs_next_playbook()
 
-# ---------- events ----------
+# --------------------
+# EVENTS
+# --------------------
 today = date.today()
 events = [("NFP", today + timedelta(days=11)), ("CPI", today + timedelta(days=21)), ("PPI", today + timedelta(days=22))]
 event_rows = [[name, dt.isoformat(), f"{(dt - today).days}d"] for name, dt in events]
 
-# ---------- shell ----------
+# --------------------
+# RENDER
+# --------------------
 st.title(APP_NAME)
 st.markdown("<div class='small-muted'>Core alpha engine: Baseline_Blended_Core • Visual shell: mind-map card layout • Live backbone: FRED + optional Yahoo</div>", unsafe_allow_html=True)
 st.write("")
@@ -704,15 +727,15 @@ for col, (title, value, sub_html) in zip(mini_cols, mini):
         </div>
         """, unsafe_allow_html=True)
 
-left_col, right_col = st.columns([1.1, 0.9], gap="large")
+left_col, right_col = st.columns([1.12, 0.88], gap="large")
 with left_col:
     t_current, t_next, t_play = st.tabs(["Current", "Next", "Playbook"])
 with right_col:
     t_rel, t_shock, t_notes = st.tabs(["Relative", "Shocks / What-If", "Notes"])
 
 with t_current:
-    l1, l2 = st.columns([1.12, 0.88], gap="large")
-    with l1:
+    c1, c2 = st.columns([1.1, 0.9], gap="large")
+    with c1:
         st.markdown("<div class='card'><div class='section-title'>CURRENT MAP</div>", unsafe_allow_html=True)
         st.markdown(f"**Phase ➜ {core['current_q']}**")
         st.markdown(f"**Confidence ➜ {pct(core['confidence'])}** {pill_html('Decaying', red=True) if core['fragility'] > 0.55 else pill_html('Stable')}", unsafe_allow_html=True)
@@ -732,15 +755,19 @@ with t_current:
         st.markdown(table_html(["Phase", "Probability"], prob_rows), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    with l2:
-        st.markdown("<div class='card'><div class='section-title'>TOP / BOTTOM LADDER</div>", unsafe_allow_html=True)
+    with c2:
+        st.markdown("<div class='card'><div class='section-title'>MARKET / MACRO TURN PROCESS</div>", unsafe_allow_html=True)
+        st.markdown("<div class='mini-caption'>Build-up toward a possible phase turn. This is not an exact price top or exact price bottom call.</div>", unsafe_allow_html=True)
+        st.markdown(f"**Top state ➜ {ladder_state(core['top_score'], 'top')}**")
+        st.markdown(f"**Bottom state ➜ {ladder_state(core['bottom_score'], 'bottom')}**")
+        st.write("")
         ladder_rows = [
-            ["Provisional top", pct(core["top_score"])],
-            ["Higher-top / blow-off", pct(core["higher_top"])],
-            ["Provisional bottom", pct(core["bottom_score"])],
-            ["Lower-bottom / capitulation", pct(core["lower_bottom"])],
+            ["Top build", pct(core["top_score"])],
+            ["Higher-top risk", pct(core["higher_top"])],
+            ["Bottom build", pct(core["bottom_score"])],
+            ["Lower-bottom risk", pct(core["lower_bottom"])],
         ]
-        st.markdown(table_html(["Ladder", "Score"], ladder_rows), unsafe_allow_html=True)
+        st.markdown(table_html(["Turn process", "Score"], ladder_rows), unsafe_allow_html=True)
         st.write("")
         risk_rows = [
             ["Growth stress", pct(core["stress_growth"]), score_label(core["stress_growth"])],
@@ -751,9 +778,6 @@ with t_current:
         st.markdown("**Risk Engine Snapshot**")
         st.markdown(table_html(["Engine", "Score", "Read"], risk_rows), unsafe_allow_html=True)
         st.write("")
-        st.markdown(f"**Top state ➜ {ladder_state(core['top_score'], core['higher_top'], 'top')}**")
-        st.markdown(f"**Bottom state ➜ {ladder_state(core['bottom_score'], core['lower_bottom'], 'bottom')}**")
-        st.write("")
         st.markdown("**Event Watch**")
         st.markdown(table_html(["Event", "Date", "In"], event_rows), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
@@ -762,7 +786,8 @@ with t_next:
     n1, n2 = st.columns([1.05, 0.95], gap="large")
     with n1:
         st.markdown("<div class='card'><div class='section-title'>NEXT MAP</div>", unsafe_allow_html=True)
-        st.markdown(f"**Most likely next ➜ {core['next_q']}**")
+        st.markdown(f"**Most likely next ➜ {core['next_q']} (not current yet)**")
+        st.markdown("<div class='mini-caption'>Next = the most likely path if the transition keeps building. It is not the current phase yet.</div>", unsafe_allow_html=True)
         st.markdown(f"**Path to Next Q ➜ {core['current_q']} → {core['next_q']}**")
         st.markdown(f"**Status ➜ {core['path_status']}**")
         st.markdown(f"**Transition Conviction ➜ {pct(core['transition_conviction'])}**")
@@ -806,12 +831,14 @@ with t_play:
 with t_rel:
     st.markdown("<div class='card'><div class='section-title'>RELATIVE</div>", unsafe_allow_html=True)
     st.markdown("**RELATIVE MAP**")
+    st.markdown("<div class='mini-caption'>Relative = who is stronger right now. This is context, not the phase itself.</div>", unsafe_allow_html=True)
     rel_rows = []
     for row in relative_rows:
         rel_rows.append([row["Lens"], row["Direction"], row["Strength"], row["StrengthScore"], row["State"], row["Quality"], row["Sustainability"], row["Confirmation"]])
     st.markdown(table_html(["Lens", "Dir", "Str", "Score", "State", "Qual", "Sustain", "Conf"], rel_rows), unsafe_allow_html=True)
     st.write("")
     st.markdown("**SIZE ROTATION**")
+    st.markdown("<div class='mini-caption'>Size rotation = participation / breadth context. It supports the phase read, it does not replace it.</div>", unsafe_allow_html=True)
     sr_rows = []
     for row in size_rows:
         sr_rows.append([row["Lens"], row["Direction"], row["Strength"], row["StrengthScore"], row["State"], row["Quality"], row["Sustainability"], row["Confirmation"]])
@@ -843,7 +870,7 @@ with t_notes:
     st.markdown(f"""
 - **Core model actually used**: `{CORE_NAME}`
 - **Layout is frozen to the attachment-2 shell**
-- **Q should only change if the same core engine changes**
+- **Current Q should only change if the same core engine changes — not because the shell/layout changed**
 - **IHSG size rotation is removed**
 - **Crypto alt basket vs BTC** uses a basket proxy
 - **Crypto vs Liquidity** uses a composite proxy (WALCL, M2, USD inverse, NFCI inverse)
