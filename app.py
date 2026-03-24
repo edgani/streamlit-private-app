@@ -195,6 +195,34 @@ def ladder_state(score: float, side: str) -> str:
             return "Provisional bottom"
         return "Deep washout / capitulation"
 
+
+def signal_quality_label(confidence: float, agreement: float, fragility: float) -> str:
+    score = 0.5 * confidence + 0.3 * agreement + 0.2 * (1 - fragility)
+    if score > 0.72:
+        return "High"
+    if score > 0.52:
+        return "Medium"
+    return "Low"
+
+def exposure_posture(confidence: float, fragility: float) -> str:
+    x = 0.6 * confidence + 0.4 * (1 - fragility)
+    if x > 0.72:
+        return "Can size up selectively"
+    if x > 0.54:
+        return "Normal sizing only"
+    return "Keep sizing small"
+
+def interpret_relative(direction: str, state: str, quality: str) -> str:
+    if direction == "Balanced":
+        return "No strong edge yet"
+    if direction == "Stronger" and state in ["Building", "Stable"]:
+        return "Edge looks usable"
+    if direction == "Stronger" and quality == "Frothy":
+        return "Strong but stretched"
+    if direction == "Weaker" and state in ["Building", "Stable"]:
+        return "Still under pressure"
+    return "Watch for confirmation"
+
 @st.cache_data(ttl=60*60*6, show_spinner=False)
 def fred_series(series_id: str) -> pd.Series:
     url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
@@ -409,6 +437,7 @@ def compute_core() -> Dict[str, object]:
         "stress_infl": clamp01(abs(i_m)),
         "stress_liq": clamp01(max(0, robust_z(SER["NFCI"]))),
         "margin": margin,
+        "signal_quality": signal_quality_label(confidence, agreement, fragility),
     }
 
 core = compute_core()
@@ -728,7 +757,7 @@ for col, (title, value, sub_html) in zip(mini_cols, mini):
         </div>
         """, unsafe_allow_html=True)
 
-left_col, right_col = st.columns([1.05, 0.95], gap="large")
+left_col, right_col = st.columns([1.0, 1.0], gap="large")
 with left_col:
     t_current, t_next, t_play = st.tabs(["Current", "Next", "Playbook"])
 with right_col:
@@ -745,10 +774,12 @@ with t_current:
         st.markdown(f"**Regime Strength ➜ {pct(core['phase_strength'])}**")
         st.markdown(f"**Breadth ➜ {pct(core['breadth'])}**")
         st.markdown(f"**Fragility ➜ {pct(core['fragility'])}**")
+        st.markdown(f"**Signal quality ➜ {core['signal_quality']}**")
         explanation = (
-            f"Still {core['current_q']} for now. Inside that, the model reads {core['sub_phase']}. "
-            f"So this is not a flat {core['current_q']} read. Path to {core['next_q']} is {core['path_status'].lower()}, "
-            f"while the current regime still looks {'fragile' if core['fragility'] > 0.5 else 'fairly stable'}."
+            f"Current = {core['current_q']} now. Sub-phase = {core['sub_phase']}. "
+            f"Next = {core['next_q']} only if the transition keeps building. "
+            f"Today the model still treats {core['current_q']} as current because it has the highest blended probability, "
+            f"while the regime still looks {'fragile' if core['fragility'] > 0.5 else 'fairly stable'}."
         )
         st.markdown(f"<div class='note-box'>{explanation}</div>", unsafe_allow_html=True)
         st.write("")
@@ -794,6 +825,8 @@ with t_next:
         st.markdown(f"**Transition Conviction ➜ {pct(core['transition_conviction'])}**")
         st.markdown(f"**Stay Probability ➜ {pct(core['stay_probability'])}**")
         st.markdown(f"**Transition Pressure ➜ {pct(core['transition_pressure'])}**")
+        st.markdown(f"**Why current still wins ➜ highest blended probability ({core['current_q']} = {core['current_p']:.4f})**")
+        st.markdown(f"**Why next is not current yet ➜ margin vs next = {pct(max(0.0, core['margin']))}**")
         st.markdown("</div>", unsafe_allow_html=True)
     with n2:
         st.markdown("<div class='card'><div class='section-title'>TRANSITION TREE MINI</div>", unsafe_allow_html=True)
@@ -821,6 +854,7 @@ with t_play:
     with p2:
         st.markdown("<div class='card'><div class='section-title'>POSITIONING / INVALIDATION</div>", unsafe_allow_html=True)
         st.markdown(f"**Positioning posture ➜ {posture}**")
+        st.markdown(f"**Sizing posture ➜ {exposure_posture(core['confidence'], core['fragility'])}**")
         st.markdown(f"**Winners ➜ {', '.join(play_cur['US Stocks'])}**")
         st.markdown(f"**Losers ➜ beta if fragility rises**")
         st.markdown("**Invalidation mini-box**")
@@ -836,15 +870,15 @@ with t_rel:
     st.markdown("<div class='mini-caption'>Dir = direction | Str = strength bucket | Score = numeric strength | State = early/building/stable/fading | Qual = clean or messy move | Sustain = how durable it looks | Conf = how much the move is confirmed</div>", unsafe_allow_html=True)
     rel_rows = []
     for row in relative_rows:
-        rel_rows.append([row["Lens"], row["Direction"], row["Strength"], row["StrengthScore"], row["State"], row["Quality"], row["Sustainability"], row["Confirmation"]])
-    st.markdown(table_html(["Lens", "Dir", "Str", "Score", "State", "Qual", "Sustain", "Conf"], rel_rows), unsafe_allow_html=True)
+        rel_rows.append([row["Lens"], row["Direction"], row["Strength"], row["StrengthScore"], row["State"], row["Quality"], row["Sustainability"], row["Confirmation"], interpret_relative(row["Direction"], row["State"], row["Quality"])])
+    st.markdown(table_html(["Lens", "Dir", "Str", "Score", "State", "Qual", "Sustain", "Conf", "Read"], rel_rows), unsafe_allow_html=True)
     st.write("")
     st.markdown("**SIZE ROTATION**")
     st.markdown("<div class='mini-caption'>Size rotation = breadth / participation. It helps confirm the read, but it is not the phase itself.</div>", unsafe_allow_html=True)
     sr_rows = []
     for row in size_rows:
-        sr_rows.append([row["Lens"], row["Direction"], row["Strength"], row["StrengthScore"], row["State"], row["Quality"], row["Sustainability"], row["Confirmation"]])
-    st.markdown(table_html(["Lens", "Dir", "Str", "Score", "State", "Qual", "Sustain", "Conf"], sr_rows), unsafe_allow_html=True)
+        sr_rows.append([row["Lens"], row["Direction"], row["Strength"], row["StrengthScore"], row["State"], row["Quality"], row["Sustainability"], row["Confirmation"], interpret_relative(row["Direction"], row["State"], row["Quality"])])
+    st.markdown(table_html(["Lens", "Dir", "Str", "Score", "State", "Qual", "Sustain", "Conf", "Read"], sr_rows), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_shock:
