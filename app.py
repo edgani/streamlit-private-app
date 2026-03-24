@@ -35,7 +35,7 @@ html, body, [data-testid="stAppViewContainer"] {
   background: var(--bg);
   color: var(--text);
 }
-.block-container {padding-top: 1.6rem; padding-bottom: 2.0rem; max-width: 1500px;}
+.block-container {padding-top: 1.6rem; padding-bottom: 2.0rem; max-width: 1650px;}
 h1,h2,h3,h4,h5,h6,p,span,div,label {color: var(--text);}
 .card {
   background: linear-gradient(180deg, rgba(16,24,41,0.98), rgba(10,17,30,0.98));
@@ -104,7 +104,7 @@ h1,h2,h3,h4,h5,h6,p,span,div,label {color: var(--text);}
 .tight-table th, .tight-table td {
   border:1px solid #243147;
   padding:8px 9px;
-  font-size:.88rem;
+  font-size:.84rem;
   text-align:left;
   vertical-align:top;
   word-break: break-word;
@@ -115,6 +115,7 @@ h1,h2,h3,h4,h5,h6,p,span,div,label {color: var(--text);}
   background: rgba(20,29,44,.85);
 }
 .tight-table td {color:#f5f8fd;}
+.col-compact {white-space: nowrap;}
 .note-box {
   border:1px solid #27476e;
   background: rgba(18,46,79,.65);
@@ -537,10 +538,10 @@ def compute_relative() -> List[Dict[str, str]]:
     btc = yahoo_close("BTC-USD", "1y")
     liq = liquidity_composite()
     return [
-        build_rel_row("US vs EM", spy, eem, "US stronger", "EM stronger", core["breadth"], 0),
-        build_rel_row("IHSG vs US", eido, spy, "IHSG stronger", "US stronger", core["breadth"], 1, " (proxy-based)"),
-        build_rel_row("IHSG vs EM", eido, eem, "IHSG stronger", "EM stronger", core["breadth"], 2, " (proxy-based)"),
-        build_rel_row("Crypto vs Liquidity", btc, liq, "Crypto stronger", "Liquidity not confirming", core["phase_strength"], 3, " (liq proxy)"),
+        build_rel_row("US/EM", spy, eem, "US stronger", "EM stronger", core["breadth"], 0),
+        build_rel_row("IHSG/US", eido, spy, "IHSG stronger", "US stronger", core["breadth"], 1, " (proxy-based)"),
+        build_rel_row("IHSG/EM", eido, eem, "IHSG stronger", "EM stronger", core["breadth"], 2, " (proxy-based)"),
+        build_rel_row("Crypto/Liq", btc, liq, "Crypto stronger", "Liquidity not confirming", core["phase_strength"], 3, " (liq proxy)"),
     ]
 
 def compute_size() -> List[Dict[str, str]]:
@@ -550,9 +551,9 @@ def compute_size() -> List[Dict[str, str]]:
     alt = crypto_alt_basket("1y")
     btc = yahoo_close("BTC-USD", "1y")
     return [
-        build_rel_row("US Small Caps vs Big Caps (IWM/IWB)", iwm, iwb, "Small > Big", "Big > Small", core["breadth"], 4),
-        build_rel_row("US Small Caps vs Broad Market (IWM/SPY)", iwm, spy, "Small > Broad", "Broad > Small", core["breadth"], 5),
-        build_rel_row("Crypto Alt Basket vs BTC", alt, btc, "Alts > BTC", "BTC > Alts", core["breadth"], 6, " (basket proxy)"),
+        build_rel_row("US Small/Big", iwm, iwb, "Small > Big", "Big > Small", core["breadth"], 4),
+        build_rel_row("US Small/Broad", iwm, spy, "Small > Broad", "Broad > Small", core["breadth"], 5),
+        build_rel_row("Alt Basket/BTC", alt, btc, "Alts > BTC", "BTC > Alts", core["breadth"], 6, " (basket proxy)"),
     ]
 
 relative_rows = compute_relative()
@@ -727,7 +728,7 @@ for col, (title, value, sub_html) in zip(mini_cols, mini):
         </div>
         """, unsafe_allow_html=True)
 
-left_col, right_col = st.columns([1.12, 0.88], gap="large")
+left_col, right_col = st.columns([1.05, 0.95], gap="large")
 with left_col:
     t_current, t_next, t_play = st.tabs(["Current", "Next", "Playbook"])
 with right_col:
@@ -829,16 +830,17 @@ with t_play:
         st.markdown("</div>", unsafe_allow_html=True)
 
 with t_rel:
-    st.markdown("<div class='card'><div class='section-title'>RELATIVE</div>", unsafe_allow_html=True)
+    st.markdown("<div class='card'><div class='section-title'>RELATIVE & SIZE CONTEXT</div>", unsafe_allow_html=True)
     st.markdown("**RELATIVE MAP**")
-    st.markdown("<div class='mini-caption'>Relative = who is stronger right now. This is context, not the phase itself.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Relative = who looks stronger right now. Use it as context, not as the main phase call.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Dir = direction | Str = strength bucket | Score = numeric strength | State = early/building/stable/fading | Qual = clean or messy move | Sustain = how durable it looks | Conf = how much the move is confirmed</div>", unsafe_allow_html=True)
     rel_rows = []
     for row in relative_rows:
         rel_rows.append([row["Lens"], row["Direction"], row["Strength"], row["StrengthScore"], row["State"], row["Quality"], row["Sustainability"], row["Confirmation"]])
     st.markdown(table_html(["Lens", "Dir", "Str", "Score", "State", "Qual", "Sustain", "Conf"], rel_rows), unsafe_allow_html=True)
     st.write("")
     st.markdown("**SIZE ROTATION**")
-    st.markdown("<div class='mini-caption'>Size rotation = participation / breadth context. It supports the phase read, it does not replace it.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Size rotation = breadth / participation. It helps confirm the read, but it is not the phase itself.</div>", unsafe_allow_html=True)
     sr_rows = []
     for row in size_rows:
         sr_rows.append([row["Lens"], row["Direction"], row["Strength"], row["StrengthScore"], row["State"], row["Quality"], row["Sustainability"], row["Confirmation"]])
@@ -873,7 +875,7 @@ with t_notes:
 - **Current Q should only change if the same core engine changes — not because the shell/layout changed**
 - **IHSG size rotation is removed**
 - **Crypto alt basket vs BTC** uses a basket proxy
-- **Crypto vs Liquidity** uses a composite proxy (WALCL, M2, USD inverse, NFCI inverse)
+- **Crypto/Liq** uses a composite proxy (WALCL, M2, USD inverse, NFCI inverse)
 """)
     st.markdown("</div>", unsafe_allow_html=True)
 
