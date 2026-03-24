@@ -35,7 +35,7 @@ html, body, [data-testid="stAppViewContainer"] {
   background: var(--bg);
   color: var(--text);
 }
-.block-container {padding-top: 1.6rem; padding-bottom: 2.0rem; max-width: 1750px;}
+.block-container {padding-top: 1.6rem; padding-bottom: 2.0rem; max-width: 1820px;}
 h1,h2,h3,h4,h5,h6,p,span,div,label {color: var(--text);}
 .card {
   background: linear-gradient(180deg, rgba(16,24,41,0.98), rgba(10,17,30,0.98));
@@ -104,7 +104,7 @@ h1,h2,h3,h4,h5,h6,p,span,div,label {color: var(--text);}
 .tight-table th, .tight-table td {
   border:1px solid #243147;
   padding:8px 9px;
-  font-size:.84rem;
+  font-size:.82rem;
   text-align:left;
   vertical-align:top;
   word-break: break-word;
@@ -219,6 +219,14 @@ def traffic_label(score: float, high: float = 0.66, mid: float = 0.4) -> str:
     if score >= mid:
         return "Yellow"
     return "Red"
+
+def traffic_pill(score: float, high: float = 0.66, mid: float = 0.4) -> str:
+    label = traffic_label(score, high, mid)
+    if label == "Green":
+        return "<span class='pill'>Green</span>"
+    if label == "Yellow":
+        return "<span class='pill'>Yellow</span>"
+    return "<span class='pill-red'>Red</span>"
 
 def market_bias_line(current_q: str, next_q: str, fragility: float, playbook_now: str) -> str:
     frag = "fragile" if fragility > 0.55 else ("mixed" if fragility > 0.4 else "stable")
@@ -736,10 +744,12 @@ st.markdown("<div class='small-muted'>Core alpha engine: Baseline_Blended_Core â
 st.markdown(f"<div class='mini-caption'>{market_bias_line(core['current_q'], core['next_q'], core['fragility'], ', '.join(play_cur['US Stocks'][:1]))}</div>", unsafe_allow_html=True)
 st.write("")
 
+st.markdown(f"<div class='mini-caption'><b>Quick read:</b> {market_bias_line(core['current_q'], core['next_q'], core['fragility'], ', '.join(play_cur['US Stocks'][:1]))}</div>", unsafe_allow_html=True)
+
 hero_cols = st.columns(5)
 hero_items = [
     ("Current Phase", core["current_q"], pill_html("Decaying", red=True) if core["fragility"] > 0.55 else pill_html("Stable")),
-    ("Confidence", pct(core["confidence"]), pill_html(f"Agreement {pct(core['agreement'])}")),
+    ("Confidence", pct(core["confidence"]), pill_html(f"Agreement {pct(core['agreement'])}") + " " + traffic_pill(0.5*core["confidence"] + 0.3*core["agreement"] + 0.2*(1-core["fragility"]))),
     ("Sub-Phase", core["sub_phase"], pill_html(f"Strength {pct(core['phase_strength'])}")),
     ("Top Risk", pct(core["top_score"]), pill_html(f"Higher-top {pct(core['higher_top'])}")),
     ("Bottom Risk", pct(core["bottom_score"]), pill_html(f"Lower-bottom {pct(core['lower_bottom'])}")),
@@ -779,6 +789,7 @@ with right_col:
     t_rel, t_shock, t_notes = st.tabs(["Relative", "Shocks / What-If", "Notes"])
 
 with t_current:
+    st.markdown("<div class='mini-caption'><b>Action read:</b> Use Current as the active regime. Treat Next only as a setup path until the transition matures.</div>", unsafe_allow_html=True)
     c1, c2 = st.columns([1.1, 0.9], gap="large")
     with c1:
         st.markdown("<div class='card'><div class='section-title'>CURRENT MAP</div>", unsafe_allow_html=True)
@@ -831,6 +842,7 @@ with t_current:
         st.markdown("</div>", unsafe_allow_html=True)
 
 with t_next:
+    st.markdown("<div class='mini-caption'><b>Action read:</b> Next is for preparation, not for pretending the phase already changed.</div>", unsafe_allow_html=True)
     n1, n2 = st.columns([1.05, 0.95], gap="large")
     with n1:
         st.markdown("<div class='card'><div class='section-title'>NEXT MAP</div>", unsafe_allow_html=True)
@@ -860,6 +872,7 @@ with t_next:
         st.markdown("</div>", unsafe_allow_html=True)
 
 with t_play:
+    st.markdown("<div class='mini-caption'><b>Action read:</b> Current column fits now. Next column fits only if the transition completes.</div>", unsafe_allow_html=True)
     p1, p2 = st.columns([1.05, 0.95], gap="large")
     with p1:
         st.markdown("<div class='card'><div class='section-title'>CURRENT vs NEXT PLAYBOOK</div>", unsafe_allow_html=True)
@@ -882,6 +895,7 @@ with t_play:
         st.markdown("</div>", unsafe_allow_html=True)
 
 with t_rel:
+    st.markdown("<div class='mini-caption'><b>Action read:</b> Relative and Size are confirmation layers. They should support the phase read, not replace it.</div>", unsafe_allow_html=True)
     st.markdown("<div class='card'><div class='section-title'>RELATIVE & SIZE CONTEXT</div>", unsafe_allow_html=True)
     st.markdown("**RELATIVE MAP**")
     st.markdown("<div class='mini-caption'>Relative = who looks stronger right now. Use it as context, not as the main phase call.</div>", unsafe_allow_html=True)
@@ -900,6 +914,7 @@ with t_rel:
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_shock:
+    st.markdown("<div class='mini-caption'><b>Action read:</b> Shocks can override the base case, but they do not rewrite the phase unless the data follow through.</div>", unsafe_allow_html=True)
     st.markdown("<div class='card'><div class='section-title'>SHOCKS / WHAT-IF</div>", unsafe_allow_html=True)
     st.markdown(f"**Current mode âžœ {'Override active' if override_active else 'Base case / watch only'}**")
     for k, v in shocks.items():
