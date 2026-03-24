@@ -18,9 +18,9 @@ st.set_page_config(page_title="QuantFinalV4_Max", layout="wide")
 APP_NAME = "QuantFinalV4_Max"
 CORE_NAME = "Baseline_Blended_Core"
 
-# ----------------------------
-# Styling
-# ----------------------------
+# =========================
+# STYLE: freeze visual shell
+# =========================
 st.markdown("""
 <style>
 :root {
@@ -34,7 +34,7 @@ html, body, [data-testid="stAppViewContainer"] {
   background: var(--bg);
   color: var(--text);
 }
-.block-container {padding-top: 1.7rem; padding-bottom: 2.5rem;}
+.block-container {padding-top: 1.6rem; padding-bottom: 2.6rem;}
 h1,h2,h3,h4,h5,h6,p,span,div,label {color: var(--text);}
 .card {
   background: linear-gradient(180deg, rgba(16,24,41,0.98), rgba(10,17,30,0.98));
@@ -50,7 +50,11 @@ h1,h2,h3,h4,h5,h6,p,span,div,label {color: var(--text);}
   padding: 12px 14px;
   min-height: 96px;
 }
-.section-title {font-weight: 800; letter-spacing: .02em; margin-bottom: 10px;}
+.section-title {
+  font-weight: 800;
+  letter-spacing: .02em;
+  margin-bottom: 10px;
+}
 .metric-title {font-size: .76rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em;}
 .metric-value {font-size: 1.85rem; font-weight: 800; line-height: 1.1;}
 .metric-sub {font-size: .88rem; color:#c4d2e6; margin-top:4px;}
@@ -86,9 +90,9 @@ h1,h2,h3,h4,h5,h6,p,span,div,label {color: var(--text);}
 </style>
 """, unsafe_allow_html=True)
 
-# ----------------------------
-# Helpers
-# ----------------------------
+# =========================
+# HELPERS
+# =========================
 def clamp01(x: float) -> float:
     return float(max(0.0, min(1.0, x)))
 
@@ -98,7 +102,7 @@ def sigmoid(x: float) -> float:
 def pct(x: float) -> str:
     return f"{100*x:.1f}%"
 
-def pill(txt: str) -> str:
+def pill_html(txt: str) -> str:
     return f"<span class='pill'>{txt}</span>"
 
 def bucket(x: float, cuts: Tuple[float, float], labels: Tuple[str, str, str]) -> str:
@@ -175,9 +179,9 @@ def stretch_n(s: pd.Series, n: int = 63) -> float:
         return 0.0
     return float((s.iloc[-1] / s.iloc[-n:].mean()) - 1)
 
-# ----------------------------
-# Data backbone
-# ----------------------------
+# =========================
+# DATA BACKBONE
+# =========================
 SER = {
     "INDPRO": fred_series("INDPRO"),
     "RSAFS": fred_series("RSAFS"),
@@ -196,9 +200,9 @@ SER = {
     "USD_BROAD": fred_series("DTWEXBGS"),
 }
 
-# ----------------------------
-# Core regime engine
-# ----------------------------
+# =========================
+# ONE CORE ENGINE ONLY
+# =========================
 def compute_core() -> Dict[str, object]:
     growth_inputs = [
         robust_z(SER["INDPRO"].pct_change(12)),
@@ -223,6 +227,7 @@ def compute_core() -> Dict[str, object]:
     i_m = float(np.nanmean(infl_inputs))
     s_m = float(np.nanmean(stress_inputs))
 
+    # quarterly anchor / smoother
     growth_q = [
         robust_z(SER["INDPRO"].pct_change(12).rolling(3).mean(), 60),
         robust_z(SER["RSAFS"].pct_change(12).rolling(3).mean(), 60),
@@ -274,11 +279,10 @@ def compute_core() -> Dict[str, object]:
     breadth = 0.5 * growth_breadth + 0.5 * inflation_breadth
     fragility = clamp01(0.45 * (1 - current_p) + 0.35 * (1 - agreement) + 0.20 * max(0, s_m))
 
-    # Stronger gating so visual changes don't imply regime changes
-    current_margin = current_p - next_p
-    if current_margin < 0.03:
+    margin = current_p - next_p
+    if margin < 0.03:
         fragility = clamp01(fragility + 0.08)
-    if current_margin < 0.015:
+    if margin < 0.015:
         confidence = clamp01(confidence - 0.05)
 
     if current_q == "Q1":
@@ -299,7 +303,7 @@ def compute_core() -> Dict[str, object]:
     transition_conviction = clamp01(0.55 * transition_pressure + 0.45 * next_p)
     stay_probability = clamp01(current_p * (1 - fragility * 0.45))
 
-    if current_margin > 0.05:
+    if margin > 0.05:
         if transition_conviction > 0.70:
             path_status = "Valid"
         elif transition_conviction > 0.48:
@@ -347,14 +351,14 @@ def compute_core() -> Dict[str, object]:
         "stress_growth": clamp01(abs(g_m)),
         "stress_infl": clamp01(abs(i_m)),
         "stress_liq": clamp01(max(0, robust_z(SER["NFCI"]))),
-        "margin": current_margin,
+        "margin": margin,
     }
 
 core = compute_core()
 
-# ----------------------------
-# Relative / size engines
-# ----------------------------
+# =========================
+# RELATIVE / SIZE ENGINES
+# =========================
 def rel_state(spread: float) -> str:
     if spread > 0.08:
         return "Building"
@@ -391,16 +395,17 @@ def rel_confirmation(strength: float, state: str, breadth: float) -> str:
     return "Not confirmed"
 
 def fallback_rel_row(name: str, seed: int, proxy_note: str = "") -> Dict[str, str]:
-    # distinct fallback, not all identical
-    strength_num = clamp01(0.22 + 0.09 * seed + 0.25 * core["breadth"] + 0.18 * (1 - core["fragility"]))
-    spread = (seed - 1.5) * 0.03 + (core["phase_strength"] - 0.5) * 0.05
-    direction = "Balanced"
+    # distinct fallback so rows do NOT collapse into the same output
+    strength_num = clamp01(0.20 + 0.07 * seed + 0.28 * core["breadth"] + 0.12 * (1 - core["fragility"]))
+    spread = (seed - 1.5) * 0.035 + (core["phase_strength"] - 0.5) * 0.04
     if spread > 0.025:
         direction = "Stronger"
     elif spread < -0.025:
         direction = "Weaker"
-    state = ["Fading", "Peaking", "Stable", "Building"][seed % 4]
-    stretch = clamp01(0.05 + 0.02 * seed + core["top_score"] * 0.15)
+    else:
+        direction = "Balanced"
+    state = ["Fading", "Peaking", "Stable", "Building"][(seed + int(core["phase_strength"] * 10)) % 4]
+    stretch = clamp01(0.03 + 0.025 * seed + core["top_score"] * 0.12)
     quality = rel_quality(strength_num, core["breadth"], stretch)
     sustain = rel_sustainability(strength_num, quality, core["fragility"])
     confirm = rel_confirmation(strength_num, state, core["breadth"])
@@ -408,21 +413,29 @@ def fallback_rel_row(name: str, seed: int, proxy_note: str = "") -> Dict[str, st
         "Lens": name,
         "Direction": direction,
         "Strength": score_to_label(strength_num),
+        "StrengthScore": pct(strength_num),
         "State": state,
         "Quality": quality,
         "Sustainability": sustain,
         "Confirmation": confirm,
         "Read": f"Fallback / weak edge{proxy_note}",
-        "StrengthScore": pct(strength_num),
     }
 
 def build_rel_row(name: str, a: pd.Series, b: pd.Series, pos_label: str, neg_label: str, breadth_hint: float, seed: int, proxy_note: str = "") -> Dict[str, str]:
     if a.empty or b.empty:
         return fallback_rel_row(name, seed, proxy_note)
+
     a_r = ret_n(a, 21)
     b_r = ret_n(b, 21)
     spread = a_r - b_r
-    direction = pos_label if spread > 0.02 else (neg_label if spread < -0.02 else "Balanced")
+
+    if spread > 0.02:
+        direction = pos_label
+    elif spread < -0.02:
+        direction = neg_label
+    else:
+        direction = "Balanced"
+
     strength_num = clamp01(min(1.0, abs(spread) / 0.15))
     state = rel_state(spread)
     stretch = clamp01(abs(stretch_n(a, 63)) * 3.0)
@@ -430,16 +443,17 @@ def build_rel_row(name: str, a: pd.Series, b: pd.Series, pos_label: str, neg_lab
     sustain = rel_sustainability(strength_num, quality, core["fragility"])
     confirm = rel_confirmation(strength_num, state, breadth_hint)
     read = direction if direction != "Balanced" else f"Balanced / weak edge{proxy_note}"
+
     return {
         "Lens": name,
         "Direction": direction,
         "Strength": score_to_label(strength_num),
+        "StrengthScore": pct(strength_num),
         "State": state,
         "Quality": quality,
         "Sustainability": sustain,
         "Confirmation": confirm,
         "Read": read,
-        "StrengthScore": pct(strength_num),
     }
 
 def crypto_alt_basket(period: str = "1y") -> pd.Series:
@@ -458,11 +472,14 @@ def crypto_alt_basket(period: str = "1y") -> pd.Series:
 def liquidity_composite() -> pd.Series:
     parts = []
     if not SER["WALCL"].empty:
-        parts.append((SER["WALCL"] / SER["WALCL"].iloc[0]).rename("WALCL"))
+        walcl = SER["WALCL"].dropna()
+        parts.append((walcl / walcl.iloc[0]).rename("WALCL"))
     if not SER["M2"].empty:
-        parts.append((SER["M2"] / SER["M2"].iloc[0]).rename("M2"))
+        m2 = SER["M2"].dropna()
+        parts.append((m2 / m2.iloc[0]).rename("M2"))
     if not SER["USD_BROAD"].empty:
-        parts.append((1 / SER["USD_BROAD"]).rename("USD_INV"))
+        usd = SER["USD_BROAD"].dropna()
+        parts.append((1 / usd).rename("USD_INV"))
     if not SER["NFCI"].empty:
         nfci = SER["NFCI"].dropna()
         if not nfci.empty:
@@ -503,9 +520,9 @@ def compute_size_rotation() -> List[Dict[str, str]]:
 relative_rows = compute_relative()
 size_rows = compute_size_rotation()
 
-# ----------------------------
-# Sentiment / shock overlays
-# ----------------------------
+# =========================
+# OVERLAYS
+# =========================
 def fear_greed_value() -> Tuple[int, str]:
     try:
         url = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata"
@@ -581,9 +598,9 @@ def build_shocks() -> Dict[str, Tuple[str, str]]:
 shocks = build_shocks()
 override_active = any(v[0] in ["medium", "high"] for v in shocks.values())
 
-# ----------------------------
-# Playbook
-# ----------------------------
+# =========================
+# PLAYBOOK
+# =========================
 FAMILY_SCORE_BY_QUAD = {
     "Q1": {"duration": 0.0, "usd": -0.4, "gold": -0.2, "beta": 0.8, "cyclical": 0.7},
     "Q2": {"duration": -0.8, "usd": 0.0, "gold": 0.0, "beta": 0.6, "cyclical": 0.9},
@@ -627,9 +644,9 @@ def current_vs_next_playbook() -> Tuple[Dict[str, List[str]], Dict[str, List[str
 
 play_cur, play_next, posture = current_vs_next_playbook()
 
-# ----------------------------
-# Event watch
-# ----------------------------
+# =========================
+# EVENT WATCH
+# =========================
 today = date.today()
 events = [
     ("NFP", today + timedelta(days=11)),
@@ -638,38 +655,38 @@ events = [
 ]
 event_rows = [[name, dt.isoformat(), f"{(dt - today).days}d"] for name, dt in events]
 
-# ----------------------------
-# Layout
-# ----------------------------
+# =========================
+# LAYOUT (freeze)
+# =========================
 st.title(APP_NAME)
-st.markdown("<div class='small-muted'>Core alpha engine: Baseline_Blended_Core • Visual shell: mind-map card layout • Live backbone: FRED + optional Yahoo</div>", unsafe_allow_html=True)
+st.markdown("<div class='small-muted'>Core alpha engine: Baseline_Blended_Core • Visual shell stays fixed • Current / Next / Playbook / Relative / Shocks</div>", unsafe_allow_html=True)
 st.write("")
 
 hero_cols = st.columns(5)
 hero_items = [
-    ("Current Phase", core["current_q"], pill("Decaying") if core["fragility"] > 0.55 else pill("Stable")),
-    ("Confidence", pct(core["confidence"]), pill(f"Agreement {pct(core['agreement'])}")),
-    ("Sub-Phase", core["sub_phase"], pill(f"Strength {pct(core['phase_strength'])}")),
-    ("Top Risk", pct(core["top_score"]), pill(f"Higher-top {pct(core['higher_top'])}")),
-    ("Bottom Risk", pct(core["bottom_score"]), pill(f"Lower-bottom {pct(core['lower_bottom'])}")),
+    ("Current Phase", core["current_q"], pill_html("Decaying") if core["fragility"] > 0.55 else pill_html("Stable")),
+    ("Confidence", pct(core["confidence"]), pill_html(f"Agreement {pct(core['agreement'])}")),
+    ("Sub-Phase", core["sub_phase"], pill_html(f"Strength {pct(core['phase_strength'])}")),
+    ("Top Risk", pct(core["top_score"]), pill_html(f"Higher-top {pct(core['higher_top'])}")),
+    ("Bottom Risk", pct(core["bottom_score"]), pill_html(f"Lower-bottom {pct(core['lower_bottom'])}")),
 ]
-for col, (title, value, sub) in zip(hero_cols, hero_items):
+for col, (title, value, sub_html) in zip(hero_cols, hero_items):
     with col:
         st.markdown(f"""
         <div class='hero-card'>
           <div class='metric-title'>{title}</div>
           <div class='metric-value'>{value}</div>
-          <div class='metric-sub'>{sub}</div>
+          <div class='metric-sub'>{sub_html}</div>
         </div>
         """, unsafe_allow_html=True)
 
 mini_cols = st.columns(5)
 mini = [
-    ("CURRENT", core["current_q"], pill("Decaying") if core["fragility"] > 0.55 else pill("Stable")),
-    ("NEXT", core["next_q"], pill(f"Hazard {pct(core['transition_pressure'])}")),
-    ("PLAYBOOK", ", ".join(play_cur["US Stocks"][:1]), pill(f"Conviction {pct(core['confidence'])}")),
-    ("RELATIVE", relative_rows[0]["Read"], pill(relative_rows[1]["Read"])),
-    ("SHOCKS", "Overlay", pill(f"Top {pct(core['top_score'])} / Bottom {pct(core['bottom_score'])}")),
+    ("CURRENT", core["current_q"], "Decaying" if core["fragility"] > 0.55 else "Stable"),
+    ("NEXT", core["next_q"], f"Hazard {pct(core['transition_pressure'])}"),
+    ("PLAYBOOK", ", ".join(play_cur["US Stocks"][:1]), f"Conviction {pct(core['confidence'])}"),
+    ("RELATIVE", relative_rows[0]["Read"], relative_rows[1]["Read"]),
+    ("SHOCKS", "Overlay", f"Top {pct(core['top_score'])} / Bottom {pct(core['bottom_score'])}"),
 ]
 for col, (title, value, sub) in zip(mini_cols, mini):
     with col:
@@ -681,34 +698,35 @@ for col, (title, value, sub) in zip(mini_cols, mini):
         </div>
         """, unsafe_allow_html=True)
 
-current_tab, next_tab, playbook_tab, relative_tab, shocks_tab, notes_tab = st.tabs(
-    ["Current", "Next", "Playbook", "Relative", "Shocks / What-If", "Notes"]
-)
+left_col, right_col = st.columns([1.05, 0.95], gap="large")
+with left_col:
+    current_tab, next_tab, playbook_tab = st.tabs(["Current", "Next", "Playbook"])
+with right_col:
+    relative_tab, shocks_tab, notes_tab = st.tabs(["Relative", "Shocks / What-If", "Notes"])
 
 with current_tab:
-    left, right = st.columns([1.25, 1.0], gap="large")
-    with left:
+    c1, c2 = st.columns([1.2, 1.0], gap="large")
+    with c1:
         st.markdown("<div class='card'><div class='section-title'>CURRENT MAP</div>", unsafe_allow_html=True)
         st.markdown(f"**Phase ➜ {core['current_q']}**")
-        st.markdown(f"**Confidence ➜ {pct(core['confidence'])}** {pill('Decaying') if core['fragility'] > 0.55 else pill('Stable')}", unsafe_allow_html=True)
-        st.markdown(f"**Agreement ➜ {pct(core['agreement'])}** {pill('Monthly / Quarterly')}", unsafe_allow_html=True)
+        st.markdown(f"**Confidence ➜ {pct(core['confidence'])}**")
+        st.markdown(f"**Agreement ➜ {pct(core['agreement'])}**")
         st.markdown(f"**Sub-Phase ➜ {core['sub_phase']}**")
         st.markdown(f"**Regime Strength ➜ {pct(core['phase_strength'])}**")
         st.markdown(f"**Breadth ➜ {pct(core['breadth'])}**")
         st.markdown(f"**Fragility ➜ {pct(core['fragility'])}**")
-        explain = (
-            f"Current is still {core['current_q']}. Inside that phase the model reads '{core['sub_phase']}', "
-            f"so this is not a clean one-dimensional {core['current_q']}. "
-            f"Path to {core['next_q']} is {core['path_status'].lower()}, while the current regime still looks "
-            f"{'fragile' if core['fragility'] > 0.5 else 'fairly stable'}."
+        explanation = (
+            f"Still **{core['current_q']}** for now. Inside that, the model reads **{core['sub_phase']}**. "
+            f"So this is not a flat {core['current_q']} read. Path to **{core['next_q']}** is **{core['path_status']}**, "
+            f"while the current regime still looks **{'fragile' if core['fragility'] > 0.5 else 'fairly stable'}**."
         )
-        st.markdown(f"<div class='note-box'>{explain}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='note-box'>{explanation}</div>", unsafe_allow_html=True)
         st.write("")
         prob_rows = [[k, f"{v:.4f}"] for k, v in sorted(core["blended"].items(), key=lambda x: x[1], reverse=True)]
         st.markdown(table_html(["Phase", "Probability"], prob_rows), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    with right:
+    with c2:
         st.markdown("<div class='card'><div class='section-title'>TOP / BOTTOM LADDER</div>", unsafe_allow_html=True)
         ladder_rows = [
             ["Provisional top", pct(core["top_score"])],
@@ -732,8 +750,8 @@ with current_tab:
         st.markdown("</div>", unsafe_allow_html=True)
 
 with next_tab:
-    left, right = st.columns([1.15, 1.0], gap="large")
-    with left:
+    n1, n2 = st.columns([1.12, 1.0], gap="large")
+    with n1:
         st.markdown("<div class='card'><div class='section-title'>NEXT MAP</div>", unsafe_allow_html=True)
         st.markdown(f"**Most likely next ➜ {core['next_q']}**")
         st.markdown(f"**Path to Next Q ➜ {core['current_q']} → {core['next_q']}**")
@@ -751,7 +769,7 @@ with next_tab:
         st.markdown(f"**Invalidation Window ➜ {invalid_window}**")
         st.markdown("</div>", unsafe_allow_html=True)
 
-    with right:
+    with n2:
         st.markdown("<div class='card'><div class='section-title'>TRANSITION TREE MINI</div>", unsafe_allow_html=True)
         alt2 = "Q3" if core["next_q"] != "Q3" else "Q4"
         tree_rows = [
@@ -766,22 +784,19 @@ with next_tab:
         st.markdown("</div>", unsafe_allow_html=True)
 
 with playbook_tab:
-    left, right = st.columns([1.1, 1.0], gap="large")
-    with left:
+    p1, p2 = st.columns([1.08, 1.0], gap="large")
+    with p1:
         st.markdown("<div class='card'><div class='section-title'>CURRENT vs NEXT PLAYBOOK</div>", unsafe_allow_html=True)
         rows = []
         for bucket_name in ["US Stocks", "Futures / Commodities", "Forex", "Crypto", "IHSG"]:
             rows.append([bucket_name, ", ".join(play_cur[bucket_name]), ", ".join(play_next[bucket_name])])
         st.markdown(table_html(["Bucket", "Current", "Next"], rows), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
-
-    with right:
+    with p2:
         st.markdown("<div class='card'><div class='section-title'>POSITIONING / INVALIDATION</div>", unsafe_allow_html=True)
-        winners = ", ".join(play_cur["US Stocks"])
-        losers = "beta if fragility rises"
         st.markdown(f"**Positioning posture ➜ {posture}**")
-        st.markdown(f"**Winners ➜ {winners}**")
-        st.markdown(f"**Losers ➜ {losers}**")
+        st.markdown(f"**Winners ➜ {', '.join(play_cur['US Stocks'])}**")
+        st.markdown(f"**Losers ➜ beta if fragility rises**")
         st.markdown("**Invalidation mini-box**")
         st.markdown("- Invalid if growth breadth improves sharply")
         st.markdown("- Invalid if inflation re-accelerates against the current path")
@@ -789,8 +804,8 @@ with playbook_tab:
         st.markdown("</div>", unsafe_allow_html=True)
 
 with relative_tab:
-    left, right = st.columns([1.12, 1.05], gap="large")
-    with left:
+    r1, r2 = st.columns([1.0, 1.0], gap="large")
+    with r1:
         st.markdown("<div class='card'><div class='section-title'>RELATIVE MAP</div>", unsafe_allow_html=True)
         rel_rows = []
         for row in relative_rows:
@@ -801,7 +816,7 @@ with relative_tab:
         st.markdown(table_html(["Relative Lens", "Dir", "Strength", "Score", "State", "Quality", "Sustain", "Confirm"], rel_rows), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-    with right:
+    with r2:
         st.markdown("<div class='card'><div class='section-title'>SIZE ROTATION</div>", unsafe_allow_html=True)
         sr_rows = []
         for row in size_rows:
@@ -820,6 +835,7 @@ with shocks_tab:
         for k, v in shocks.items():
             st.markdown(f"- **{k}**: {v[0]} — {v[1]}")
         st.markdown("</div>", unsafe_allow_html=True)
+
     with s2:
         st.markdown("<div class='card'><div class='section-title'>TRANSMISSION / CORRELATION</div>", unsafe_allow_html=True)
         st.markdown(table_html(["Scenario", "Read", "Prefer", "Avoid"], [list(x) for x in WHAT_IF_SCENARIO_MATRIX]), unsafe_allow_html=True)
@@ -828,6 +844,7 @@ with shocks_tab:
         st.write("")
         st.markdown(table_html(["Transmission", "Strength", "Why"], [list(x) for x in CORRELATION_TRANSMISSION_PRIORS]), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
+
     with s3:
         st.markdown("<div class='card'><div class='section-title'>CRASH / RECOVERY</div>", unsafe_allow_html=True)
         st.markdown(table_html(["Crash type", "Read"], [list(x) for x in CRASH_TYPES]), unsafe_allow_html=True)
