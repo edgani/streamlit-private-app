@@ -331,24 +331,24 @@ def compute_core() -> Dict[str, object]:
 
     if margin > 0.05:
         if transition_conviction > 0.70:
-            path_status = "Valid"
+            path_status = "Building (not current yet)"
         elif transition_conviction > 0.48:
-            path_status = "Building"
+            path_status = "Early build (not current yet)"
         elif transition_conviction > 0.28:
-            path_status = "Starting"
+            path_status = "Very early path"
         else:
-            path_status = "Stable / no clean shift"
+            path_status = "No clean shift yet"
     else:
         if transition_conviction > 0.78 and next_p > current_p - 0.01:
-            path_status = "Confirmed"
+            path_status = "Confirmed shift"
         elif transition_conviction > 0.60:
-            path_status = "Valid"
+            path_status = "Building (not current yet)"
         elif transition_conviction > 0.42:
-            path_status = "Building"
+            path_status = "Early build (not current yet)"
         elif transition_conviction > 0.26:
-            path_status = "Starting"
+            path_status = "Very early path"
         else:
-            path_status = "Stable / no clean shift"
+            path_status = "No clean shift yet"
 
     return {
         "monthly": monthly,
@@ -607,7 +607,7 @@ FAMILY_SCORE_BY_QUAD = {
 }
 FAMILY_TO_ASSETS = {
     "duration": {"US Stocks": ["duration-sensitive quality", "defensives"], "Futures / Commodities": ["rates duration"], "Forex": ["funding currencies"], "Crypto": ["BTC over alts"], "IHSG": ["defensives / rate-sensitive"]},
-    "usd": {"US Stocks": ["selective exporters"], "Futures / Commodities": ["USD tailwind trades"], "Forex": ["USD stronger"], "Crypto": ["pressure on weaker beta"], "IHSG": ["IDR-sensitive caution"]},
+    "usd": {"US Stocks": ["selective exporters"], "Futures / Commodities": ["USD tailwind / defensive bias"], "Forex": ["USD bias still firm"], "Crypto": ["pressure on weaker beta"], "IHSG": ["IDR-sensitive caution"]},
     "gold": {"US Stocks": ["gold miners"], "Futures / Commodities": ["gold"], "Forex": ["gold-linked defensives"], "Crypto": ["less beta than alts"], "IHSG": ["commodity hedges"]},
     "beta": {"US Stocks": ["small caps / cyclicals"], "Futures / Commodities": ["equity beta"], "Forex": ["high beta FX"], "Crypto": ["alts"], "IHSG": ["local beta"]},
     "cyclical": {"US Stocks": ["industrials", "materials"], "Futures / Commodities": ["industrial commodities"], "Forex": ["commodity FX"], "Crypto": ["risk-on rotation"], "IHSG": ["commodities / cyclicals"]},
@@ -670,7 +670,7 @@ for col, (title, value, sub_html) in zip(hero_cols, hero_items):
 mini_cols = st.columns(5)
 mini = [
     ("CURRENT", core["current_q"], pill_html("Decaying", red=True) if core["fragility"] > 0.55 else pill_html("Stable")),
-    ("NEXT", core["next_q"], pill_html(f"Hazard {pct(core['transition_pressure'])}")),
+    ("NEXT", core["next_q"], pill_html(f"Transition {pct(core['transition_pressure'])}")),
     ("PLAYBOOK", ", ".join(play_cur["US Stocks"][:1]), pill_html(f"Conviction {pct(core['confidence'])}")),
     ("RELATIVE", relative_rows[0]["Read"], pill_html(relative_rows[1]["Read"])),
     ("SHOCKS", "Overlay", pill_html(f"Top {pct(core['top_score'])} / Bottom {pct(core['bottom_score'])}")),
@@ -740,9 +740,10 @@ with t_next:
     n1, n2 = st.columns([1.05, 0.95], gap="large")
     with n1:
         st.markdown("<div class='card'><div class='section-title'>NEXT MAP</div>", unsafe_allow_html=True)
-        st.markdown(f"**Most likely next ➜ {core['next_q']}**")
+        st.markdown(f"**Most likely next ➜ {core['next_q']} (not current yet)**")
         st.markdown(f"**Path to Next Q ➜ {core['current_q']} → {core['next_q']}**")
         st.markdown(f"**Status ➜ {core['path_status']}**")
+        st.markdown("**Interpretation ➜ Next path is a setup, not the current regime unless a confirmed shift is shown.**")
         st.markdown(f"**Transition Conviction ➜ {pct(core['transition_conviction'])}**")
         st.markdown(f"**Stay Probability ➜ {pct(core['stay_probability'])}**")
         st.markdown(f"**Transition Pressure ➜ {pct(core['transition_pressure'])}**")
@@ -765,6 +766,7 @@ with t_play:
     p1, p2 = st.columns([1.05, 0.95], gap="large")
     with p1:
         st.markdown("<div class='card'><div class='section-title'>CURRENT vs NEXT PLAYBOOK</div>", unsafe_allow_html=True)
+        st.markdown("**Current = what fits now. Next = what fits if the transition completes; it is not the current regime by default.**")
         rows = []
         for bucket_name in ["US Stocks", "Futures / Commodities", "Forex", "Crypto", "IHSG"]:
             rows.append([bucket_name, ", ".join(play_cur[bucket_name]), ", ".join(play_next[bucket_name])])
@@ -773,6 +775,7 @@ with t_play:
     with p2:
         st.markdown("<div class='card'><div class='section-title'>POSITIONING / INVALIDATION</div>", unsafe_allow_html=True)
         st.markdown(f"**Positioning posture ➜ {posture}**")
+        st.markdown("**How to read this ➜ Current = what fits now. Next = what fits if the transition completes.**")
         st.markdown(f"**Winners ➜ {', '.join(play_cur['US Stocks'])}**")
         st.markdown(f"**Losers ➜ beta if fragility rises**")
         st.markdown("**Invalidation mini-box**")
@@ -821,10 +824,10 @@ with t_notes:
     st.markdown(f"""
 - **Core model actually used**: `{CORE_NAME}`
 - **Layout is frozen to attachment-2 shell**
-- **Q should only change if the same core engine changes**
+- **Q should only change if the same core engine changes (not because the shell/layout changed)**
 - **IHSG size rotation is removed**
 - **Crypto alt basket vs BTC** uses a basket proxy
-- **Crypto vs Liquidity** uses a composite proxy (WALCL, M2, USD inverse, NFCI inverse)
+- **Crypto vs Liquidity** uses a composite proxy (WALCL, M2, USD inverse, NFCI inverse). This is a backdrop read, not a guaranteed straight-line trade.
 """)
     st.markdown("</div>", unsafe_allow_html=True)
 
