@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Tuple
 
 import pandas as pd
 
 SERIES_RELEASE_RULES = {
-    # name: cadence, lag days from period end, stale days tolerance
     "INDPRO": {"cadence": "monthly", "lag_days": 16, "stale_days": 45, "label": "Industrial Production"},
     "RSAFS": {"cadence": "monthly", "lag_days": 16, "stale_days": 45, "label": "Retail Sales"},
     "PAYEMS": {"cadence": "monthly", "lag_days": 3, "stale_days": 35, "label": "Payrolls"},
@@ -25,13 +24,14 @@ SERIES_RELEASE_RULES = {
     "USD": {"cadence": "daily", "lag_days": 1, "stale_days": 5, "label": "Broad Dollar"},
 }
 
+STATUS_ORDER = {"Missing": 0, "Stale": 1, "Aging": 2, "Fresh": 3}
+
 
 def _period_end(ts: pd.Timestamp, cadence: str) -> pd.Timestamp:
     ts = pd.Timestamp(ts).normalize()
     if cadence == "monthly":
         return ts + pd.offsets.MonthEnd(0)
     if cadence == "weekly":
-        # FRED weekly observations are usually week-ending levels.
         return ts + pd.Timedelta(days=max(0, 6 - ts.weekday()))
     return ts
 
@@ -74,7 +74,6 @@ def health_rows(raw: Dict[str, pd.Series], adjusted: Dict[str, pd.Series], asof:
         if adj_s.empty:
             status = "Missing"
             age_days = "-"
-            release_info = f"{rule['cadence']} +{rule['lag_days']}d"
         else:
             last_ts = pd.Timestamp(adj_s.index.max()).normalize()
             age = int((asof_ts - last_ts).days)
@@ -86,12 +85,55 @@ def health_rows(raw: Dict[str, pd.Series], adjusted: Dict[str, pd.Series], asof:
                 status = "Aging"
             else:
                 status = "Stale"
-            release_info = f"{rule['cadence']} +{rule['lag_days']}d"
         dropped = max(0, len(raw_s) - len(adj_s))
-        rows.append([label, status, raw_last, adj_last, age_days, release_info, str(dropped)])
-    order = {"Missing": 0, "Stale": 1, "Aging": 2, "Fresh": 3}
-    rows.sort(key=lambda r: (order.get(r[1], 9), r[0]))
+        rows.append([label, status, raw_last, adj_last, age_days, f"{rule['cadence']} +{rule['lag_days']}d", str(dropped)])
+    rows.sort(key=lambda r: (STATUS_ORDER.get(r[1], 9), r[0]))
     return rows
+
+
+def health_summary(rows: List[List[str]]) -> Tuple[float, List[List[str]]]:
+    if not rows:
+        return 0.0, [["No series", "-"]]
+    score = 1.0
+    counts = {"Fresh": 0, "Aging": 0, "Stale": 0, "Missing": 0}
+    for _, status, *_ in rows:
+        counts[status] = counts.get(status, 0) + 1
+        if status == "Aging":
+            score -= 0.05
+        elif status == "Stale":
+            score -= 0.12
+        elif status == "Missing":
+            score -= 0.18
+    score = max(0.0, min(1.0, score))
+    summary = [
+        ["Fresh", str(counts['Fresh'])],
+        ["Aging", str(counts['Aging'])],
+        ["Stale", str(counts['Stale'])],
+        ["Missing", str(counts['Missing'])],
+        ["Health score", f"{score*100:.1f}%"],
+    ]
+    return score, summary
+
+
+def _upsert_index(base: Path, snap_dir: Path, meta: Dict[str, object]) -> None:
+    idx_path = base / "index.csv"
+    row = {
+        "asof": meta.get("asof", snap_dir.name),
+        "path": str(snap_dir),
+        "current_q": meta.get("current_q", ""),
+        "next_q": meta.get("next_q", ""),
+        "confidence": meta.get("confidence", ""),
+        "crash_now": meta.get("crash_now", ""),
+        "health_score": meta.get("health_score", ""),
+    }
+    if idx_path.exists():
+        df = pd.read_csv(idx_path)
+        df = df[df["asof"].astype(str) != str(row["asof"])]
+        df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+    else:
+        df = pd.DataFrame([row])
+    df.sort_values("asof", inplace=True)
+    df.to_csv(idx_path, index=False)
 
 
 def persist_snapshot(raw: Dict[str, pd.Series], adjusted: Dict[str, pd.Series], out_dir: str | Path, meta: Dict[str, object] | None = None) -> str | None:
@@ -114,6 +156,7 @@ def persist_snapshot(raw: Dict[str, pd.Series], adjusted: Dict[str, pd.Series], 
         if meta:
             with open(snap_dir / "meta.json", "w", encoding="utf-8") as fh:
                 json.dump(meta, fh, ensure_ascii=False, indent=2, default=str)
+            _upsert_index(base, snap_dir, meta)
         return str(snap_dir)
     except Exception:
         return None
@@ -131,3 +174,14 @@ def snapshot_coverage(out_dir: str | Path) -> tuple[int, str]:
         return len(dirs), last.name
     except Exception:
         return 0, "n/a"
+
+
+def snapshot_index(out_dir: str | Path) -> pd.DataFrame:
+    base = Path(out_dir)
+    idx_path = base / "index.csv"
+    if not idx_path.exists():
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(idx_path)
+    except Exception:
+        return pd.DataFrame()
