@@ -2256,6 +2256,94 @@ def build_q2_crash_watch_rows() -> List[List[str]]:
     return rows
 
 
+def _commodity_state(asset_name: str, default: str = "Selective") -> str:
+    now = _asset_now_score(asset_name) if asset_name in ASSET_SCORE_BY_QUAD else 0.0
+    if now >= 0.45:
+        return "Usable"
+    if now >= 0.18:
+        return "Usable but selective"
+    if now >= -0.05:
+        return "Selective"
+    if now >= -0.25:
+        return "Conditional / not confirmed"
+    return "Still pressured"
+
+
+def commodity_resource_intro(core: Dict[str, Any]) -> str:
+    variant = _transition_variant(core)
+    q = core.get("current_q", "Q3")
+    if q == "Q3":
+        return (
+            f"Sekarang commodity / resource complex lebih cocok dibaca sebagai hedge / shock complex, bukan broad clean beta. "
+            f"Dalam {q} dengan varian {variant}, oil-gas dan coal masih lebih direct; metals dan trade-shipping butuh breadth / industrial confirmation dulu. "
+            f"Kalau next {core.get('next_q','Q2')} benar menang dengan breadth lebih bersih, leadership bisa geser dari hedge names ke cyclical commodity complex."
+        )
+    if q == "Q2":
+        return (
+            f"Sekarang commodity / resource complex mulai lebih cyclical, tapi tetap cek apakah {variant.lower()} atau healthy reflation yang dominan. "
+            f"Oil-gas dan metals biasanya membaik lebih dulu; coal / shipping ikut kalau breadth dan trade-sensitive names confirm."
+        )
+    return (
+        f"Sekarang commodity / resource complex lebih tactical. "
+        f"Pakai sebagai confirmation layer, bukan broad conviction sampai growth / breadth dan next-path lebih jelas."
+    )
+
+
+def build_commodity_resource_map_rows(core: Dict[str, Any]) -> List[List[str]]:
+    next_q = core.get("next_q", "Q2")
+    rows = [
+        ["Global", "Oil / gas", "majors, upstream, LNG, OFS", _commodity_state("Oil / energy"),
+         "Treat as direct inflation / supply-shock hedge first; not broad clean beta.",
+         f"If {next_q} wins cleanly, shift from hedge logic to cyclical reflation logic."],
+        ["Global", "Coal", "thermal coal, coal miners, coal logistics", "Usable selectively" if core.get("current_q") == "Q3" else _commodity_state("Oil / energy"),
+         "Works as dirty-energy / inflation hedge, especially in bad reflation.",
+         f"If {next_q} confirms, coal becomes more cyclical and less pure hedge."],
+        ["Global", "Metals", "copper, steel, aluminum, diversified miners", "Not confirmed yet" if core.get("current_q") == "Q3" else "Improving",
+         "Need breadth and industrial confirmation; do not treat as clean winner yet.",
+         f"If {next_q} wins cleanly, metals should improve earlier and broader."],
+        ["Global", "Shipping", "tankers, LNG shipping, dry bulk, energy transport", "Selective",
+         "Use where energy flow disruption / rates help; do not assume all shipping wins equally.",
+         f"If {next_q} wins, leadership can broaden from energy-linked routes to trade-sensitive names."],
+        ["Global", "Positive spillovers", "oil services, rail/logistics, industrial suppliers, commodity FX", "Conditional",
+         "Use only where energy shock is translating into pricing power or throughput.",
+         f"If {next_q} wins, these become more volume / cyclical expressions."],
+        ["Global", "Pressured losers", "airlines, fuel-heavy transport, cost-sensitive chemicals, discretionary", "Still pressured",
+         "Avoid broad longs if fuel shock is still the main driver.",
+         f"Pressure should ease only if oil cools and breadth broadens."],
+        ["IHSG", "IHSG oil-gas", "MEDC, AKRA-linked energy/value exposures", "Selective",
+         "Use as inflation / energy-linked hedge, not blind local beta.",
+         f"If {next_q} wins cleanly, can broaden into cyclical reflation names."],
+        ["IHSG", "IHSG coal", "ADRO, PTBA, ITMG, coal-linked logistics", "Usable selectively",
+         "Treat as commodity hedge / nominal revenue support first.",
+         f"If {next_q} confirms, coal becomes more cyclical and less pure hedge."],
+        ["IHSG", "IHSG metals", "nickel/copper/mining-linked names", "Not confirmed yet",
+         "Need cleaner global growth / industrial breadth.",
+         f"If {next_q} wins, metals should improve earlier."],
+        ["IHSG", "IHSG shipping", "tanker / dry-bulk / trade-route sensitive names", "Selective",
+         "Use only where route / rate story is clear; do not assume all shipping wins.",
+         f"If {next_q} wins, trade-sensitive shipping can broaden."],
+    ]
+    return rows
+
+
+def risk_posture_rows() -> List[List[str]]:
+    return recommended_risk_budget(core, current_crash_probability())
+
+
+def risk_control_rows() -> List[List[str]]:
+    return risk_controls_rows(core, current_crash_probability())
+
+
+def validation_rows() -> List[List[str]]:
+    return [
+        ["Validation readiness", pct(VALIDATION_READY.score), VALIDATION_READY.label],
+        ["Snapshot coverage", str(SNAPSHOT_COUNT), f"Last snapshot: {SNAPSHOT_LAST}"],
+        ["Release-lag mode", "On", "Macro inputs use usable-date approximation"],
+        ["Data health", "On", ", ".join([f"{k}:{HEALTH_COUNTS.get(k,0)}" for k in ["Fresh","Aging","Stale","Missing"]])],
+        ["Risk budget", "On", "Portfolio-minded posture / controls active"],
+    ]
+
+
 def rel_phase_context(lens: str) -> tuple[str, str, str]:
     map_now = {
         "US/EM": {"Q1":"EM-friendly if USD soft", "Q2":"EM-friendly if USD calm", "Q3":"US over EM", "Q4":"US / defensives over EM"},
