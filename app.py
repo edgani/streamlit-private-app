@@ -13,10 +13,10 @@ try:
 except Exception:
     yf = None
 
-st.set_page_config(page_title="QuantFinalV6_0_Q3Anchored", layout="wide")
+st.set_page_config(page_title="QuantFinalV6_3_Q3Anchored", layout="wide")
 
-APP_NAME = "QuantFinalV6_0_Q3Anchored"
-CORE_NAME = "Hedgeye_LiveQuad_Core_v2_4"
+APP_NAME = "QuantFinalV6_3_Q3Anchored"
+CORE_NAME = "Hedgeye_LiveQuad_Core_v2_5"
 
 Q3_CONSENSUS_ANCHOR = True
 Q3_CONSENSUS_FORCE_TOP = True
@@ -2043,6 +2043,23 @@ def build_crash_compact_rows(crash_now: float) -> List[List[str]]:
     ]
 
 
+def build_crash_timing_rows(crash_now: float) -> List[List[str]]:
+    return [
+        ['Crash meter now', f"{pct(crash_now)} ({crash_meter_label(crash_now)})", 'Respect risk window; not exact crash timing.'],
+        ['Top state', ladder_state(core['top_score'], 'top'), 'If extended, do not chase stretched upside.'],
+        ['Bottom state', ladder_state(core['bottom_score'], 'bottom'), 'If low, do not force bottom-fishing yet.'],
+        ['Next catalyst window', macro_catalyst_summary(2), 'Nearest macro events most likely to move Q / next-Q.'],
+        ['Base crash branch', _transition_variant(core), 'Dirty / toxic variants raise accident probability.'],
+    ]
+
+
+def build_relative_compact_rows() -> List[List[str]]:
+    rows = []
+    for group, lens, bias, read, nxt in build_unified_relative_rows():
+        rows.append([f"{group}: {lens}", bias, read, nxt])
+    return rows
+
+
 def build_quad_scenario_matrix() -> List[List[str]]:
     rows = [
         ['Q1', 'Clean growth-disinflation', 'US equities, quality growth, credit, improving small caps', 'Rates spike / valuation accident', pct(0.22)],
@@ -2057,14 +2074,58 @@ def build_quad_scenario_matrix() -> List[List[str]]:
     return out
 
 
+def _asset_now_score(asset: str) -> float:
+    cur, _ = _current_next_asset_score(asset)
+    return cur
+
+def scenario_state_now(name: str) -> str:
+    variant = _transition_variant(core)
+    q = core['current_q']
+    stage, _ = infer_cycle_stage(q)
+    if name == 'Gold in Q3':
+        if q == 'Q3' and variant == 'Bad reflation':
+            return 'Backdrop bullish, tape still pressured'
+        if q == 'Q3' and _asset_now_score('Gold / miners') > 0.45:
+            return 'Constructive / selective long'
+        return 'Tactical only'
+    if name == 'EM / IHSG':
+        if _asset_now_score('EM equities') < -0.18 or _asset_now_score('IHSG cyclicals') < -0.05:
+            return 'Still pressured / not clean'
+        if q == 'Q2' or (q == 'Q3' and variant == 'Good reflation'):
+            return 'Improving if USD calms'
+        return 'Mixed / selective'
+    if name == 'US small caps':
+        if q == 'Q2' and stage in ['Early','Mid'] and _asset_now_score('US small caps') > 0.25:
+            return 'Cleanly usable'
+        if core['next_q'] == 'Q2':
+            return 'Watch for confirmation'
+        return 'Not confirmed yet'
+    if name == 'Bonds / duration':
+        if _asset_now_score('Duration / bonds') > 0.35:
+            return 'Constructive / hedge-friendly'
+        if q == 'Q3':
+            return 'Mixed / tactical only'
+        return 'Needs better disinflation signal'
+    if name == 'Crypto beta':
+        if _asset_now_score('BTC / crypto beta') > 0.35:
+            return 'Strong but watch stretch'
+        if q == 'Q3':
+            return 'Selective only / BTC bias'
+        return 'Tactical only'
+    return 'Contextual'
+
 def build_current_scenario_checks() -> List[List[str]]:
-    return [
-        ['Gold in Q3', 'Bullish if USD and 10Y stop rising, oil stabilizes, and fear shifts from inflation to growth.', 'Still weak if oil shock keeps USD / yields climbing and Fed pricing stays hawkish.'],
-        ['EM / IHSG', 'Better if USD calms, breadth broadens, and commodities confirm cleanly.', 'Still weak if USD stays strong, yields stay hard, and flows keep leaking out.'],
-        ['US small caps', 'Need orderly rates plus broader participation to confirm healthy reflation.', 'Still weak if rates rise for bad reasons or liquidity tightens.'],
-        ['Bonds / duration', 'Better if growth scare outruns inflation fear.', 'Still weak if nominal yields keep rising on inflation shock.'],
-        ['Crypto beta', 'Needs liquidity + breadth, not just narrative.', 'Still weak if USD is strong and funding tightens.'],
+    rows = [
+        ('Gold in Q3', 'Use selectively; better on pullback or when USD / yields stop acting as headwind.', 'Need DXY / yields to stop squeezing and fear to rotate from inflation to growth.', 'Invalid if oil shock keeps USD / yields climbing and Fed pricing stays hawkish.'),
+        ('EM / IHSG', 'Use only if USD calms and local / commodity breadth confirms.', 'Need softer USD, better breadth, and cleaner commodity confirmation.', 'Invalid if USD stays strong, yields stay hard, and flows keep leaking out.'),
+        ('US small caps', 'Treat as confirmation asset, not blind long.', 'Need orderly rates plus broader participation to confirm healthy reflation.', 'Invalid if rates rise for bad reasons or liquidity tightens.'),
+        ('Bonds / duration', 'Mostly tactical / hedge until growth fear clearly outruns inflation fear.', 'Need nominal yields to stop rising and growth scare to dominate.', 'Invalid if inflation shock keeps nominal yields pushing higher.'),
+        ('Crypto beta', 'Prefer only when liquidity + breadth improve; otherwise stay selective.', 'Need liquidity, breadth, and weaker USD — not just narrative.', 'Invalid if USD is strong and funding / liquidity tighten.'),
     ]
+    out = []
+    for scen, use_now, improve, invalid in rows:
+        out.append([scen, scenario_state_now(scen), use_now, improve, invalid])
+    return out
 
 
 def hero_simple_help() -> Dict[str, str]:
@@ -2257,39 +2318,50 @@ today = date.today()
 event_rows = [["Macro release timing", "dynamic", "Use actual calendar; avoid fake offsets"], ["Released-only cutoff", core["official_date"], "common macro date used in official state"]]
 
 # --------------------
+
 # RENDER
-# --------------------
-st.title(APP_NAME)
-st.markdown("<div class='small-muted'>Core alpha engine: Hedgeye_LiveQuad_Core_v2_4 • Visual shell: streamlined decision layout • Live backbone: FRED + optional Yahoo • Policy: Q3-anchored live regime</div>", unsafe_allow_html=True)
+st.title("QuantFinalV4_Max")
+st.markdown("<div class='small-muted'>Core alpha engine: Hedgeye_LiveQuad_Core_v2_5 • Q3-anchored decision support shell • Live backbone: FRED + optional Yahoo</div>", unsafe_allow_html=True)
 st.write("")
 
-hero_cols = st.columns(5)
+# ---- attachment-2 style summary ----
+cur_stage, _ = infer_cycle_stage(core['current_q'])
+variant_now = _transition_variant(core)
+crash_now = current_crash_probability()
+top_state_now = ladder_state(core['top_score'], 'top')
+bottom_state_now = ladder_state(core['bottom_score'], 'bottom')
+
+if core['current_q'] == 'Q3':
+    action_bias = 'Selective'
+    action_sub = 'Defensive / preserve capital; tunggu breadth confirm sebelum broad beta.'
+elif core['current_q'] == 'Q2':
+    action_bias = 'Risk-on selective'
+    action_sub = 'Prefer cyclicals / small caps if breadth confirm.'
+elif core['current_q'] == 'Q4':
+    action_bias = 'Defensive'
+    action_sub = 'Jangan buru-buru base call kalau washout belum bersih.'
+else:
+    action_bias = 'Balanced'
+    action_sub = 'Tactical only sampai confirmation membaik.'
+
+next_read = f"{core['next_q']}"
+if core['current_q'] == 'Q3' and core['next_q'] == 'Q2':
+    next_sub = 'Early Q2 if breadth + small caps + USD cooling confirm'
+elif core['next_q'] == core['current_q']:
+    next_sub = f"Stay in {core['current_q']} / pressure persists"
+else:
+    next_sub = f"Most likely path from {core['current_q']}"
+
+hero_cols = st.columns(6)
 hero_items = [
-    ("Current Phase", core["current_q"], pill_html(core.get("anchor_reason", "Live")) if core.get("anchor_reason") != "Model-only" else (pill_html("Decaying", red=True) if core["fragility"] > 0.55 else pill_html("Stable"))),
-    ("Confidence", pct(core["confidence"]), pill_html(f"Agreement {pct(core['agreement'])}")),
-    ("Sub-Phase", core["sub_phase"], pill_html(f"Strength {pct(core['phase_strength'])}")),
-    ("Top Risk", pct(core["top_score"]), pill_html(f"Higher-top {pct(core['higher_top'])}")),
-    ("Bottom Risk", pct(core["bottom_score"]), pill_html(f"Lower-bottom {pct(core['lower_bottom'])}")),
+    ("Decision Regime", core['current_q'], pill_html(f"{cur_stage} {core['current_q']}") if cur_stage else pill_html(core['current_q'])),
+    ("Confidence", pct(core['confidence']), pill_html(f"Agreement {pct(core['agreement'])}")),
+    ("Variant Now", variant_now, pill_html(core['sub_phase'])),
+    ("Next Most Likely", next_read, pill_html(next_sub)),
+    ("Crash Meter", pct(crash_now), pill_html(crash_meter_label(crash_now))),
+    ("Action Bias", action_bias, pill_html(action_sub)),
 ]
 for col, (title, value, sub_html) in zip(hero_cols, hero_items):
-    with col:
-        st.markdown(f"""
-        <div class='hero-card'>
-          <div class='metric-title'>{title}</div>
-          <div class='metric-value'>{value}</div>
-          <div class='metric-sub'>{sub_html}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-mini_cols = st.columns(5)
-mini = [
-    ("CURRENT", core["current_q"], pill_html(core.get("anchor_reason", "Live")) if core.get("anchor_reason") != "Model-only" else (pill_html("Decaying", red=True) if core["fragility"] > 0.55 else pill_html("Stable"))),
-    ("NEXT", core["next_q"], pill_html(f"Hazard {pct(core['transition_pressure'])}")),
-    ("PLAYBOOK", ", ".join(play_cur["US Stocks"][:1]), pill_html(f"Conviction {pct(core['confidence'])}")),
-    ("RELATIVE", relative_rows[0]["Read"], pill_html(relative_rows[1]["Read"])),
-    ("SHOCKS", "Overlay", pill_html(f"Top {pct(core['top_score'])} / Bottom {pct(core['bottom_score'])}")),
-]
-for col, (title, value, sub_html) in zip(mini_cols, mini):
     with col:
         st.markdown(f"""
         <div class='hero-card'>
@@ -2299,62 +2371,27 @@ for col, (title, value, sub_html) in zip(mini_cols, mini):
         </div>
         """, unsafe_allow_html=True)
 
-help_map = hero_simple_help()
-help_cols = st.columns(4)
-help_rows = [
-    ("TOP RISK", help_map["top"]),
-    ("BOTTOM RISK", help_map["bottom"]),
-    ("RELATIVE", help_map["relative"]),
-    ("SHOCKS", help_map["shocks"]),
-]
-for col, (ttl, msg) in zip(help_cols, help_rows):
-    with col:
-        st.markdown(f"<div class='small-muted'><b>{ttl}</b>: {msg}</div>", unsafe_allow_html=True)
+quick_read = (
+    f"Quick read: Sekarang {cur_stage} {core['current_q']} / {variant_now}. "
+    f"Base case masih {core['current_q']}, tapi kalau transition lanjut jalur paling mungkin adalah {core['next_q']}. "
+    f"Action bias sekarang: {action_bias}; {action_sub}"
+)
+st.markdown(f"<div class='note-box'><b>{quick_read}</b></div>", unsafe_allow_html=True)
 
+# tabs like attachment-2
+t_decision, t_cross, t_risk, t_details = st.tabs(["Decision", "Cross-Asset", "Risk / Relative", "Details"])
 
-left_col, right_col = st.columns([1.05, 0.95], gap="large")
-with left_col:
-    cur_stage, cur_maturity = infer_cycle_stage(core['current_q'])
-    variant_now = _transition_variant(core)
-    top_state_now = ladder_state(core['top_score'], 'top')
-    bottom_state_now = ladder_state(core['bottom_score'], 'bottom')
-
+with t_decision:
     st.markdown("<div class='card'><div class='section-title'>DECISION SNAPSHOT</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Satu panel inti: fase sekarang, jalur berikutnya, apa yang dipakai sekarang, dan apa yang harus dikonfirmasi dulu. Current + Next + Playbook digabung di sini.</div>", unsafe_allow_html=True)
-    st.markdown(f"**Now ➜ {cur_stage} {core['current_q']}**")
-    st.markdown(f"**If transition extends ➜ Early {core['next_q']}**")
-    st.markdown(f"**Variant now ➜ {variant_now}**")
-    st.markdown(f"**Top / bottom state ➜ {top_state_now} / {bottom_state_now}**")
-    st.markdown(f"**Next macro catalysts ➜ {macro_catalyst_summary(3)}**")
-    explanation = (
-        f"Decision regime sekarang = {core['current_q']} dengan policy {core.get('anchor_reason','Model-only')}. Model raw sebelum anchor masih {core.get('model_current_q', core['current_q'])}; official macro cohort = {core['official_q']} (cutoff {core['official_date']}), directional macro = {core['directional_q']}, dan live cross-asset = {core['live_q']}. "
-        f"Jadi buat decision support live, dashboard ini sengaja memihak ke Q3 kalau tekanan stagflasi lintas-aset sudah kebaca. Next = {core['next_q']} cuma naik kelas kalau transisinya lanjut kebangun."
-    )
-    st.markdown(f"<div class='note-box'>{explanation}</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Satu panel inti: sekarang di mana, kalau next menang bakal seperti apa, apa yang harus dikonfirmasi, dan event apa yang paling bisa mengubah bacaannya.</div>", unsafe_allow_html=True)
     st.markdown(table_html(["Focus", "Read", "Why it matters"], build_decision_key_rows()), unsafe_allow_html=True)
     st.write("")
     st.markdown(table_html(["Priority", "Area", "Use now", "If next wins", "Confirm first"], build_playbook_priority_rows()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-with right_col:
-    crash_now = current_crash_probability()
-    st.markdown("<div class='card'><div class='section-title'>RISK / RELATIVE SNAPSHOT</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Relative, participation, shock overlay, crash meter, dan leader status gue kumpulin di satu tempat biar nggak kebanyakan tab dan nggak terlalu compact.</div>", unsafe_allow_html=True)
-    st.markdown(f"**Crash meter now ➜ {pct(crash_now)} ({crash_meter_label(crash_now)})**")
-    st.markdown(f"**Watch window ➜ {crash_watch_window()}**")
-    st.markdown(f"**Top / bottom state ➜ {top_state_now} / {bottom_state_now}**")
-    st.markdown(f"**Leaders status ➜ {leaders_status_text()}**")
-    st.markdown(f"<div class='note-box'>{risk_relative_summary()}</div>", unsafe_allow_html=True)
-    st.markdown(table_html(["Group", "Lens", "Bias now", "Simple read", "If next wins"], build_unified_relative_rows()), unsafe_allow_html=True)
-    st.write("")
-    st.markdown(table_html(["Crash driver", "Score", "How to use"], build_crash_compact_rows(crash_now)), unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-show_cross_bias = st.toggle("Show cross-asset directional bias", value=True, key="show_cross_bias_v58")
-if show_cross_bias:
+with t_cross:
     st.markdown("<div class='card'><div class='section-title'>CROSS-ASSET DIRECTIONAL BIAS</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Ini tempat utama buat baca stage sekarang, strongest vs weakest cross-asset, dan ekspresi FX yang paling simpel.</div>", unsafe_allow_html=True)
-    cur_stage, _ = infer_cycle_stage(core['current_q'])
+    st.markdown("<div class='mini-caption'>Panel operasional utama: stage sekarang, strongest vs weakest cross-asset, dan ekspresi FX yang paling simpel.</div>", unsafe_allow_html=True)
     st.markdown(f"**Current cycle stage ➜ {cur_stage} {core['current_q']}**")
     st.markdown(f"<div class='small-muted'>{STAGE_GUIDE[core['current_q']][cur_stage][2]}</div>", unsafe_allow_html=True)
     st.markdown(table_html(["", "Stage", "Usually strong", "Usually weak", "What confirms"], build_cross_asset_stage_table()), unsafe_allow_html=True)
@@ -2372,53 +2409,30 @@ if show_cross_bias:
     st.markdown(table_html(["Best simple FX expression", "Edge", "Read"], build_fx_expressions_table(fx_score_rows)), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-show_scenarios = st.toggle("Show scenario map + crash branches", value=False, key="show_scenario_map_v58")
-if show_scenarios:
-    st.markdown("<div class='card'><div class='section-title'>SCENARIO MAP + CRASH BRANCHES</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Yang penting bukan cuma label quad, tapi clean vs dirty mode, siapa yang biasanya menang, dan crash branch mana yang harus dihormati.</div>", unsafe_allow_html=True)
+with t_risk:
+    st.markdown("<div class='card'><div class='section-title'>RISK / RELATIVE SNAPSHOT</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Relative, participation, shock overlay, crash meter, dan scenario state-now gue kumpulin di sini biar nggak kebanyakan panel kecil.</div>", unsafe_allow_html=True)
+    st.markdown(f"**Current mode ➜ Base case / watch only**")
+    st.markdown(f"**Top risk ➜ {top_state_now}**")
+    st.markdown(f"**Bottom risk ➜ {bottom_state_now}**")
+    st.markdown(f"**Crash meter now ➜ {pct(crash_now)} ({crash_meter_label(crash_now)})**")
+    st.markdown(f"**Watch window ➜ {crash_watch_window()}**")
+    st.write("")
+    st.markdown(table_html(["Lens", "Bias now", "Simple read", "If next wins"], build_relative_compact_rows()), unsafe_allow_html=True)
+    st.write("")
+    st.markdown(table_html(["Risk item", "Now", "How to use"], build_crash_timing_rows(crash_now)), unsafe_allow_html=True)
+    st.write("")
+    st.markdown(table_html(["Scenario", "State now", "How to use now", "What must improve", "What invalidates"], build_current_scenario_checks()), unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+with t_details:
+    st.markdown("<div class='card'><div class='section-title'>DETAILS</div>", unsafe_allow_html=True)
     st.markdown(table_html(["", "Quad", "Base read", "Usually works", "Main crash branch", "Base crash risk"], build_quad_scenario_matrix()), unsafe_allow_html=True)
     st.write("")
-    st.markdown(table_html(["Scenario", "Bullish / usable when", "Still bad when"], build_current_scenario_checks()), unsafe_allow_html=True)
-    st.write("")
-    st.markdown(table_html(["Path", "Variant", "What it means"], compact_regime_rows()), unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-show_macro_timer = st.toggle("Show next macro timing", value=False, key="show_macro_timer_v58")
-if show_macro_timer:
-    st.markdown("<div class='card'><div class='section-title'>NEXT ECONOMY DATA THAT CAN MOVE Q / NEXT Q</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Fokus ke data yang paling sering ngubah growth / inflation / policy read dan jadi trigger window untuk crash meter.</div>", unsafe_allow_html=True)
     st.markdown(table_html(["Event", "When", "In", "Why it matters", "Likely impact"], build_macro_catalyst_rows()), unsafe_allow_html=True)
+    if leaders_status_text() != 'Hidden for now (coverage valid still zero)':
+        st.write("")
+        st.markdown(f"**Leaders status ➜ {leaders_status_text()}**")
+    st.write("")
+    st.markdown(f"<div class='small-muted'><b>Core model:</b> {CORE_NAME} • <b>Policy:</b> {core.get('anchor_reason','Model-only')} • <b>Raw model:</b> {core.get('model_current_q', core['current_q'])}</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
-
-show_leaders = st.toggle("Show stock leadership detail", value=False, key="show_leaders_v58")
-if show_leaders:
-    st.markdown("<div class='card'><div class='section-title'>US / IHSG STOCK LEADERSHIP</div>", unsafe_allow_html=True)
-    us_valid = 0 if us_leaders_df is None or us_leaders_df.empty else int(us_leaders_df['Ticker'].nunique())
-    ih_valid = 0 if ihsg_leaders_df is None or ihsg_leaders_df.empty else int(ihsg_leaders_df['Ticker'].nunique())
-    if us_valid == 0 and ih_valid == 0:
-        st.markdown("<div class='note-box'>Coverage valid masih nol. Jadi leaders belum gue pakai sebagai core read. Tetap fokus ke Decision Snapshot + Risk / Relative + Cross-Asset Bias dulu.</div>", unsafe_allow_html=True)
-    else:
-        setup1, setup2 = st.columns(2, gap='large')
-        with setup1:
-            st.markdown(f"**US leaders now ➜ {us_lead_text}**")
-            st.markdown(table_html(['Ticker', 'State', 'RS', 'Start', 'α 1M / 3M', 'Read'], leadership_table_rows(us_leaders_df, 'top', 6)), unsafe_allow_html=True)
-        with setup2:
-            st.markdown(f"**IHSG leaders now ➜ {ih_lead_text}**")
-            st.markdown(table_html(['Ticker', 'State', 'RS', 'Start', 'α 1M / 3M', 'Read'], leadership_table_rows(ihsg_leaders_df, 'top', 6)), unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-show_notes = st.toggle("Show model notes", value=False, key="show_notes_v58")
-if show_notes:
-    st.markdown("<div class='card'><div class='section-title'>MODEL NOTES</div>", unsafe_allow_html=True)
-    st.markdown(f"""
-- **Core model actually used**: `{CORE_NAME}`
-- **Decision Snapshot** already merges current + next + playbook into one main read
-- **Risk / Relative Snapshot** already merges relative, size confirmation, shock overlay, crash meter, and leader status
-- **Cross-Asset Bias** stays separate because itu tempat utama buat baca stage sekarang + strongest / weakest asset + FX expression
-- **Top risk / bottom risk** are turn-process probabilities, not exact top or exact bottom calls
-- **Crash meter** is a heuristic overlay: useful for respect / sizing / timing windows, not for exact crash date prediction
-- **Leaders** stay secondary until valid coverage exists
-""")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-st.caption("Attachment-2 shell frozen. If the screen shape changes materially, the wrong file/version is running.")
