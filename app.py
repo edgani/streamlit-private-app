@@ -14,17 +14,24 @@ except Exception:
     yf = None
 
 try:
-    from livequad_data_layer import adjust_series_dict, health_rows, persist_snapshot, snapshot_coverage
-    from livequad_risk_engine import recommended_risk_budget, risk_controls_rows
-    from livequad_validation_suite import readiness_score
+    from livequad_data_layer import adjust_series_dict, health_rows, health_summary, persist_snapshot, snapshot_coverage
+    from livequad_risk_engine import recommended_risk_budget, risk_controls_rows, tactical_sizing_rows, scenario_override_rows
+    from livequad_validation_suite import readiness_score, run_snapshot_walkforward, walkforward_summary_rows, calibration_rows, crash_calibration_rows
 except Exception:
     adjust_series_dict = None
     health_rows = None
+    health_summary = None
     persist_snapshot = None
     snapshot_coverage = None
     recommended_risk_budget = None
     risk_controls_rows = None
+    tactical_sizing_rows = None
+    scenario_override_rows = None
     readiness_score = None
+    run_snapshot_walkforward = None
+    walkforward_summary_rows = None
+    calibration_rows = None
+    crash_calibration_rows = None
 
 st.set_page_config(page_title="QuantFinalV6_3_Q3Anchored", layout="wide")
 
@@ -795,26 +802,14 @@ def compute_core() -> Dict[str, object]:
 core = compute_core()
 
 DATA_HEALTH_ROWS = health_rows(SER_RAW, SER, ASOF_TS) if health_rows is not None else []
-SNAPSHOT_PATH = persist_snapshot(
-    SER_RAW,
-    SER,
-    SNAPSHOT_DIR,
-    {
-        "asof": str(ASOF_TS.date()),
-        "app_name": APP_NAME,
-        "core_name": CORE_NAME,
-        "current_q": core.get("current_q"),
-        "next_q": core.get("next_q"),
-        "official_date": core.get("official_date"),
-    },
-) if persist_snapshot is not None else None
+DATA_HEALTH_SUMMARY = health_summary(DATA_HEALTH_ROWS) if health_summary is not None else []
+SNAPSHOT_PATH = None
 SNAPSHOT_COUNT, SNAPSHOT_LAST = snapshot_coverage(SNAPSHOT_DIR) if snapshot_coverage is not None else (0, "n/a")
-VALIDATION_READY = readiness_score(
-    snapshot_count=SNAPSHOT_COUNT,
-    has_release_lag=adjust_series_dict is not None,
-    has_data_health=bool(DATA_HEALTH_ROWS),
-    has_risk_budget=recommended_risk_budget is not None,
-) if readiness_score is not None else None
+VALIDATION_READY = None
+WFO_DF = pd.DataFrame()
+WFO_SUMMARY_ROWS = []
+WFO_CAL_ROWS = []
+WFO_CRASH_CAL_ROWS = []
 
 
 # --------------------
@@ -2368,6 +2363,52 @@ variant_now = _transition_variant(core)
 crash_now = current_crash_probability()
 RISK_BUDGET_ROWS = recommended_risk_budget(core, crash_now) if recommended_risk_budget is not None else []
 RISK_CONTROL_ROWS = risk_controls_rows(core, crash_now) if risk_controls_rows is not None else []
+TACTICAL_SIZING_ROWS = tactical_sizing_rows(core, crash_now) if tactical_sizing_rows is not None else []
+SCENARIO_OVERRIDE_ROWS = scenario_override_rows(core, crash_now) if scenario_override_rows is not None else []
+
+_snapshot_meta = {
+    "asof": str(ASOF_TS.date()),
+    "app_name": APP_NAME,
+    "core_name": CORE_NAME,
+    "current_q": core.get("current_q"),
+    "next_q": core.get("next_q"),
+    "official_date": core.get("official_date"),
+    "confidence": float(core.get("confidence", 0.0)),
+    "agreement": float(core.get("agreement", 0.0)),
+    "fragility": float(core.get("fragility", 0.0)),
+    "crash_now": float(crash_now),
+    "top_score": float(core.get("top_score", 0.0)),
+    "bottom_score": float(core.get("bottom_score", 0.0)),
+    "variant_now": str(_transition_variant(core)),
+    "sub_phase": str(core.get("sub_phase", "")),
+}
+for _k, _ticker in {
+    "spy_close": "SPY",
+    "iwm_close": "IWM",
+    "gld_close": "GLD",
+    "tlt_close": "TLT",
+    "xle_close": "XLE",
+    "btc_close": "BTC-USD",
+    "eido_close": "EIDO",
+}.items():
+    try:
+        _s = yahoo_close(_ticker, "6mo")
+        if _s is not None and len(_s):
+            _snapshot_meta[_k] = float(pd.Series(_s).dropna().iloc[-1])
+    except Exception:
+        pass
+SNAPSHOT_PATH = persist_snapshot(SER_RAW, SER, SNAPSHOT_DIR, _snapshot_meta) if persist_snapshot is not None else None
+SNAPSHOT_COUNT, SNAPSHOT_LAST = snapshot_coverage(SNAPSHOT_DIR) if snapshot_coverage is not None else (0, "n/a")
+VALIDATION_READY = readiness_score(
+    snapshot_count=SNAPSHOT_COUNT,
+    has_release_lag=adjust_series_dict is not None,
+    has_data_health=bool(DATA_HEALTH_ROWS),
+    has_risk_budget=bool(RISK_BUDGET_ROWS),
+) if readiness_score is not None else None
+WFO_DF = run_snapshot_walkforward(SNAPSHOT_DIR, horizon_days=21) if run_snapshot_walkforward is not None else pd.DataFrame()
+WFO_SUMMARY_ROWS = walkforward_summary_rows(WFO_DF) if walkforward_summary_rows is not None else []
+WFO_CAL_ROWS = calibration_rows(WFO_DF, prob_col="confidence", hit_col="is_correct") if calibration_rows is not None else []
+WFO_CRASH_CAL_ROWS = crash_calibration_rows(WFO_DF) if crash_calibration_rows is not None else []
 top_state_now = ladder_state(core['top_score'], 'top')
 bottom_state_now = ladder_state(core['bottom_score'], 'bottom')
 
@@ -2423,19 +2464,19 @@ t_decision, t_cross, t_risk, t_details = st.tabs(["Decision", "Cross-Asset", "Ri
 
 with t_decision:
     st.markdown("<div class='card'><div class='section-title'>DECISION SNAPSHOT</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Satu panel inti: sekarang di mana, kalau next menang bakal seperti apa, apa yang harus dikonfirmasi, dan event apa yang paling bisa mengubah bacaannya.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Urutan dari yang paling penting: apa yang dipakai sekarang, kalau next menang bakal jadi apa, apa yang harus dikonfirmasi, lalu event yang paling bisa mengubah bacaannya.</div>", unsafe_allow_html=True)
+    st.markdown(table_html(["Priority", "Area", "Use now", "If next wins", "Confirm first"], build_playbook_priority_rows()), unsafe_allow_html=True)
+    st.write("")
     st.markdown(table_html(["Focus", "Read", "Why it matters"], build_decision_key_rows()), unsafe_allow_html=True)
     st.write("")
-    st.markdown(table_html(["Priority", "Area", "Use now", "If next wins", "Confirm first"], build_playbook_priority_rows()), unsafe_allow_html=True)
+    st.markdown(table_html(["Event", "When", "In", "Why it matters", "Likely impact"], build_macro_catalyst_rows()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_cross:
     st.markdown("<div class='card'><div class='section-title'>CROSS-ASSET DIRECTIONAL BIAS</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Panel operasional utama: stage sekarang, strongest vs weakest cross-asset, dan ekspresi FX yang paling simpel.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Panel operasional utama. Diurutkan dari yang paling langsung kepake dulu: strongest/weakest, area bias sekarang, ekspresi FX, baru detail stage map.</div>", unsafe_allow_html=True)
     st.markdown(f"**Current cycle stage ➜ {cur_stage} {core['current_q']}**")
     st.markdown(f"<div class='small-muted'>{STAGE_GUIDE[core['current_q']][cur_stage][2]}</div>", unsafe_allow_html=True)
-    st.markdown(table_html(["", "Stage", "Usually strong", "Usually weak", "What confirms"], build_cross_asset_stage_table()), unsafe_allow_html=True)
-    st.write("")
     focus_rows = build_cross_asset_focus_rows()
     strong_now = ", ".join([r[0] for r in focus_rows[:4]])
     weak_now = ", ".join([r[0] for r in focus_rows[-4:]])
@@ -2443,43 +2484,47 @@ with t_cross:
     st.markdown(f"**Weakest now ➜ {weak_now}**")
     st.markdown(table_html(["Area", "Bias now", "Use now", "If next wins"], focus_rows), unsafe_allow_html=True)
     st.write("")
+    st.markdown(table_html(["Best simple FX expression", "Edge", "Read"], build_fx_expressions_table(fx_score_rows)), unsafe_allow_html=True)
+    st.write("")
     st.markdown(f"**FX rank strong → weak ➜ {build_fx_rank_text(fx_score_rows)}**")
     st.markdown(table_html(["FX", "Bias", "Best use"], build_fx_display_rows(fx_score_rows)), unsafe_allow_html=True)
     st.write("")
-    st.markdown(table_html(["Best simple FX expression", "Edge", "Read"], build_fx_expressions_table(fx_score_rows)), unsafe_allow_html=True)
+    st.markdown(table_html(["", "Stage", "Usually strong", "Usually weak", "What confirms"], build_cross_asset_stage_table()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_risk:
     st.markdown("<div class='card'><div class='section-title'>RISK / RELATIVE SNAPSHOT</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Relative, participation, shock overlay, crash meter, dan scenario state-now gue kumpulin di sini biar nggak kebanyakan panel kecil.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Diurutkan dari yang paling penting buat survival: crash timing, state-now per scenario, sizing / risk budget, lalu context tambahan.</div>", unsafe_allow_html=True)
     st.markdown(f"**Current mode ➜ Base case / watch only**")
     st.markdown(f"**Top risk ➜ {top_state_now}**")
     st.markdown(f"**Bottom risk ➜ {bottom_state_now}**")
     st.markdown(f"**Crash meter now ➜ {pct(crash_now)} ({crash_meter_label(crash_now)})**")
     st.markdown(f"**Watch window ➜ {crash_watch_window()}**")
     st.write("")
-    st.markdown(table_html(["Lens", "Bias now", "Simple read", "If next wins"], build_relative_compact_rows()), unsafe_allow_html=True)
-    st.write("")
     st.markdown(table_html(["Risk item", "Now", "How to use"], build_crash_timing_rows(crash_now)), unsafe_allow_html=True)
+    st.write("")
+    st.markdown(table_html(["Scenario", "State now", "How to use now", "What must improve", "What invalidates"], build_current_scenario_checks()), unsafe_allow_html=True)
     st.write("")
     if RISK_BUDGET_ROWS:
         st.markdown("**Portfolio posture / risk budget**")
         st.markdown(table_html(["Bucket", "Guide weight", "Use"], RISK_BUDGET_ROWS), unsafe_allow_html=True)
         st.write("")
+    if TACTICAL_SIZING_ROWS:
+        st.markdown(table_html(["Sizing step", "Guide", "Read"], TACTICAL_SIZING_ROWS), unsafe_allow_html=True)
+        st.write("")
+    if RISK_CONTROL_ROWS:
         st.markdown(table_html(["Control", "Guide", "Why it matters"], RISK_CONTROL_ROWS), unsafe_allow_html=True)
         st.write("")
-    st.markdown(table_html(["Scenario", "State now", "How to use now", "What must improve", "What invalidates"], build_current_scenario_checks()), unsafe_allow_html=True)
+    if SCENARIO_OVERRIDE_ROWS:
+        st.markdown(table_html(["Override trigger", "Action", "Why"], SCENARIO_OVERRIDE_ROWS), unsafe_allow_html=True)
+        st.write("")
+    st.markdown(table_html(["Lens", "Bias now", "Simple read", "If next wins"], build_relative_compact_rows()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_details:
     st.markdown("<div class='card'><div class='section-title'>DETAILS / DATA / VALIDATION</div>", unsafe_allow_html=True)
-    st.markdown(table_html(["", "Quad", "Base read", "Usually works", "Main crash branch", "Base crash risk"], build_quad_scenario_matrix()), unsafe_allow_html=True)
-    st.write("")
-    st.markdown(table_html(["Event", "When", "In", "Why it matters", "Likely impact"], build_macro_catalyst_rows()), unsafe_allow_html=True)
-    st.write("")
-    if DATA_HEALTH_ROWS:
-        st.markdown("**Data health / release-lag view**")
-        st.markdown(table_html(["Series", "Status", "Raw last obs", "Usable last obs", "Age days", "Release rule", "Rows dropped"], DATA_HEALTH_ROWS), unsafe_allow_html=True)
+    if DATA_HEALTH_SUMMARY:
+        st.markdown(table_html(["Health item", "Status", "Read"], DATA_HEALTH_SUMMARY), unsafe_allow_html=True)
         st.write("")
     if VALIDATION_READY is not None:
         validation_rows = [
@@ -2494,6 +2539,20 @@ with t_details:
             st.write("")
             st.markdown(table_html(["Open item"], [[x] for x in VALIDATION_READY.notes]), unsafe_allow_html=True)
         st.write("")
+    st.markdown(table_html(["Walk-forward item", "Status", "Read"], WFO_SUMMARY_ROWS or [["Walk-forward", "No rows yet", "Need more archived snapshots"]]), unsafe_allow_html=True)
+    st.write("")
+    if WFO_CAL_ROWS:
+        st.markdown(table_html(["Confidence bucket", "Avg confidence", "Realized hit rate"], WFO_CAL_ROWS), unsafe_allow_html=True)
+        st.write("")
+    if WFO_CRASH_CAL_ROWS:
+        st.markdown(table_html(["Crash bucket", "Avg crash meter", "Future drawdown rate"], WFO_CRASH_CAL_ROWS), unsafe_allow_html=True)
+        st.write("")
+    if DATA_HEALTH_ROWS:
+        with st.expander("Show full data health / release-lag rows", expanded=False):
+            st.markdown(table_html(["Series", "Status", "Raw last obs", "Usable last obs", "Age days", "Release rule", "Rows dropped"], DATA_HEALTH_ROWS), unsafe_allow_html=True)
+    st.write("")
+    st.markdown(table_html(["", "Quad", "Base read", "Usually works", "Main crash branch", "Base crash risk"], build_quad_scenario_matrix()), unsafe_allow_html=True)
+    st.write("")
     if leaders_status_text() != 'Hidden for now (coverage valid still zero)':
         st.markdown(f"**Leaders status ➜ {leaders_status_text()}**")
         st.write("")
