@@ -58,6 +58,7 @@ def recommended_risk_budget(core: Dict[str, object], crash_now: float) -> List[L
             "Cash / dry powder": 0.28,
         }
 
+    # transition tilt
     if q == "Q3" and q_next == "Q2":
         base["US cyclicals"] += 0.03
         base["Small caps"] += 0.02
@@ -92,39 +93,11 @@ def risk_controls_rows(core: Dict[str, object], crash_now: float) -> List[List[s
     max_single = max(0.03, 0.12 * confidence * (1 - crash_now))
     max_theme = max(0.08, 0.25 * confidence * (1 - 0.6 * crash_now))
     gross = max(0.15, 0.45 * confidence + 0.20 * (1 - fragility) - 0.20 * crash_now)
-    return [
-        ["Gross exposure guide", f"{gross*100:.1f}%", "Use as ceiling, not target"],
-        ["Max theme exposure", f"{max_theme*100:.1f}%", "Avoid stacking highly correlated longs"],
+    rows = [
         ["Max single-name risk", f"{max_single*100:.1f}%", "Cut lower if catalyst risk is near"],
+        ["Max theme exposure", f"{max_theme*100:.1f}%", "Avoid stacking highly correlated longs"],
+        ["Gross exposure guide", f"{gross*100:.1f}%", "Use as ceiling, not target"],
         ["Beta kill-switch", ">55% crash meter", "Cut beta / high-duration trades by 25–40%"],
         ["Top-risk de-chase", f"{top*100:.1f}% top score", "Do not add to stretched winners blindly"],
     ]
-
-
-def tactical_sizing_rows(core: Dict[str, object], crash_now: float) -> List[List[str]]:
-    confidence = float(core.get("confidence", 0.5))
-    agreement = float(core.get("agreement", 0.5))
-    fragility = float(core.get("fragility", 0.5))
-    conviction = max(0.15, 0.55 * confidence + 0.25 * agreement - 0.20 * fragility)
-    add = max(0.0, conviction * (1 - crash_now))
-    reduce = min(1.0, 0.35 * crash_now + 0.30 * fragility)
-    return [
-        ["Starter size", f"{max(0.25, add)*100:.0f}% of normal", "Default probe size before confirmation broadens"],
-        ["Add size after confirmation", f"+{max(0.10, add*0.5)*100:.0f}% of normal", "Only add when breadth + catalyst agree"],
-        ["High-beta haircut", f"-{reduce*100:.0f}%", "Apply to small caps / crypto / EM when crash meter is elevated"],
-        ["Correlation haircut", f"-{max(10, int((crash_now+fragility)*25))}%", "Use when longs express same macro view"],
-    ]
-
-
-def scenario_override_rows(core: Dict[str, object], crash_now: float) -> List[List[str]]:
-    q = str(core.get("current_q", "Q3"))
-    q_next = str(core.get("next_q", q))
-    rows = [
-        ["Hot inflation surprise", "Cut duration / high-beta; respect USD + energy branch", "Dirty-Q2 / Q3 pressure can extend"],
-        ["Weak payroll + softer yields", "Add quality duration / gold selectively", "Supports cleaner Q3 expression or softer transition"],
-        ["Breadth broadens + small caps confirm", "Rotate some cash into cyclicals / early-Q2 basket", f"Helps {q} → {q_next} transition"],
-        ["USD breakout without breadth", "Reduce EM / IHSG / alt-beta", "Transition is not clean yet"],
-    ]
-    if crash_now > 0.55:
-        rows.insert(0, ["Crash meter >55%", "Cut gross, de-chase winners, keep cash high", "Treat catalyst window as accident-prone"])
     return rows
