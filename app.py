@@ -13,6 +13,27 @@ try:
 except Exception:
     yf = None
 
+try:
+    from livequad_data_layer import adjust_series_dict, health_rows as dl_health_rows, health_summary as dl_health_summary, persist_snapshot, snapshot_coverage, snapshot_index
+    DATA_LAYER_OK = True
+except Exception:
+    adjust_series_dict = dl_health_rows = dl_health_summary = persist_snapshot = snapshot_coverage = snapshot_index = None
+    DATA_LAYER_OK = False
+
+try:
+    from livequad_validation_suite import readiness_score, build_meta_frame, walkforward_rows as val_walkforward_rows, calibration_rows as val_calibration_rows, stability_rows as val_stability_rows
+    VALIDATION_OK = True
+except Exception:
+    readiness_score = build_meta_frame = val_walkforward_rows = val_calibration_rows = val_stability_rows = None
+    VALIDATION_OK = False
+
+try:
+    from livequad_risk_engine import recommended_risk_budget, tactical_sizing_rows, risk_controls_rows, scenario_override_rows
+    RISK_ENGINE_OK = True
+except Exception:
+    recommended_risk_budget = tactical_sizing_rows = risk_controls_rows = scenario_override_rows = None
+    RISK_ENGINE_OK = False
+
 st.set_page_config(page_title="QuantFinalV6_3_Q3Anchored", layout="wide")
 
 APP_NAME = "QuantFinalV6_3_Q3Anchored"
@@ -331,7 +352,10 @@ def stretch_n(s: pd.Series, n: int = 63) -> float:
 # --------------------
 # DATA
 # --------------------
-SER = {
+ASOF_TS = pd.Timestamp.utcnow().normalize()
+SNAPSHOT_ROOT = ".livequad_snapshots"
+
+RAW_SER = {
     "INDPRO": fred_series("INDPRO"),
     "RSAFS": fred_series("RSAFS"),
     "PAYEMS": fred_series("PAYEMS"),
@@ -348,6 +372,8 @@ SER = {
     "M2": fred_series("M2SL"),
     "USD": fred_series("DTWEXBGS"),
 }
+
+SER = adjust_series_dict(RAW_SER, asof=ASOF_TS) if DATA_LAYER_OK else RAW_SER
 
 # --------------------
 # CORE ENGINE (single source of truth)
@@ -2444,6 +2470,65 @@ crash_now = current_crash_probability()
 top_state_now = ladder_state(core['top_score'], 'top')
 bottom_state_now = ladder_state(core['bottom_score'], 'bottom')
 
+# data / validation / risk telemetry
+health_detail_rows = []
+health_summary_rows = [["Health score", "n/a"], ["Fresh", "-"], ["Aging", "-"], ["Stale", "-"], ["Missing", "-"]]
+health_score = float('nan')
+snapshot_count, snapshot_last = (0, 'n/a')
+readiness_label = 'Low'
+readiness_score_value = 0.0
+readiness_notes = ['Validation plumbing belum lengkap.']
+wfo_rows = [["No WFO history yet", "-", "-", "-"]]
+calibration_rows = [["No calibration rows", "-", "-"]]
+stability_report_rows = [["No stability history", "-", "-"]]
+snapshot_index_rows = [["No snapshots", "-", "-", "-", "-", "-", "-"]]
+
+if DATA_LAYER_OK:
+    try:
+        health_detail_rows = dl_health_rows(RAW_SER, SER, ASOF_TS)
+        health_score, health_summary_rows = dl_health_summary(health_detail_rows)
+    except Exception:
+        pass
+
+if DATA_LAYER_OK:
+    try:
+        meta_payload = {
+            'asof': str(ASOF_TS.date()),
+            'current_q': core['current_q'],
+            'next_q': core['next_q'],
+            'confidence': float(core['confidence']),
+            'crash_now': float(crash_now),
+            'health_score': (None if pd.isna(health_score) else float(health_score)),
+            'breadth': float(core['breadth']),
+            'fragility': float(core['fragility']),
+            'anchor_reason': core.get('anchor_reason', 'Model-only'),
+        }
+        persist_snapshot(RAW_SER, SER, SNAPSHOT_ROOT, meta=meta_payload)
+        snapshot_count, snapshot_last = snapshot_coverage(SNAPSHOT_ROOT)
+        idx_df = snapshot_index(SNAPSHOT_ROOT)
+        if not idx_df.empty:
+            snapshot_index_rows = idx_df.tail(8).fillna('').astype(str).values.tolist()
+    except Exception:
+        pass
+
+if VALIDATION_OK:
+    try:
+        readiness = readiness_score(snapshot_count, DATA_LAYER_OK, bool(health_detail_rows), RISK_ENGINE_OK)
+        readiness_label = readiness.label
+        readiness_score_value = readiness.score
+        readiness_notes = readiness.notes or []
+        meta_df = build_meta_frame(SNAPSHOT_ROOT)
+        wfo_rows = val_walkforward_rows(meta_df)
+        calibration_rows = val_calibration_rows(meta_df)
+        stability_report_rows = val_stability_rows(meta_df)
+    except Exception:
+        pass
+
+risk_budget_rows = recommended_risk_budget(core, crash_now) if RISK_ENGINE_OK else []
+sizing_guide_rows = tactical_sizing_rows(core, crash_now) if RISK_ENGINE_OK else []
+risk_control_rows = risk_controls_rows(core, crash_now) if RISK_ENGINE_OK else []
+risk_override_rows = scenario_override_rows(core, crash_now) if RISK_ENGINE_OK else []
+
 if core['current_q'] == 'Q3':
     action_bias = 'Selective'
     action_sub = 'Defensive / preserve capital; tunggu breadth confirm sebelum broad beta.'
@@ -2539,16 +2624,66 @@ with t_risk:
     st.markdown(table_html(["Risk item", "Now", "How to use"], build_crash_timing_rows(crash_now)), unsafe_allow_html=True)
     st.write("")
     st.markdown(table_html(["Scenario", "State now", "How to use now", "What must improve", "What invalidates"], build_current_scenario_checks()), unsafe_allow_html=True)
+    if RISK_ENGINE_OK:
+        st.write("")
+        with st.expander("Portfolio posture / risk infrastructure", expanded=False):
+            posture_rows = [["Crash meter", f"{pct(crash_now)} ({crash_meter_label(crash_now)})", "Use as hazard window, not exact timing"],
+                            ["Current posture", action_bias, action_sub],
+                            ["Read now", risk_relative_summary(), "Keep the posture aligned with regime + breadth"]]
+            st.markdown(table_html(["Focus", "Read", "How to use"], posture_rows), unsafe_allow_html=True)
+            st.write("")
+            st.markdown(table_html(["Bucket", "Target risk budget", "Use"], risk_budget_rows or [["No budget", "-", "-"]]), unsafe_allow_html=True)
+            st.write("")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown(table_html(["Sizing", "Guide", "Read"], sizing_guide_rows or [["No sizing", "-", "-"]]), unsafe_allow_html=True)
+            with c2:
+                st.markdown(table_html(["Control", "Limit / trigger", "How to use"], risk_control_rows or [["No controls", "-", "-"]]), unsafe_allow_html=True)
+            st.write("")
+            st.markdown(table_html(["Scenario override", "Action", "Read"], risk_override_rows or [["No overrides", "-", "-"]]), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_details:
     st.markdown("<div class='card'><div class='section-title'>DETAILS</div>", unsafe_allow_html=True)
-    st.markdown(table_html(["", "Quad", "Base read", "Usually works", "Main crash branch", "Base crash risk"], build_quad_scenario_matrix()), unsafe_allow_html=True)
+    engine_rows = [
+        ["Data health", (f"{pct(health_score)}" if not pd.isna(health_score) else "n/a"), "Fresh vs stale series after release-lag adjustment"],
+        ["Snapshot coverage", f"{snapshot_count} snapshots / last {snapshot_last}", "Archive depth for replay / WFO"],
+        ["Validation readiness", f"{readiness_label} ({pct(readiness_score_value)})", "How trustworthy the current plumbing is for WFO / calibration"],
+        ["Crash plumbing", crash_meter_label(crash_now), "Crash meter visible now; calibration improves as snapshot history grows"],
+        ["Risk infra", ("Active" if RISK_ENGINE_OK else "Light"), "Risk budget, sizing guide, controls, scenario overrides"],
+    ]
+    st.markdown(table_html(["Layer", "Status now", "Why it matters"], engine_rows), unsafe_allow_html=True)
     st.write("")
-    st.markdown(table_html(["Event", "When", "In", "Why it matters", "Likely impact"], build_macro_catalyst_rows()), unsafe_allow_html=True)
-    if leaders_status_text() != 'Hidden for now (coverage valid still zero)':
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown(table_html(["Item", "Count / score"], health_summary_rows), unsafe_allow_html=True)
+    with c2:
+        notes_joined = ' · '.join(readiness_notes[:3]) if readiness_notes else 'Plumbing is active.'
+        validation_snapshot_rows = [
+            ["Readiness", f"{readiness_label} ({pct(readiness_score_value)})"],
+            ["Notes", notes_joined],
+            ["Snapshot rows", str(snapshot_count)],
+            ["Policy", core.get('anchor_reason','Model-only')],
+        ]
+        st.markdown(table_html(["Validation", "Read"], validation_snapshot_rows), unsafe_allow_html=True)
+    st.write("")
+    with st.expander("Scenario map + catalyst calendar", expanded=False):
+        st.markdown(table_html(["", "Quad", "Base read", "Usually works", "Main crash branch", "Base crash risk"], build_quad_scenario_matrix()), unsafe_allow_html=True)
         st.write("")
-        st.markdown(f"**Leaders status ➜ {leaders_status_text()}**")
+        st.markdown(table_html(["Event", "When", "In", "Why it matters", "Likely impact"], build_macro_catalyst_rows()), unsafe_allow_html=True)
+        if leaders_status_text() != 'Hidden for now (coverage valid still zero)':
+            st.write("")
+            st.markdown(f"**Leaders status ➜ {leaders_status_text()}**")
+    with st.expander("Data health + release-lag", expanded=False):
+        st.markdown(table_html(["Series", "Status", "Raw last obs", "Usable last obs", "Age days", "Lag rule", "Rows dropped"], health_detail_rows or [["No data health rows","-","-","-","-","-","-"]]), unsafe_allow_html=True)
+        st.write("")
+        st.markdown(table_html(["asof", "path", "current_q", "next_q", "confidence", "crash_now", "health_score"], snapshot_index_rows), unsafe_allow_html=True)
+    with st.expander("Validation: WFO / calibration / stability", expanded=False):
+        st.markdown(table_html(["Current Q", "Snapshots", "Next-hit rate", "Avg confidence"], wfo_rows), unsafe_allow_html=True)
+        st.write("")
+        st.markdown(table_html(["Confidence bucket", "Avg predicted", "Avg realised"], calibration_rows), unsafe_allow_html=True)
+        st.write("")
+        st.markdown(table_html(["Metric", "Read", "Why it matters"], stability_report_rows), unsafe_allow_html=True)
     st.write("")
     st.markdown(f"<div class='small-muted'><b>Core model:</b> {CORE_NAME} • <b>Policy:</b> {core.get('anchor_reason','Model-only')} • <b>Raw model:</b> {core.get('model_current_q', core['current_q'])}</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
