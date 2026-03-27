@@ -13,9 +13,9 @@ try:
 except Exception:
     yf = None
 
-st.set_page_config(page_title="QuantFinalV4_Max", layout="wide")
+st.set_page_config(page_title="QuantFinalV6_3_Q3Anchored", layout="wide")
 
-APP_NAME = "QuantFinalV4_Max"
+APP_NAME = "QuantFinalV6_3_Q3Anchored"
 CORE_NAME = "Hedgeye_LiveQuad_Core_v2_5"
 
 Q3_CONSENSUS_ANCHOR = True
@@ -2128,6 +2128,110 @@ def build_current_scenario_checks() -> List[List[str]]:
     return out
 
 
+
+
+def build_energy_complex_rows() -> List[List[str]]:
+    cq = core['current_q']
+    nxt = core['next_q']
+    rows: List[List[str]] = []
+    def add(bucket: str, sits: str, state: str, use_now: str, next_win: str) -> None:
+        rows.append([bucket, sits, state, use_now, next_win])
+
+    if cq == 'Q3':
+        add('Oil / gas', 'majors, upstream, LNG, OFS', 'Usable but selective',
+            'Treat as direct inflation / supply-shock hedge first, not broad clean beta.',
+            f'If {nxt} gets cleaner, shift from hedge logic to cyclical reflation logic.')
+        add('Coal', 'thermal coal, coal miners, coal logistics', 'Usable selectively',
+            'Works as dirty-energy / inflation hedge, especially in bad reflation.',
+            f'If {nxt} confirms, coal becomes more cyclical and less pure hedge.')
+        add('Metals', 'copper, steel, aluminum, diversified miners', 'Not confirmed yet',
+            'Need breadth and industrial confirmation; do not treat as clean winner yet.',
+            f'If {nxt} wins cleanly, metals should improve earlier and broader.')
+        add('Shipping', 'tankers, LNG shipping, dry bulk, energy transport', 'Selective',
+            'Use where energy flow disruption / rates help; do not assume all shipping wins equally.',
+            f'If {nxt} wins, leadership can broaden from energy-linked routes to trade-sensitive names.')
+        add('Positive spillovers', 'oil services, rail/logistics, industrial suppliers, commodity FX', 'Conditional',
+            'Use only where energy shock is translating into pricing power or throughput.',
+            f'If {nxt} wins, these become more volume / cyclical expressions.')
+        add('Pressured losers', 'airlines, fuel-heavy transport, cost-sensitive chemicals, discretionary', 'Still pressured',
+            'Avoid broad longs if fuel shock is still the main driver.',
+            'Pressure should ease only if oil cools and breadth broadens.')
+    elif cq == 'Q2':
+        add('Oil / gas', 'majors, upstream, LNG, OFS', 'Usable',
+            'Treat as reflation / cyclical beneficiary if yields rise orderly.',
+            f'If next regime weakens back to {nxt}, focus shifts to quality and hedges.')
+        add('Coal', 'thermal coal, coal miners, coal logistics', 'Conditional',
+            'Better if nominal growth is real, not just shock inflation.',
+            'If Q2 is dirty, coal may hold but broad beta still struggles.')
+        add('Metals', 'copper, steel, aluminum, diversified miners', 'More usable',
+            'Good if industrial breadth and global growth proxies improve.',
+            f'If {nxt} wins, metals tend to lose the clean reflation bid.')
+        add('Shipping', 'tankers, LNG shipping, dry bulk, energy transport', 'Mixed',
+            'Different routes react differently; use where trade / volume is confirming.',
+            'If Q2 is healthy, trade-sensitive shipping broadens.')
+        add('Positive spillovers', 'industrial suppliers, logistics, commodity FX, local cyclicals', 'Usable',
+            'Use as second-order reflation expressions once breadth confirms.',
+            'If Q2 gets dirtier, keep size smaller.')
+        add('Pressured losers', 'defensives that lag reflation, long duration', 'Relative laggards',
+            'Do not force mean reversion if cyclicals and yields are still leading.',
+            f'If {nxt} rolls over, these can recover.')
+    else:
+        add('Oil / gas', 'majors, upstream, LNG, OFS', 'Mixed',
+            'Use tactically; let regime strength decide.',
+            f"If {nxt} wins, rotate toward that regime's cleaner winners.")
+        add('Coal', 'thermal coal, coal miners, coal logistics', 'Mixed',
+            'Keep as theme-specific, not broad macro default.',
+            f"If {nxt} wins, coal behaves more like that regime's expression.")
+        add('Metals', 'copper, steel, aluminum, diversified miners', 'Mixed',
+            'Wait for industrial breadth confirmation.',
+            f'If {nxt} wins, metals follow the cleaner growth/inflation mix.')
+        add('Shipping', 'tankers, LNG shipping, dry bulk, energy transport', 'Mixed',
+            'Use only where route / rate story is clear.',
+            f'If {nxt} wins, shipping expression changes with trade and energy flow.')
+        add('Positive spillovers', 'logistics, industrial suppliers, commodity FX', 'Conditional',
+            'Use only with confirmation.',
+            'Broaden only after confirmation.')
+        add('Pressured losers', 'fuel-heavy users, cost-sensitive users', 'Conditional pressure',
+            'Respect cost pressure until proven otherwise.',
+            'Pressure eases only when energy impulse cools.')
+    return rows
+
+
+def energy_complex_intro() -> str:
+    cq = core['current_q']
+    nxt = core['next_q']
+    variant = core.get('sub_phase', 'variant')
+    if cq == 'Q3':
+        return f"Sekarang energy complex lebih cocok dibaca sebagai hedge / shock complex, bukan broad clean beta. Dengan state {cq} {variant}, oil-gas dan coal masih lebih direct; metals dan trade-shipping butuh konfirmasi lebih dulu. Kalau next {nxt} menang dengan breadth yang lebih bersih, leadership bisa geser dari hedge names ke cyclical commodity complex."
+    if cq == 'Q2':
+        return f"Sekarang energy complex lebih dekat ke cyclical reflation complex. Oil-gas, metals, dan spillover names lebih usable kalau breadth melebar dan yields naik tertib. Kalau {nxt} nanti menang, balik lagi fokus ke quality / hedge logic."
+    return f"Sekarang energy complex masih campuran. Gunakan direct commodity names lebih dulu, dan tunggu breadth / trade confirmation sebelum menganggap seluruh complex ikut menang. Kalau {nxt} menang, ekspresi energy / commodity complex ikut berubah ke regime berikutnya."
+
+
+def build_ihsg_resource_rows() -> List[List[str]]:
+    cq = core['current_q']
+    nxt = core['next_q']
+    rows: List[List[str]] = []
+    def add(bucket: str, state: str, use_now: str, next_win: str) -> None:
+        rows.append([bucket, state, use_now, next_win])
+    if cq == 'Q3':
+        add('IHSG oil-gas', 'Selective', 'Use as inflation / energy-linked hedge, not blind local beta.', f'If {nxt} wins cleanly, can broaden into cyclical reflation names.')
+        add('IHSG coal', 'Usable selectively', 'Treat as commodity hedge / nominal revenue support first.', f'If {nxt} confirms, coal becomes more cyclical and less pure hedge.')
+        add('IHSG metals', 'Not confirmed', 'Need cleaner global growth / industrial breadth.', f'If {nxt} wins, metals should improve earlier.')
+        add('IHSG shipping', 'Selective', 'Use only where route/rate story is clear; do not assume all shipping wins.', f'If {nxt} wins, trade-sensitive shipping can broaden.')
+    elif cq == 'Q2':
+        add('IHSG oil-gas', 'Usable', 'Use as commodity / cyclical beta if USD pressure is not brutal.', f'If {nxt} weakens back, move back to hedge logic.')
+        add('IHSG coal', 'Conditional', 'Best when nominal growth is real, not just oil shock.', 'If dirty Q2, keep size smaller.')
+        add('IHSG metals', 'More usable', 'Needs global industrial confirmation and better EM breadth.', f'If {nxt} wins, metals can lose the clean reflation bid.')
+        add('IHSG shipping', 'Mixed', 'Different sub-segments react differently; prefer confirmed route stories.', 'Healthy Q2 helps broader trade-linked names.')
+    else:
+        add('IHSG oil-gas', 'Mixed', 'Tactical only until regime strengthens.', f'If {nxt} wins, rotate to that cleaner expression.')
+        add('IHSG coal', 'Mixed', 'Keep theme-specific, not default broad play.', f'If {nxt} wins, coal behaves more like that regime.')
+        add('IHSG metals', 'Mixed', 'Wait for industrial breadth confirmation.', f'If {nxt} wins, metals follow the cleaner mix.')
+        add('IHSG shipping', 'Mixed', 'Use only with clear rate/route confirmation.', f'If {nxt} wins, shipping expression changes with trade flow.')
+    return rows
+
+
 def hero_simple_help() -> Dict[str, str]:
     return {
         "top": "Top risk tinggi = jangan kejar atas. Lebih cocok tunggu pullback / konfirmasi ulang.",
@@ -2391,7 +2495,7 @@ with t_decision:
 
 with t_cross:
     st.markdown("<div class='card'><div class='section-title'>CROSS-ASSET DIRECTIONAL BIAS</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Panel operasional utama: stage sekarang, strongest vs weakest cross-asset, dan ekspresi FX yang paling simpel.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Panel operasional utama: stage sekarang, strongest vs weakest cross-asset, ekspresi FX paling simpel, dan commodity / energy complex yang explicit.</div>", unsafe_allow_html=True)
     st.markdown(f"**Current cycle stage ➜ {cur_stage} {core['current_q']}**")
     st.markdown(f"<div class='small-muted'>{STAGE_GUIDE[core['current_q']][cur_stage][2]}</div>", unsafe_allow_html=True)
     st.markdown(table_html(["", "Stage", "Usually strong", "Usually weak", "What confirms"], build_cross_asset_stage_table()), unsafe_allow_html=True)
@@ -2407,6 +2511,11 @@ with t_cross:
     st.markdown(table_html(["FX", "Bias", "Best use"], build_fx_display_rows(fx_score_rows)), unsafe_allow_html=True)
     st.write("")
     st.markdown(table_html(["Best simple FX expression", "Edge", "Read"], build_fx_expressions_table(fx_score_rows)), unsafe_allow_html=True)
+    st.write("")
+    st.markdown(f"<div class='note-box'>{energy_complex_intro()}</div>", unsafe_allow_html=True)
+    st.markdown(table_html(["Bucket", "What sits here", "State now", "How to use now", "If next wins"], build_energy_complex_rows()), unsafe_allow_html=True)
+    st.write("")
+    st.markdown(table_html(["IHSG resource / cyclical bucket", "State now", "How to use now", "If next wins"], build_ihsg_resource_rows()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_risk:
