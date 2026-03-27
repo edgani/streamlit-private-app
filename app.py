@@ -2344,6 +2344,22 @@ def validation_rows() -> List[List[str]]:
     ]
 
 
+def data_health_summary_rows() -> List[List[str]]:
+    total = len(DATA_HEALTH_ROWS)
+    usable = total - HEALTH_COUNTS.get("Missing", 0)
+    return [
+        ["Series tracked", str(total)],
+        ["Fresh", str(HEALTH_COUNTS.get("Fresh", 0))],
+        ["Aging", str(HEALTH_COUNTS.get("Aging", 0))],
+        ["Stale", str(HEALTH_COUNTS.get("Stale", 0))],
+        ["Missing", str(HEALTH_COUNTS.get("Missing", 0))],
+        ["Usable now", str(usable)],
+        ["Snapshot count", str(SNAPSHOT_COUNT)],
+        ["Last snapshot", str(SNAPSHOT_LAST)],
+        ["Release-lag mode", "On"],
+    ]
+
+
 def rel_phase_context(lens: str) -> tuple[str, str, str]:
     map_now = {
         "US/EM": {"Q1":"EM-friendly if USD soft", "Q2":"EM-friendly if USD calm", "Q3":"US over EM", "Q4":"US / defensives over EM"},
