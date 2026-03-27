@@ -2043,6 +2043,23 @@ def build_crash_compact_rows(crash_now: float) -> List[List[str]]:
     ]
 
 
+def build_crash_timing_rows(crash_now: float) -> List[List[str]]:
+    return [
+        ['Crash meter now', f"{pct(crash_now)} ({crash_meter_label(crash_now)})", 'Respect risk window; not exact crash timing.'],
+        ['Top state', ladder_state(core['top_score'], 'top'), 'If extended, do not chase stretched upside.'],
+        ['Bottom state', ladder_state(core['bottom_score'], 'bottom'), 'If low, do not force bottom-fishing yet.'],
+        ['Next catalyst window', macro_catalyst_summary(2), 'Nearest macro events most likely to move Q / next-Q.'],
+        ['Base crash branch', _transition_variant(core), 'Dirty / toxic variants raise accident probability.'],
+    ]
+
+
+def build_relative_compact_rows() -> List[List[str]]:
+    rows = []
+    for group, lens, bias, read, nxt in build_unified_relative_rows():
+        rows.append([f"{group}: {lens}", bias, read, nxt])
+    return rows
+
+
 def build_quad_scenario_matrix() -> List[List[str]]:
     rows = [
         ['Q1', 'Clean growth-disinflation', 'US equities, quality growth, credit, improving small caps', 'Rates spike / valuation accident', pct(0.22)],
@@ -2338,19 +2355,22 @@ with left_col:
 
 with right_col:
     crash_now = current_crash_probability()
-    st.markdown("<div class='card'><div class='section-title'>RISK / RELATIVE SNAPSHOT</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Relative, participation, shock overlay, crash meter, dan leader status gue kumpulin di satu tempat biar nggak kebanyakan tab dan nggak terlalu compact.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='card'><div class='section-title'>RISK STACK</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Relative, participation, shock overlay, crash meter, catalyst timing, dan scenario checks gue taro jadi satu stack biar lebih enak dibaca dan nggak pecah-pecah ke banyak panel.</div>", unsafe_allow_html=True)
     st.markdown(f"**Crash meter now ➜ {pct(crash_now)} ({crash_meter_label(crash_now)})**")
     st.markdown(f"**Watch window ➜ {crash_watch_window()}**")
     st.markdown(f"**Top / bottom state ➜ {top_state_now} / {bottom_state_now}**")
-    st.markdown(f"**Leaders status ➜ {leaders_status_text()}**")
+    if leaders_status_text() != 'Hidden for now (coverage valid still zero)':
+        st.markdown(f"**Leaders status ➜ {leaders_status_text()}**")
     st.markdown(f"<div class='note-box'>{risk_relative_summary()}</div>", unsafe_allow_html=True)
-    st.markdown(table_html(["Group", "Lens", "Bias now", "Simple read", "If next wins"], build_unified_relative_rows()), unsafe_allow_html=True)
+    st.markdown(table_html(["Risk item", "Now", "How to use"], build_crash_timing_rows(crash_now)), unsafe_allow_html=True)
     st.write("")
-    st.markdown(table_html(["Crash driver", "Score", "How to use"], build_crash_compact_rows(crash_now)), unsafe_allow_html=True)
+    st.markdown(table_html(["Lens", "Bias now", "Simple read", "If next wins"], build_relative_compact_rows()), unsafe_allow_html=True)
+    st.write("")
+    st.markdown(table_html(["Scenario check", "Usable when", "Still bad when"], build_current_scenario_checks()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-show_cross_bias = st.toggle("Show cross-asset directional bias", value=True, key="show_cross_bias_v58")
+show_cross_bias = st.toggle("Show cross-asset directional bias", value=True, key="show_cross_bias_v62")
 if show_cross_bias:
     st.markdown("<div class='card'><div class='section-title'>CROSS-ASSET DIRECTIONAL BIAS</div>", unsafe_allow_html=True)
     st.markdown("<div class='mini-caption'>Ini tempat utama buat baca stage sekarang, strongest vs weakest cross-asset, dan ekspresi FX yang paling simpel.</div>", unsafe_allow_html=True)
@@ -2372,48 +2392,33 @@ if show_cross_bias:
     st.markdown(table_html(["Best simple FX expression", "Edge", "Read"], build_fx_expressions_table(fx_score_rows)), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-show_scenarios = st.toggle("Show scenario map + crash branches", value=False, key="show_scenario_map_v58")
-if show_scenarios:
-    st.markdown("<div class='card'><div class='section-title'>SCENARIO MAP + CRASH BRANCHES</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Bukan cuma label quad. Di sini diringkas quad mana yang cenderung clean / dirty, crash branch yang harus dihormati, dan kapan skenario populer sebenarnya belum layak dipakai.</div>", unsafe_allow_html=True)
+with st.expander("More detail: scenario branches, catalyst calendar, leadership, model notes", expanded=False):
+    st.markdown("**Scenario map + crash branches**")
     st.markdown(table_html(["", "Quad", "Base read", "Usually works", "Main crash branch", "Base crash risk"], build_quad_scenario_matrix()), unsafe_allow_html=True)
     st.write("")
-    st.markdown(table_html(["Asset / scenario", "Usable when", "Still bad when"], build_asset_scenario_rows()), unsafe_allow_html=True)
-    st.write("")
-    st.markdown(table_html(["Path", "Variant", "What it means"], compact_regime_rows()), unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-show_macro_timer = st.toggle("Show next macro timing", value=False, key="show_macro_timer_v58")
-if show_macro_timer:
-    st.markdown("<div class='card'><div class='section-title'>NEXT ECONOMY DATA THAT CAN MOVE Q / NEXT Q</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Fokus ke data yang paling sering ngubah growth / inflation / policy read dan jadi trigger window untuk crash meter.</div>", unsafe_allow_html=True)
+    st.markdown("**Next economy data that can move Q / next Q**")
     st.markdown(table_html(["Event", "When", "In", "Why it matters", "Likely impact"], build_macro_catalyst_rows()), unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-us_valid = 0 if us_leaders_df is None or us_leaders_df.empty else int(us_leaders_df['Ticker'].nunique())
-ih_valid = 0 if ihsg_leaders_df is None or ihsg_leaders_df.empty else int(ihsg_leaders_df['Ticker'].nunique())
-if us_valid > 0 or ih_valid > 0:
-    show_leaders = st.toggle("Show stock leadership detail", value=False, key="show_leaders_v61")
-    if show_leaders:
-        st.markdown("<div class='card'><div class='section-title'>US / IHSG STOCK LEADERSHIP</div>", unsafe_allow_html=True)
+    us_valid = 0 if us_leaders_df is None or us_leaders_df.empty else int(us_leaders_df['Ticker'].nunique())
+    ih_valid = 0 if ihsg_leaders_df is None or ihsg_leaders_df.empty else int(ihsg_leaders_df['Ticker'].nunique())
+    if us_valid > 0 or ih_valid > 0:
+        st.write("")
+        st.markdown("**Stock leadership detail**")
         setup1, setup2 = st.columns(2, gap='large')
         with setup1:
-            st.markdown(f"**US leaders now ➜ {us_lead_text}**")
+            st.markdown(f"US leaders now ➜ {us_lead_text}")
             st.markdown(table_html(['Ticker', 'State', 'RS', 'Start', 'α 1M / 3M', 'Read'], leadership_table_rows(us_leaders_df, 'top', 6)), unsafe_allow_html=True)
         with setup2:
-            st.markdown(f"**IHSG leaders now ➜ {ih_lead_text}**")
+            st.markdown(f"IHSG leaders now ➜ {ih_lead_text}")
             st.markdown(table_html(['Ticker', 'State', 'RS', 'Start', 'α 1M / 3M', 'Read'], leadership_table_rows(ihsg_leaders_df, 'top', 6)), unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-
-with st.expander("Model notes", expanded=False):
+    st.write("")
     st.markdown(f"""
 - **Core model actually used**: `{CORE_NAME}`
 - **Decision Snapshot** already merges current + next + playbook into one main read
-- **Risk / Relative Snapshot** already merges relative, size confirmation, shock overlay, crash meter, and leader status
+- **Risk Stack** already merges relative, size confirmation, shock overlay, catalyst timing, scenario checks, and crash meter
 - **Cross-Asset Bias** stays separate karena itu tempat utama buat baca stage sekarang + strongest / weakest asset + FX expression
 - **Top risk / bottom risk** are turn-process probabilities, not exact top or exact bottom calls
 - **Crash meter** is a heuristic overlay: useful for respect / sizing / timing windows, not for exact crash date prediction
 - **Leaders** stay secondary until valid coverage exists
 """)
 
-st.caption("Attachment-2 shell frozen. If the screen shape changes materially, the wrong file/version is running.")
+st.caption("Q3-anchor shell frozen. If the screen shape changes materially, the wrong file/version is running.")
