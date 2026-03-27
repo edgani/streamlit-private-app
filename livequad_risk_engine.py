@@ -15,14 +15,14 @@ def recommended_risk_budget(core: Dict[str, object], crash_now: float) -> List[L
 
     if q == "Q3":
         base = {
-            "Defensives / quality": 0.20,
+            "Defensives / quality": 0.22,
             "Gold / gold miners": 0.18,
             "Energy / inflation hedges": 0.16,
-            "US cyclicals": 0.09,
+            "US cyclicals": 0.08,
             "Small caps": 0.05,
             "EM / IHSG beta": 0.07,
-            "Crypto beta": 0.04,
-            "Cash / dry powder": 0.21,
+            "Crypto beta": 0.05,
+            "Cash / dry powder": 0.19,
         }
     elif q == "Q2":
         base = {
@@ -58,13 +58,14 @@ def recommended_risk_budget(core: Dict[str, object], crash_now: float) -> List[L
             "Cash / dry powder": 0.28,
         }
 
+    # transition tilt
     if q == "Q3" and q_next == "Q2":
         base["US cyclicals"] += 0.03
         base["Small caps"] += 0.02
         base["Cash / dry powder"] -= 0.03
         base["Gold / gold miners"] -= 0.02
 
-    gross_cap = _clamp01(0.38 + 0.58 * confidence - 0.35 * fragility - 0.32 * crash_now)
+    gross_cap = _clamp01(0.35 + 0.55 * confidence - 0.35 * fragility - 0.30 * crash_now)
     gross_cap = max(0.15, gross_cap)
     cash_floor = 0.10 + 0.20 * crash_now + 0.10 * fragility
 
@@ -85,20 +86,6 @@ def recommended_risk_budget(core: Dict[str, object], crash_now: float) -> List[L
     return rows
 
 
-def tactical_sizing_rows(core: Dict[str, object], crash_now: float) -> List[List[str]]:
-    confidence = float(core.get("confidence", 0.5))
-    fragility = float(core.get("fragility", 0.5))
-    conviction = _clamp01(0.60 * confidence + 0.20 * (1 - fragility) + 0.20 * (1 - crash_now))
-    starter = 0.20 + 0.40 * conviction
-    add = max(0.05, 0.25 * conviction * (1 - crash_now))
-    tactical = 0.10 + 0.25 * conviction * (1 - fragility)
-    return [
-        ["Starter size", f"{starter*100:.0f}% of full size", "Use for first entry / probe"],
-        ["Add-on size", f"{add*100:.0f}% of full size", "Only add if confirms improve"],
-        ["Tactical cap", f"{tactical*100:.0f}% gross", "For beta / optionality trades"],
-    ]
-
-
 def risk_controls_rows(core: Dict[str, object], crash_now: float) -> List[List[str]]:
     confidence = float(core.get("confidence", 0.5))
     fragility = float(core.get("fragility", 0.5))
@@ -113,17 +100,4 @@ def risk_controls_rows(core: Dict[str, object], crash_now: float) -> List[List[s
         ["Beta kill-switch", ">55% crash meter", "Cut beta / high-duration trades by 25–40%"],
         ["Top-risk de-chase", f"{top*100:.1f}% top score", "Do not add to stretched winners blindly"],
     ]
-    return rows
-
-
-def scenario_override_rows(core: Dict[str, object], crash_now: float) -> List[List[str]]:
-    q = str(core.get("current_q", "Q3"))
-    rows = [
-        ["CPI / PPI hotter than expected", "Cut duration / long-beta adds", "Respect inflation shock branch"],
-        ["Payrolls + breadth improve together", "Lean into Q2 probes", "Only if small caps confirm"],
-        ["USD breakout without breadth", "Reduce EM/IHSG beta", "Treat as dirty reflation / pressure"],
-        ["Crash meter > 60%", "Raise cash + trim beta", "Override tactical chasing"],
-    ]
-    if q == "Q3":
-        rows.insert(0, ["Oil spike + yields up", "Prefer hedges over broad beta", "Stay selective, not broad risk-on"])
     return rows
