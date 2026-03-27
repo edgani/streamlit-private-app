@@ -13,10 +13,13 @@ try:
 except Exception:
     yf = None
 
-st.set_page_config(page_title="QuantFinalV5_6_LiveQuad", layout="wide")
+st.set_page_config(page_title="QuantFinalV6_0_Q3Anchored", layout="wide")
 
-APP_NAME = "QuantFinalV5_6_LiveQuad"
-CORE_NAME = "Hedgeye_LiveQuad_Core_v2_3"
+APP_NAME = "QuantFinalV6_0_Q3Anchored"
+CORE_NAME = "Hedgeye_LiveQuad_Core_v2_4"
+
+Q3_CONSENSUS_ANCHOR = True
+Q3_CONSENSUS_FORCE_TOP = True
 
 # --------------------
 # VISUAL SHELL (attachment-2 style)
@@ -592,16 +595,55 @@ def compute_core() -> Dict[str, object]:
     total = sum(live_blend.values())
     live_blend = {k: (v / total if total else 0.25) for k, v in live_blend.items()}
 
-    ranked = sorted(live_blend.items(), key=lambda x: x[1], reverse=True)
-    current_q, current_p = ranked[0]
-    next_q, next_p = ranked[1]
-
     off_ranked = sorted(official_probs.items(), key=lambda x: x[1], reverse=True)
     dir_ranked = sorted(directional_probs.items(), key=lambda x: x[1], reverse=True)
     live_ranked = sorted(live_probs.items(), key=lambda x: x[1], reverse=True)
     official_q, official_p = off_ranked[0]
     directional_q, directional_p = dir_ranked[0]
     live_q, live_p = live_ranked[0]
+
+    model_blend = dict(live_blend)
+    model_ranked = sorted(model_blend.items(), key=lambda x: x[1], reverse=True)
+    model_current_q, model_current_p = model_ranked[0]
+    model_next_q, model_next_p = model_ranked[1]
+
+    decision_blend = dict(model_blend)
+    anchor_reason = "Model-only"
+    q3_anchor_ok = (
+        Q3_CONSENSUS_ANCHOR
+        and official_q in ["Q2", "Q3", "Q4"]
+        and directional_q in ["Q2", "Q3"]
+        and (live_q == "Q3" or q3_live_pressure > 0.36 or stag_pressure > 0.42 or directional_probs["Q3"] > 0.28)
+    )
+    if q3_anchor_ok:
+        base_boost = 0.10 + 0.16 * q3_live_pressure + 0.05 * float(live_q == "Q3") + 0.04 * float(directional_q == "Q3")
+        pool = decision_blend.get("Q2", 0.0) * 0.95 + decision_blend.get("Q4", 0.0) * 0.40 + decision_blend.get("Q1", 0.0) * 0.15
+        anchor_shift = min(pool, base_boost)
+        from_q2 = min(decision_blend.get("Q2", 0.0) * 0.82, anchor_shift * 0.74)
+        from_q4 = min(decision_blend.get("Q4", 0.0) * 0.45, max(0.0, anchor_shift - from_q2))
+        from_q1 = min(decision_blend.get("Q1", 0.0) * 0.18, max(0.0, anchor_shift - from_q2 - from_q4))
+        decision_blend["Q2"] -= from_q2
+        decision_blend["Q4"] -= from_q4
+        decision_blend["Q1"] -= from_q1
+        decision_blend["Q3"] += from_q2 + from_q4 + from_q1
+
+        if Q3_CONSENSUS_FORCE_TOP:
+            other_top = max(v for k, v in decision_blend.items() if k != "Q3")
+            if decision_blend["Q3"] <= other_top:
+                needed = other_top - decision_blend["Q3"] + 0.012
+                take_q2 = min(decision_blend.get("Q2", 0.0) * 0.65, needed * 0.72)
+                take_q4 = min(decision_blend.get("Q4", 0.0) * 0.32, max(0.0, needed - take_q2))
+                take_q1 = min(decision_blend.get("Q1", 0.0) * 0.08, max(0.0, needed - take_q2 - take_q4))
+                decision_blend["Q2"] -= take_q2
+                decision_blend["Q4"] -= take_q4
+                decision_blend["Q1"] -= take_q1
+                decision_blend["Q3"] += take_q2 + take_q4 + take_q1
+        decision_blend = _renorm_probs(decision_blend)
+        anchor_reason = "Q3-anchored live regime"
+
+    ranked = sorted(decision_blend.items(), key=lambda x: x[1], reverse=True)
+    current_q, current_p = ranked[0]
+    next_q, next_p = ranked[1]
 
     dist_od = sum(abs(official_probs[k] - directional_probs[k]) for k in official_probs)
     dist_ol = sum(abs(official_probs[k] - live_probs[k]) for k in official_probs)
@@ -668,17 +710,23 @@ def compute_core() -> Dict[str, object]:
     return {
         "monthly": official_probs,
         "quarterly": directional_probs,
-        "blend": live_blend,
+        "blend": decision_blend,
+        "model_blend": model_blend,
         "current_q": current_q,
         "current_p": current_p,
         "next_q": next_q,
         "next_p": next_p,
+        "model_current_q": model_current_q,
+        "model_current_p": model_current_p,
+        "model_next_q": model_next_q,
+        "model_next_p": model_next_p,
         "official_q": official_q,
         "official_p": official_p,
         "directional_q": directional_q,
         "directional_p": directional_p,
         "live_q": live_q,
         "live_p": live_p,
+        "anchor_reason": anchor_reason,
         "official_date": official_dt.strftime("%Y-%m-%d") if official_dt is not None else "n/a",
         "agreement": agreement,
         "confidence": confidence,
@@ -2212,12 +2260,12 @@ event_rows = [["Macro release timing", "dynamic", "Use actual calendar; avoid fa
 # RENDER
 # --------------------
 st.title(APP_NAME)
-st.markdown("<div class='small-muted'>Core alpha engine: Hedgeye_LiveQuad_Core_v2 • Visual shell: mind-map card layout • Live backbone: FRED + optional Yahoo</div>", unsafe_allow_html=True)
+st.markdown("<div class='small-muted'>Core alpha engine: Hedgeye_LiveQuad_Core_v2_4 • Visual shell: streamlined decision layout • Live backbone: FRED + optional Yahoo • Policy: Q3-anchored live regime</div>", unsafe_allow_html=True)
 st.write("")
 
 hero_cols = st.columns(5)
 hero_items = [
-    ("Current Phase", core["current_q"], pill_html("Decaying", red=True) if core["fragility"] > 0.55 else pill_html("Stable")),
+    ("Current Phase", core["current_q"], pill_html(core.get("anchor_reason", "Live")) if core.get("anchor_reason") != "Model-only" else (pill_html("Decaying", red=True) if core["fragility"] > 0.55 else pill_html("Stable"))),
     ("Confidence", pct(core["confidence"]), pill_html(f"Agreement {pct(core['agreement'])}")),
     ("Sub-Phase", core["sub_phase"], pill_html(f"Strength {pct(core['phase_strength'])}")),
     ("Top Risk", pct(core["top_score"]), pill_html(f"Higher-top {pct(core['higher_top'])}")),
@@ -2235,7 +2283,7 @@ for col, (title, value, sub_html) in zip(hero_cols, hero_items):
 
 mini_cols = st.columns(5)
 mini = [
-    ("CURRENT", core["current_q"], pill_html("Decaying", red=True) if core["fragility"] > 0.55 else pill_html("Stable")),
+    ("CURRENT", core["current_q"], pill_html(core.get("anchor_reason", "Live")) if core.get("anchor_reason") != "Model-only" else (pill_html("Decaying", red=True) if core["fragility"] > 0.55 else pill_html("Stable"))),
     ("NEXT", core["next_q"], pill_html(f"Hazard {pct(core['transition_pressure'])}")),
     ("PLAYBOOK", ", ".join(play_cur["US Stocks"][:1]), pill_html(f"Conviction {pct(core['confidence'])}")),
     ("RELATIVE", relative_rows[0]["Read"], pill_html(relative_rows[1]["Read"])),
@@ -2279,8 +2327,8 @@ with left_col:
     st.markdown(f"**Top / bottom state ➜ {top_state_now} / {bottom_state_now}**")
     st.markdown(f"**Next macro catalysts ➜ {macro_catalyst_summary(3)}**")
     explanation = (
-        f"Current = {core['current_q']} karena live blend masih paling kuat. Official macro cohort masih {core['official_q']} (cutoff {core['official_date']}), directional macro = {core['directional_q']}, dan live cross-asset = {core['live_q']}. "
-        f"Selama breadth belum melebar bersih, base case masih {cur_stage} {core['current_q']}. Next = {core['next_q']} cuma naik kelas kalau transisinya lanjut kebangun."
+        f"Decision regime sekarang = {core['current_q']} dengan policy {core.get('anchor_reason','Model-only')}. Model raw sebelum anchor masih {core.get('model_current_q', core['current_q'])}; official macro cohort = {core['official_q']} (cutoff {core['official_date']}), directional macro = {core['directional_q']}, dan live cross-asset = {core['live_q']}. "
+        f"Jadi buat decision support live, dashboard ini sengaja memihak ke Q3 kalau tekanan stagflasi lintas-aset sudah kebaca. Next = {core['next_q']} cuma naik kelas kalau transisinya lanjut kebangun."
     )
     st.markdown(f"<div class='note-box'>{explanation}</div>", unsafe_allow_html=True)
     st.markdown(table_html(["Focus", "Read", "Why it matters"], build_decision_key_rows()), unsafe_allow_html=True)
