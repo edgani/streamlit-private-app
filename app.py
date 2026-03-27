@@ -13,10 +13,10 @@ try:
 except Exception:
     yf = None
 
-st.set_page_config(page_title="QuantFinalV6_0_Q3Anchored", layout="wide")
+st.set_page_config(page_title="QuantFinalV6_1_Q3Anchored", layout="wide")
 
-APP_NAME = "QuantFinalV6_0_Q3Anchored"
-CORE_NAME = "Hedgeye_LiveQuad_Core_v2_4"
+APP_NAME = "QuantFinalV6_1_Q3Anchored"
+CORE_NAME = "Hedgeye_LiveQuad_Core_v2_5"
 
 Q3_CONSENSUS_ANCHOR = True
 Q3_CONSENSUS_FORCE_TOP = True
@@ -2260,7 +2260,7 @@ event_rows = [["Macro release timing", "dynamic", "Use actual calendar; avoid fa
 # RENDER
 # --------------------
 st.title(APP_NAME)
-st.markdown("<div class='small-muted'>Core alpha engine: Hedgeye_LiveQuad_Core_v2_4 • Visual shell: streamlined decision layout • Live backbone: FRED + optional Yahoo • Policy: Q3-anchored live regime</div>", unsafe_allow_html=True)
+st.markdown("<div class='small-muted'>Core alpha engine: Hedgeye_LiveQuad_Core_v2_5 • Visual shell: streamlined decision layout • Live backbone: FRED + optional Yahoo • Policy: Q3-anchored live regime</div>", unsafe_allow_html=True)
 st.write("")
 
 hero_cols = st.columns(5)
@@ -2375,10 +2375,10 @@ if show_cross_bias:
 show_scenarios = st.toggle("Show scenario map + crash branches", value=False, key="show_scenario_map_v58")
 if show_scenarios:
     st.markdown("<div class='card'><div class='section-title'>SCENARIO MAP + CRASH BRANCHES</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Yang penting bukan cuma label quad, tapi clean vs dirty mode, siapa yang biasanya menang, dan crash branch mana yang harus dihormati.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Bukan cuma label quad. Di sini diringkas quad mana yang cenderung clean / dirty, crash branch yang harus dihormati, dan kapan skenario populer sebenarnya belum layak dipakai.</div>", unsafe_allow_html=True)
     st.markdown(table_html(["", "Quad", "Base read", "Usually works", "Main crash branch", "Base crash risk"], build_quad_scenario_matrix()), unsafe_allow_html=True)
     st.write("")
-    st.markdown(table_html(["Scenario", "Bullish / usable when", "Still bad when"], build_current_scenario_checks()), unsafe_allow_html=True)
+    st.markdown(table_html(["Asset / scenario", "Usable when", "Still bad when"], build_asset_scenario_rows()), unsafe_allow_html=True)
     st.write("")
     st.markdown(table_html(["Path", "Variant", "What it means"], compact_regime_rows()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
@@ -2390,14 +2390,12 @@ if show_macro_timer:
     st.markdown(table_html(["Event", "When", "In", "Why it matters", "Likely impact"], build_macro_catalyst_rows()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-show_leaders = st.toggle("Show stock leadership detail", value=False, key="show_leaders_v58")
-if show_leaders:
-    st.markdown("<div class='card'><div class='section-title'>US / IHSG STOCK LEADERSHIP</div>", unsafe_allow_html=True)
-    us_valid = 0 if us_leaders_df is None or us_leaders_df.empty else int(us_leaders_df['Ticker'].nunique())
-    ih_valid = 0 if ihsg_leaders_df is None or ihsg_leaders_df.empty else int(ihsg_leaders_df['Ticker'].nunique())
-    if us_valid == 0 and ih_valid == 0:
-        st.markdown("<div class='note-box'>Coverage valid masih nol. Jadi leaders belum gue pakai sebagai core read. Tetap fokus ke Decision Snapshot + Risk / Relative + Cross-Asset Bias dulu.</div>", unsafe_allow_html=True)
-    else:
+us_valid = 0 if us_leaders_df is None or us_leaders_df.empty else int(us_leaders_df['Ticker'].nunique())
+ih_valid = 0 if ihsg_leaders_df is None or ihsg_leaders_df.empty else int(ihsg_leaders_df['Ticker'].nunique())
+if us_valid > 0 or ih_valid > 0:
+    show_leaders = st.toggle("Show stock leadership detail", value=False, key="show_leaders_v61")
+    if show_leaders:
+        st.markdown("<div class='card'><div class='section-title'>US / IHSG STOCK LEADERSHIP</div>", unsafe_allow_html=True)
         setup1, setup2 = st.columns(2, gap='large')
         with setup1:
             st.markdown(f"**US leaders now ➜ {us_lead_text}**")
@@ -2405,20 +2403,17 @@ if show_leaders:
         with setup2:
             st.markdown(f"**IHSG leaders now ➜ {ih_lead_text}**")
             st.markdown(table_html(['Ticker', 'State', 'RS', 'Start', 'α 1M / 3M', 'Read'], leadership_table_rows(ihsg_leaders_df, 'top', 6)), unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-show_notes = st.toggle("Show model notes", value=False, key="show_notes_v58")
-if show_notes:
-    st.markdown("<div class='card'><div class='section-title'>MODEL NOTES</div>", unsafe_allow_html=True)
+with st.expander("Model notes", expanded=False):
     st.markdown(f"""
 - **Core model actually used**: `{CORE_NAME}`
 - **Decision Snapshot** already merges current + next + playbook into one main read
 - **Risk / Relative Snapshot** already merges relative, size confirmation, shock overlay, crash meter, and leader status
-- **Cross-Asset Bias** stays separate because itu tempat utama buat baca stage sekarang + strongest / weakest asset + FX expression
+- **Cross-Asset Bias** stays separate karena itu tempat utama buat baca stage sekarang + strongest / weakest asset + FX expression
 - **Top risk / bottom risk** are turn-process probabilities, not exact top or exact bottom calls
 - **Crash meter** is a heuristic overlay: useful for respect / sizing / timing windows, not for exact crash date prediction
 - **Leaders** stay secondary until valid coverage exists
 """)
-    st.markdown("</div>", unsafe_allow_html=True)
 
 st.caption("Attachment-2 shell frozen. If the screen shape changes materially, the wrong file/version is running.")
