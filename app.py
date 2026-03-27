@@ -16,7 +16,7 @@ except Exception:
 st.set_page_config(page_title="QuantFinalV4_Max", layout="wide")
 
 APP_NAME = "QuantFinalV4_Max"
-CORE_NAME = "Hedgeye_Directional_Core_v1"
+CORE_NAME = "Baseline_Blended_Core"
 
 # --------------------
 # VISUAL SHELL (attachment-2 style)
@@ -292,178 +292,79 @@ SER = {
 # --------------------
 # CORE ENGINE (single source of truth)
 # --------------------
-def _cut_asof(s: pd.Series, dt: pd.Timestamp | None = None) -> pd.Series:
-    s = s.dropna()
-    if dt is None or s.empty:
-        return s
-    return s.loc[:dt].dropna()
-
-
-def _latest_common_date(keys: List[str]) -> pd.Timestamp | None:
-    dates = []
-    for key in keys:
-        s = SER.get(key, pd.Series(dtype=float)).dropna()
-        if s.empty:
-            return None
-        dates.append(s.index.max())
-    return min(dates) if dates else None
-
-
-def _annualized_n(s: pd.Series, n: int = 3) -> pd.Series:
-    s = s.dropna()
-    if len(s) < n + 1:
-        return pd.Series(dtype=float)
-    out = (s / s.shift(n)) ** (12.0 / n) - 1.0
-    return out.replace([np.inf, -np.inf], np.nan)
-
-
-def _z_last(s: pd.Series, lookback: int = 36) -> float:
-    return robust_z(s, lookback)
-
-
-def _monthly_last(s: pd.Series) -> pd.Series:
-    s = s.dropna()
-    if s.empty:
-        return s
-    return s.resample("M").last().dropna()
-
-
-def _quad_probs(g_up: float, i_up: float) -> Dict[str, float]:
-    probs = {
-        "Q1": g_up * (1 - i_up),
-        "Q2": g_up * i_up,
-        "Q3": (1 - g_up) * i_up,
-        "Q4": (1 - g_up) * (1 - i_up),
-    }
-    total = sum(probs.values())
-    return {k: (v / total if total else 0.25) for k, v in probs.items()}
-
-
-
-def _weighted_mean(vals: List[float], weights: List[float]) -> float:
-    arr = np.array(vals, dtype=float)
-    w = np.array(weights, dtype=float)
-    mask = np.isfinite(arr) & np.isfinite(w)
-    if not mask.any():
-        return 0.0
-    arr = arr[mask]
-    w = w[mask]
-    if w.sum() == 0:
-        return float(np.nanmean(arr))
-    return float(np.sum(arr * w) / np.sum(w))
-
-
-def _renorm_probs(probs: Dict[str, float]) -> Dict[str, float]:
-    total = float(sum(probs.values()))
-    if total <= 0:
-        return {k: 0.25 for k in ["Q1", "Q2", "Q3", "Q4"]}
-    return {k: float(v / total) for k, v in probs.items()}
-
-
 def compute_core() -> Dict[str, object]:
-    official_dt = _latest_common_date(["INDPRO", "RSAFS", "PAYEMS", "UNRATE", "ICSA", "CPI", "CORE_CPI", "PPI"])
-
-    indpro = _cut_asof(SER["INDPRO"], official_dt)
-    rsafs = _cut_asof(SER["RSAFS"], official_dt)
-    payems = _cut_asof(SER["PAYEMS"], official_dt)
-    unrate = _cut_asof(SER["UNRATE"], official_dt)
-    icsa = _cut_asof(SER["ICSA"], official_dt)
-    cpi = _cut_asof(SER["CPI"], official_dt)
-    core_cpi = _cut_asof(SER["CORE_CPI"], official_dt)
-    ppi = _cut_asof(SER["PPI"], official_dt)
-
-    # Core activity / labor directional signals (do not let liquidity proxies define growth)
-    g_indpro = _z_last(_annualized_n(indpro, 3) - indpro.pct_change(12), 36)
-    g_sales = _z_last(_annualized_n(rsafs, 3) - rsafs.pct_change(12), 36)
-    g_jobs = _z_last((payems.diff(3) / 3.0) - (payems.diff(12) / 12.0), 36)
-    g_unrate = -_z_last(unrate.diff(3), 36)
-    g_claims = -_z_last(icsa.rolling(4).mean() - icsa.rolling(26).mean(), 52)
-
-    growth_official_inputs = [g_indpro, g_sales, g_jobs, g_unrate, g_claims]
-    growth_official_weights = [0.22, 0.22, 0.22, 0.18, 0.16]
-
-    # Inflation directional signals
-    i_cpi = _z_last(_annualized_n(cpi, 3) - cpi.pct_change(12), 36)
-    i_core = _z_last(_annualized_n(core_cpi, 3) - core_cpi.pct_change(12), 36)
-    i_ppi = _z_last(_annualized_n(ppi, 3) - ppi.pct_change(12), 36)
-    infl_official_inputs = [i_cpi, i_core, i_ppi]
-    infl_official_weights = [0.36, 0.40, 0.24]
-
-    # Fast nowcast modifiers
-    wti_m = _monthly_last(SER["WTI"])
-    hy = SER["HY"].dropna()
-    nfci = SER["NFCI"].dropna()
-    sahm = SER["SAHM"].dropna()
-
-    oil_3m = _z_last(_annualized_n(wti_m, 3), 36)
-    oil_1m = _z_last(_annualized_n(wti_m, 1), 36)
-
-    # Keep nowcast growth tied to activity/labor; financial conditions only as modifiers
-    g_now_inputs = [g_indpro, g_sales, g_jobs, g_unrate, g_claims, g_claims]
-    g_now_weights = [0.22, 0.18, 0.24, 0.18, 0.12, 0.06]
-
-    i_now_inputs = [i_cpi, i_core, i_ppi, oil_3m, oil_1m]
-    i_now_weights = [0.28, 0.32, 0.18, 0.14, 0.08]
-
+    growth_inputs = [
+        robust_z(SER["INDPRO"].pct_change(12)),
+        robust_z(SER["RSAFS"].pct_change(12)),
+        robust_z(SER["PAYEMS"].pct_change(12)),
+        -robust_z(SER["UNRATE"].diff()),
+        -robust_z(SER["ICSA"].pct_change(12)),
+    ]
+    infl_inputs = [
+        robust_z(SER["CPI"].pct_change(12)),
+        robust_z(SER["CORE_CPI"].pct_change(12)),
+        robust_z(SER["PPI"].pct_change(12)),
+        robust_z(SER["WTI"].pct_change(12)),
+    ]
     stress_inputs = [
-        _z_last(sahm, 36),
-        _z_last(nfci, 52),
-        _z_last(hy, 52),
+        robust_z(SER["SAHM"]),
+        robust_z(SER["NFCI"]),
+        robust_z(SER["HY"]),
     ]
 
-    g_off = _weighted_mean(growth_official_inputs, growth_official_weights)
-    i_off = _weighted_mean(infl_official_inputs, infl_official_weights)
-    g_now = _weighted_mean(g_now_inputs, g_now_weights)
-    i_now = _weighted_mean(i_now_inputs, i_now_weights)
+    g_m = float(np.nanmean(growth_inputs))
+    i_m = float(np.nanmean(infl_inputs))
     s_m = float(np.nanmean(stress_inputs))
 
-    # Thresholds intentionally biased against easy Q2 classification.
-    g_up_off = sigmoid(1.30 * (g_off - 0.04) - 0.10 * max(0.0, s_m))
-    i_up_off = sigmoid(1.35 * (i_off + 0.02) + 0.08 * max(0.0, s_m))
-    g_up_now = sigmoid(1.55 * (g_now - 0.10) - 0.20 * max(0.0, s_m))
-    i_up_now = sigmoid(1.60 * (i_now + 0.04) + 0.12 * max(0.0, s_m))
+    growth_q = [
+        robust_z(SER["INDPRO"].pct_change(12).rolling(3).mean(), 60),
+        robust_z(SER["RSAFS"].pct_change(12).rolling(3).mean(), 60),
+        robust_z(SER["PAYEMS"].pct_change(12).rolling(3).mean(), 60),
+        -robust_z(SER["UNRATE"].diff().rolling(3).mean(), 60),
+        -robust_z(SER["ICSA"].pct_change(12).rolling(3).mean(), 60),
+    ]
+    infl_q = [
+        robust_z(SER["CPI"].pct_change(12).rolling(3).mean(), 60),
+        robust_z(SER["CORE_CPI"].pct_change(12).rolling(3).mean(), 60),
+        robust_z(SER["PPI"].pct_change(12).rolling(3).mean(), 60),
+        robust_z(SER["WTI"].pct_change(12).rolling(3).mean(), 60),
+    ]
+    g_q = float(np.nanmean(growth_q))
+    i_q = float(np.nanmean(infl_q))
 
-    official_probs = _quad_probs(g_up_off, i_up_off)
-    directional_probs = _quad_probs(g_up_now, i_up_now)
+    g_up_m = sigmoid(1.25 * g_m - 0.35 * s_m)
+    i_up_m = sigmoid(1.20 * i_m + 0.10 * s_m)
+    g_up_q = sigmoid(1.05 * g_q - 0.25 * s_m)
+    i_up_q = sigmoid(1.05 * i_q + 0.05 * s_m)
 
-    # Guardrail: if labor is deteriorating while inflation is re-accelerating,
-    # do not let loose credit / risk appetite masquerade as Q2.
-    labor_weak = _weighted_mean([
-        max(0.0, -g_jobs),
-        max(0.0, -g_unrate),
-        max(0.0, -g_claims),
-    ], [0.45, 0.30, 0.25])
-    inflation_push = max(0.0, i_now)
-    stag_pressure = clamp01(0.55 * sigmoid(1.8 * (labor_weak - 0.10)) + 0.45 * sigmoid(1.8 * (inflation_push - 0.08)))
-    if stag_pressure > 0.52 and directional_probs["Q2"] > directional_probs["Q3"]:
-        shift = min(0.16, 0.55 * (stag_pressure - 0.52) + 0.05)
-        take = directional_probs["Q2"] * shift
-        directional_probs["Q2"] -= take
-        directional_probs["Q3"] += take
-        directional_probs = _renorm_probs(directional_probs)
-
-    blended = {k: 0.40 * official_probs[k] + 0.60 * directional_probs[k] for k in official_probs}
+    monthly = {
+        "Q1": g_up_m * (1 - i_up_m),
+        "Q2": g_up_m * i_up_m,
+        "Q3": (1 - g_up_m) * i_up_m,
+        "Q4": (1 - g_up_m) * (1 - i_up_m),
+    }
+    quarterly = {
+        "Q1": g_up_q * (1 - i_up_q),
+        "Q2": g_up_q * i_up_q,
+        "Q3": (1 - g_up_q) * i_up_q,
+        "Q4": (1 - g_up_q) * (1 - i_up_q),
+    }
+    blended = {k: 0.4 * monthly[k] + 0.6 * quarterly[k] for k in monthly}
     total = sum(blended.values())
-    blended = {k: (v / total if total else 0.25) for k, v in blended.items()}
+    blended = {k: v / total for k, v in blended.items()}
 
     ranked = sorted(blended.items(), key=lambda x: x[1], reverse=True)
     current_q, current_p = ranked[0]
     next_q, next_p = ranked[1]
 
-    off_ranked = sorted(official_probs.items(), key=lambda x: x[1], reverse=True)
-    dir_ranked = sorted(directional_probs.items(), key=lambda x: x[1], reverse=True)
-    official_q, official_p = off_ranked[0]
-    directional_q, directional_p = dir_ranked[0]
+    agreement = clamp01(1.0 - 0.5 * sum(abs(monthly[k] - quarterly[k]) for k in monthly))
+    confidence = clamp01(0.55 * current_p + 0.45 * agreement)
 
-    agreement = clamp01(1.0 - 0.60 * sum(abs(official_probs[k] - directional_probs[k]) for k in official_probs))
-    confidence = clamp01(0.58 * current_p + 0.42 * agreement)
-
-    phase_strength = clamp01(0.40 * abs(g_now) + 0.40 * abs(i_now) + 0.20 * max(0.0, current_p - 0.25))
-    growth_breadth = clamp01(sum(1 for x in growth_official_inputs if x > 0) / len(growth_official_inputs))
-    infl_breadth = clamp01(sum(1 for x in infl_official_inputs if x > 0) / len(infl_official_inputs))
+    phase_strength = clamp01(abs(g_m) * 0.45 + abs(i_m) * 0.35 + max(0, current_p - 0.25) * 0.70)
+    growth_breadth = clamp01(sum(1 for x in growth_inputs if x > 0) / len(growth_inputs))
+    infl_breadth = clamp01(sum(1 for x in infl_inputs if x > 0) / len(infl_inputs))
     breadth = 0.5 * growth_breadth + 0.5 * infl_breadth
-    regime_divergence = abs(g_now - g_off) + abs(i_now - i_off)
-    fragility = clamp01(0.35 * (1 - current_p) + 0.30 * (1 - agreement) + 0.20 * max(0.0, s_m) + 0.15 * min(1.0, regime_divergence / 2.5))
+    fragility = clamp01(0.45 * (1 - current_p) + 0.35 * (1 - agreement) + 0.20 * max(0, s_m))
 
     margin = current_p - next_p
     if margin < 0.03:
@@ -474,18 +375,18 @@ def compute_core() -> Dict[str, object]:
     if current_q == "Q1":
         sub_phase = "Goldilocks / recovery" if fragility < 0.45 else "Recovery but fragile"
     elif current_q == "Q2":
-        sub_phase = "Expansion / hot growth" if i_now < 0.35 else "Reflation / overheating risk"
+        sub_phase = "Expansion / hot growth" if i_m < 0.35 else "Reflation / overheating risk"
     elif current_q == "Q3":
-        sub_phase = "Stagflation building" if i_now > i_off + 0.10 else "Slowdown with sticky inflation"
+        sub_phase = "Slowdown with sticky inflation" if i_m < 0.35 else "Stagflation / pressure"
     else:
-        sub_phase = "Late Q4 / inflation trying to turn" if directional_q == "Q3" else ("Bottoming attempt" if g_now > -0.20 else "Deflationary slowdown")
+        sub_phase = "Bottoming attempt" if g_m > -0.20 else "Deflationary slowdown"
 
-    top_score = clamp01(0.35 * max(0.0, i_now) + 0.20 * phase_strength + 0.20 * fragility + 0.15 * float(current_q in ["Q2", "Q3"]) + 0.10 * float(directional_q == "Q3"))
-    bottom_score = clamp01(0.35 * float(current_q == "Q4") + 0.20 * max(0.0, -g_now) + 0.20 * (1 - fragility) + 0.15 * float(official_q == "Q4") + 0.10 * float(directional_q == "Q4"))
+    top_score = clamp01(0.35 * max(0, i_m) + 0.25 * phase_strength + 0.20 * fragility + 0.20 * float(current_q in ["Q2", "Q3"]))
+    bottom_score = clamp01(0.40 * float(current_q == "Q4") + 0.25 * max(0, -g_m) + 0.20 * (1 - fragility) + 0.15 * float(current_q == "Q4" and g_m > -0.2))
     higher_top = clamp01(top_score * 0.65 * (1 - bottom_score))
     lower_bottom = clamp01(bottom_score * 0.65 * (1 - top_score))
 
-    transition_pressure = clamp01(0.35 * fragility + 0.30 * (1 - current_p) + 0.20 * min(1.0, regime_divergence / 2.5) + 0.15 * abs(g_now - i_now) / 3.0)
+    transition_pressure = clamp01(0.40 * fragility + 0.35 * (1 - current_p) + 0.25 * abs(g_m - i_m) / 3.0)
     transition_conviction = clamp01(0.55 * transition_pressure + 0.45 * next_p)
     stay_probability = clamp01(current_p * (1 - fragility * 0.45))
 
@@ -511,44 +412,35 @@ def compute_core() -> Dict[str, object]:
             path_status = "Stable / no clean shift"
 
     return {
-        "monthly": official_probs,
-        "quarterly": directional_probs,
-        "blend": blended,
+        "monthly": monthly,
+        "quarterly": quarterly,
+        "blended": blended,
         "current_q": current_q,
-        "current_p": current_p,
         "next_q": next_q,
+        "current_p": current_p,
         "next_p": next_p,
-        "official_q": official_q,
-        "official_p": official_p,
-        "directional_q": directional_q,
-        "directional_p": directional_p,
-        "official_date": official_dt.strftime("%Y-%m-%d") if official_dt is not None else "n/a",
-        "agreement": agreement,
         "confidence": confidence,
+        "agreement": agreement,
         "phase_strength": phase_strength,
         "breadth": breadth,
         "fragility": fragility,
         "sub_phase": sub_phase,
-        "higher_top_prob": higher_top,
-        "lower_bottom_prob": lower_bottom,
         "top_score": top_score,
         "bottom_score": bottom_score,
-        "transition_prob": transition_conviction,
+        "higher_top": higher_top,
+        "lower_bottom": lower_bottom,
         "transition_pressure": transition_pressure,
-        "stay_prob": stay_probability,
+        "transition_conviction": transition_conviction,
+        "stay_probability": stay_probability,
         "path_status": path_status,
-        "g_off": g_off,
-        "i_off": i_off,
-        "g_now": g_now,
-        "i_now": i_now,
-        "stress_m": s_m,
-        "labor_weak": labor_weak,
-        "stag_pressure": stag_pressure,
+        "stress_growth": clamp01(abs(g_m)),
+        "stress_infl": clamp01(abs(i_m)),
+        "stress_liq": clamp01(max(0, robust_z(SER["NFCI"]))),
+        "margin": margin,
+        "signal_quality": signal_quality_label(confidence, agreement, fragility),
     }
 
-
 core = compute_core()
-
 
 # --------------------
 # RELATIVE / SIZE
@@ -668,278 +560,33 @@ def liquidity_composite() -> pd.Series:
     df = pd.concat(parts, axis=1).dropna(how="all")
     return df.mean(axis=1).dropna().rename("LIQ")
 
+def compute_relative() -> List[Dict[str, str]]:
+    spy = yahoo_close("SPY", "1y")
+    eem = yahoo_close("EEM", "1y")
+    eido = yahoo_close("EIDO", "1y")
+    btc = yahoo_close("BTC-USD", "1y")
+    liq = liquidity_composite()
+    return [
+        build_rel_row("US/EM", spy, eem, "US stronger", "EM stronger", core["breadth"], 0),
+        build_rel_row("IHSG/US", eido, spy, "IHSG stronger", "US stronger", core["breadth"], 1, " (proxy-based)"),
+        build_rel_row("IHSG/EM", eido, eem, "IHSG stronger", "EM stronger", core["breadth"], 2, " (proxy-based)"),
+        build_rel_row("Crypto/Liq", btc, liq, "Crypto stronger", "Liquidity not confirming", core["phase_strength"], 3, " (liq proxy)"),
+    ]
 
-def _norm_tanh(x: float, scale: float) -> float:
-    if not np.isfinite(x):
-        return 0.5
-    scale = max(scale, 1e-9)
-    return clamp01(0.5 + 0.5 * math.tanh(x / scale))
+def compute_size() -> List[Dict[str, str]]:
+    iwm = yahoo_close("IWM", "1y")
+    iwb = yahoo_close("IWB", "1y")
+    spy = yahoo_close("SPY", "1y")
+    alt = crypto_alt_basket("1y")
+    btc = yahoo_close("BTC-USD", "1y")
+    return [
+        build_rel_row("US Small/Big", iwm, iwb, "Small > Big", "Big > Small", core["breadth"], 4),
+        build_rel_row("US Small/Broad", iwm, spy, "Small > Broad", "Broad > Small", core["breadth"], 5),
+        build_rel_row("Alt Basket/BTC", alt, btc, "Alts > BTC", "BTC > Alts", core["breadth"], 6, " (basket proxy)"),
+    ]
 
-
-def _trend_score(s: pd.Series) -> float:
-    s = s.dropna()
-    if len(s) < 30:
-        return 0.0
-    px = float(s.iloc[-1])
-    sma20 = float(s.rolling(20).mean().iloc[-1]) if len(s) >= 20 else px
-    sma50 = float(s.rolling(50).mean().iloc[-1]) if len(s) >= 50 else sma20
-    long_n = 200 if len(s) >= 200 else min(120, len(s))
-    sma_long = float(s.rolling(long_n).mean().iloc[-1]) if long_n >= 20 else sma50
-    checks = [px > sma20, px > sma50, px > sma_long, sma20 > sma50, sma50 > sma_long]
-    return float(np.mean(checks))
-
-
-def _lead_state(alpha21: float, alpha63: float, alpha126: float, trend: float) -> str:
-    if alpha21 > 0.02 and alpha63 > 0.04 and trend >= 0.60:
-        return "Leader"
-    if alpha21 > 0.015 and (alpha63 > -0.01 or alpha21 > alpha63 + 0.03) and trend >= 0.45:
-        return "Emerging"
-    if alpha21 < -0.02 and alpha63 > 0.01:
-        return "Fading"
-    if alpha21 < -0.03 and alpha63 < -0.03:
-        return "Weak"
-    if alpha126 > 0.08 and alpha21 > -0.01:
-        return "Leader"
-    return "Neutral"
-
-
-def _lead_comment(state: str, alpha21: float, alpha63: float, trend: float) -> str:
-    if state == "Leader":
-        if alpha21 > 0.06 and alpha63 > 0.10:
-            return "clear relative leader"
-        return "steady relative strength"
-    if state == "Emerging":
-        if alpha21 > alpha63 + 0.04:
-            return "starting to outperform"
-        return "early RS improvement"
-    if state == "Fading":
-        return "still above benchmark, but momentum fading"
-    if state == "Weak":
-        return "underperforming benchmark"
-    return "mixed / no clean edge"
-
-
-def _clean_tickers(raw: str, suffix: str = "") -> List[str]:
-    out = []
-    for x in raw.split(','):
-        t = x.strip().upper()
-        if not t:
-            continue
-        if suffix and not t.endswith(suffix):
-            t = f"{t}{suffix}"
-        out.append(t)
-    seen = set()
-    uniq = []
-    for t in out:
-        if t not in seen:
-            seen.add(t)
-            uniq.append(t)
-    return uniq
-
-
-def rank_market_leaders(tickers: List[str], benchmark_ticker: str, period: str = "1y", fallback_benchmark: str | None = None) -> pd.DataFrame:
-    tickers = [t for t in tickers if t]
-    if not tickers:
-        return pd.DataFrame()
-    bench = yahoo_close(benchmark_ticker, period)
-    bench_name = benchmark_ticker
-    if bench.empty and fallback_benchmark:
-        bench = yahoo_close(fallback_benchmark, period)
-        if not bench.empty:
-            bench_name = fallback_benchmark
-    if bench.empty:
-        return pd.DataFrame()
-
-    rows = []
-    for ticker in tickers:
-        s = yahoo_close(ticker, period)
-        if s.empty:
-            continue
-        df = pd.concat([s.rename('asset'), bench.rename('bench')], axis=1).dropna()
-        if len(df) < 80:
-            continue
-        asset = df['asset']
-        bm = df['bench']
-        r21, r63, r126 = ret_n(asset, 21), ret_n(asset, 63), ret_n(asset, 126)
-        b21, b63, b126 = ret_n(bm, 21), ret_n(bm, 63), ret_n(bm, 126)
-        alpha21, alpha63, alpha126 = r21 - b21, r63 - b63, r126 - b126
-        trend = _trend_score(asset)
-        accel = alpha21 - 0.45 * alpha63
-        rs_score = clamp01(
-            0.35 * _norm_tanh(alpha21, 0.08)
-            + 0.30 * _norm_tanh(alpha63, 0.15)
-            + 0.15 * _norm_tanh(alpha126, 0.25)
-            + 0.20 * trend
-        )
-        start_score = clamp01(
-            0.35 * _norm_tanh(accel, 0.08)
-            + 0.25 * _norm_tanh(r21, 0.12)
-            + 0.20 * trend
-            + 0.20 * clamp01(1.0 - min(1.0, abs(alpha126) / 0.35))
-        )
-        state = _lead_state(alpha21, alpha63, alpha126, trend)
-        comment = _lead_comment(state, alpha21, alpha63, trend)
-        rows.append({
-            'Ticker': ticker,
-            'Benchmark': bench_name,
-            'State': state,
-            'RSScore': rs_score,
-            'StartScore': start_score,
-            'Alpha21': alpha21,
-            'Alpha63': alpha63,
-            'Alpha126': alpha126,
-            'Ret21': r21,
-            'Ret63': r63,
-            'Trend': trend,
-            'Comment': comment,
-        })
-    if not rows:
-        return pd.DataFrame()
-    df = pd.DataFrame(rows).sort_values(['RSScore', 'StartScore', 'Alpha21'], ascending=False).reset_index(drop=True)
-    return df
-
-
-def leadership_table_rows(df: pd.DataFrame, mode: str = "top", n: int = 8) -> List[List[str]]:
-    if df is None or df.empty:
-        return [["No data", "-", "-", "-", "-", "-"]]
-    use = df.copy()
-    if mode == "leaders":
-        use = use[use['State'].isin(['Leader'])].sort_values(['RSScore', 'Alpha21'], ascending=False)
-    elif mode == "emerging":
-        use = use[use['State'].isin(['Emerging'])].sort_values(['StartScore', 'Alpha21'], ascending=False)
-    elif mode == "fading":
-        use = use[use['State'].isin(['Fading', 'Weak'])].sort_values(['Alpha21', 'Alpha63'], ascending=True)
-    else:
-        use = use.sort_values(['RSScore', 'StartScore'], ascending=False)
-    if use.empty:
-        return [["None", "-", "-", "-", "-", "No clean names"]]
-    out = []
-    for _, r in use.head(n).iterrows():
-        out.append([
-            r['Ticker'].replace('.JK', ''),
-            r['State'],
-            pct(float(r['RSScore'])),
-            pct(float(r['StartScore'])),
-            f"{100*float(r['Alpha21']):+.1f}% / {100*float(r['Alpha63']):+.1f}%",
-            r['Comment'],
-        ])
-    return out
-
-
-def leadership_summary(df: pd.DataFrame) -> Tuple[str, str]:
-    if df is None or df.empty:
-        return "No data", "No benchmark-relative read"
-    leaders = df[df['State'] == 'Leader'].head(3)['Ticker'].str.replace('.JK', '', regex=False).tolist()
-    emerging = df[df['State'] == 'Emerging'].sort_values(['StartScore', 'Alpha21'], ascending=False).head(3)['Ticker'].str.replace('.JK', '', regex=False).tolist()
-    lead_txt = ', '.join(leaders) if leaders else 'No clear leaders'
-    em_txt = ', '.join(emerging) if emerging else 'No early starters'
-    return lead_txt, em_txt
-
-
-
-US_UNIVERSE = [
-    "AAPL","MSFT","NVDA","AVGO","AMD","MU","MRVL","ANET","ARM","TSM",
-    "META","AMZN","GOOGL","NFLX","ORCL","PLTR","CRWD","PANW","NET","DDOG",
-    "JPM","GS","MS","BAC","WFC","BRK-B","V","MA","SPGI","KKR",
-    "XOM","CVX","COP","SLB","EOG","FANG","MPC","VLO","OXY","HAL",
-    "LLY","ABBV","JNJ","UNH","ISRG","BSX","ABT","PFE","VRTX","MRK",
-    "CAT","GE","GEV","RTX","LMT","NOC","GD","DE","ETN","PH",
-    "WMT","COST","PG","KO","PEP","MCD","CMG","HD","LOW","TJX",
-    "GLD","NEM","AEM","FCX","SCCO","NUE","STLD","CLF","AA","X",
-    "UBER","BKNG","AXON","HOOD","RBLX","SNOW","MDB","ZS","SMCI","QCOM"
-]
-
-IHSG_UNIVERSE = [
-    "BBCA.JK","BBRI.JK","BMRI.JK","BBNI.JK","TLKM.JK","ASII.JK","ICBP.JK","INDF.JK","CPIN.JK","AMRT.JK",
-    "ANTM.JK","MDKA.JK","INCO.JK","UNTR.JK","ADRO.JK","PTBA.JK","ITMG.JK","INDY.JK","MEDC.JK","AKRA.JK",
-    "BREN.JK","AMMN.JK","TPIA.JK","BRPT.JK","PGEO.JK","ESSA.JK","ELSA.JK","HUMI.JK","GTSI.JK","RAJA.JK",
-    "CTRA.JK","BSDE.JK","PWON.JK","SMRA.JK","MTLA.JK","DMAS.JK","TRIN.JK","TRUE.JK","ROCK.JK","SMDM.JK",
-    "EXCL.JK","ISAT.JK","MAPI.JK","ACES.JK","ERAA.JK","MAPA.JK","EMTK.JK","SCMA.JK","HEAL.JK","SILO.JK",
-    "JSMR.JK","WIKA.JK","PTPP.JK","ADHI.JK","ENRG.JK","DOID.JK","WINS.JK","TMAS.JK","DEWA.JK","MBMA.JK"
-]
-
-US_THEME_TAGS = {
-    "Semis / AI infra": {"NVDA","AVGO","AMD","MU","MRVL","ANET","ARM","TSM","SMCI","QCOM"},
-    "Software / AI apps": {"MSFT","ORCL","PLTR","CRWD","PANW","NET","DDOG","SNOW","MDB","ZS"},
-    "Energy": {"XOM","CVX","COP","SLB","EOG","FANG","MPC","VLO","OXY","HAL"},
-    "Defense / industrial": {"RTX","LMT","NOC","GD","CAT","GE","GEV","DE","ETN","PH","AXON"},
-    "Financials": {"JPM","GS","MS","BAC","WFC","BRK-B","V","MA","SPGI","KKR"},
-    "Gold / metals": {"GLD","NEM","AEM","FCX","SCCO","NUE","STLD","CLF","AA","X"},
-    "Consumer / quality": {"WMT","COST","PG","KO","PEP","MCD","CMG","HD","LOW","TJX"},
-    "Health care": {"LLY","ABBV","JNJ","UNH","ISRG","BSX","ABT","PFE","VRTX","MRK"},
-}
-
-IHSG_THEME_TAGS = {
-    "Banks / large cap": {"BBCA.JK","BBRI.JK","BMRI.JK","BBNI.JK"},
-    "Commodities / mining": {"ANTM.JK","MDKA.JK","INCO.JK","ADRO.JK","PTBA.JK","ITMG.JK","INDY.JK","MBMA.JK"},
-    "Oil / gas / shipping": {"MEDC.JK","AKRA.JK","ESSA.JK","ELSA.JK","HUMI.JK","GTSI.JK","RAJA.JK","WINS.JK","TMAS.JK","ENRG.JK","DOID.JK"},
-    "Property / beta": {"CTRA.JK","BSDE.JK","PWON.JK","SMRA.JK","MTLA.JK","DMAS.JK","TRIN.JK","TRUE.JK","ROCK.JK","SMDM.JK"},
-    "Infra / industrial": {"JSMR.JK","WIKA.JK","PTPP.JK","ADHI.JK","AMMN.JK","BREN.JK","TPIA.JK","BRPT.JK","PGEO.JK"},
-    "Consumer / telco": {"TLKM.JK","EXCL.JK","ISAT.JK","ICBP.JK","INDF.JK","CPIN.JK","AMRT.JK","MAPI.JK","ACES.JK","ERAA.JK","MAPA.JK"},
-}
-
-def _theme_from_tags(ticker: str, mapping: Dict[str, set]) -> str:
-    for theme, names in mapping.items():
-        if ticker in names:
-            return theme
-    return "Other"
-
-def leadership_summary(df: pd.DataFrame) -> Tuple[str, str]:
-    if df is None or df.empty:
-        return "No data", "No benchmark-relative read"
-    leaders = df[df['State'] == 'Leader'].head(3)['Ticker'].str.replace('.JK', '', regex=False).tolist()
-    emerging = df[df['State'] == 'Emerging'].sort_values(['StartScore', 'Alpha21'], ascending=False).head(3)['Ticker'].str.replace('.JK', '', regex=False).tolist()
-    lead_txt = ', '.join(leaders) if leaders else 'No clear leaders'
-    em_txt = ', '.join(emerging) if emerging else 'No early starters'
-    return lead_txt, em_txt
-
-def leadership_theme_rows(df: pd.DataFrame, mapping: Dict[str, set], n: int = 6) -> List[List[str]]:
-    if df is None or df.empty:
-        return [["No data", "-", "-", "-"]]
-    work = df.copy()
-    work["Theme"] = work["Ticker"].apply(lambda x: _theme_from_tags(x, mapping))
-    agg = (
-        work.groupby("Theme", as_index=False)
-        .agg(RSScore=("RSScore","mean"), StartScore=("StartScore","mean"), Leaders=("Ticker", lambda s: ", ".join([x.replace('.JK','') for x in list(s.head(3))])))
-        .sort_values(["RSScore","StartScore"], ascending=False)
-    )
-    rows = []
-    for _, r in agg.head(n).iterrows():
-        rows.append([r["Theme"], pct(float(r["RSScore"])), pct(float(r["StartScore"])), r["Leaders"]])
-    return rows
-
-def compute_leadership_panels() -> Tuple[pd.DataFrame, pd.DataFrame, str, str, str, str]:
-    us_custom_raw = st.session_state.get('us_custom_tickers', '')
-    ihsg_custom_raw = st.session_state.get('ihsg_custom_tickers', '')
-
-    us_tickers = US_UNIVERSE + _clean_tickers(us_custom_raw)
-    ihsg_tickers = IHSG_UNIVERSE + _clean_tickers(ihsg_custom_raw, '.JK')
-
-    us_seen, us_final = set(), []
-    for t in us_tickers:
-        if t not in us_seen:
-            us_seen.add(t)
-            us_final.append(t)
-    ih_seen, ih_final = set(), []
-    for t in ihsg_tickers:
-        if t not in ih_seen:
-            ih_seen.add(t)
-            ih_final.append(t)
-
-    us_df = rank_market_leaders(us_final, benchmark_ticker='SPY', period='1y', fallback_benchmark='QQQ')
-    ihsg_df = rank_market_leaders(ih_final, benchmark_ticker='^JKSE', period='1y', fallback_benchmark='EIDO')
-
-    if not us_df.empty:
-        us_df["Theme"] = us_df["Ticker"].apply(lambda x: _theme_from_tags(x, US_THEME_TAGS))
-    if not ihsg_df.empty:
-        ihsg_df["Theme"] = ihsg_df["Ticker"].apply(lambda x: _theme_from_tags(x, IHSG_THEME_TAGS))
-
-    us_lead, us_em = leadership_summary(us_df)
-    ih_lead, ih_em = leadership_summary(ihsg_df)
-    return us_df, ihsg_df, us_lead, us_em, ih_lead, ih_em
-
-us_leaders_df, ihsg_leaders_df, us_lead_text, us_em_text, ih_lead_text, ih_em_text = compute_leadership_panels()
-
+relative_rows = compute_relative()
+size_rows = compute_size()
 
 # --------------------
 # OVERLAYS
@@ -1064,13 +711,14 @@ play_cur, play_next, posture = current_vs_next_playbook()
 # EVENTS
 # --------------------
 today = date.today()
-event_rows = [["Macro release timing", "dynamic", "Use actual calendar; avoid fake offsets"], ["Released-only cutoff", core["official_date"], "common macro date used in official state"]]
+events = [("NFP", today + timedelta(days=11)), ("CPI", today + timedelta(days=21)), ("PPI", today + timedelta(days=22))]
+event_rows = [[name, dt.isoformat(), f"{(dt - today).days}d"] for name, dt in events]
 
 # --------------------
 # RENDER
 # --------------------
 st.title(APP_NAME)
-st.markdown("<div class='small-muted'>Core alpha engine: Hedgeye_Directional_Core_v1 • Visual shell: mind-map card layout • Live backbone: FRED + optional Yahoo</div>", unsafe_allow_html=True)
+st.markdown("<div class='small-muted'>Core alpha engine: Baseline_Blended_Core • Visual shell: mind-map card layout • Live backbone: FRED + optional Yahoo</div>", unsafe_allow_html=True)
 st.write("")
 
 hero_cols = st.columns(5)
@@ -1113,7 +761,7 @@ left_col, right_col = st.columns([1.0, 1.0], gap="large")
 with left_col:
     t_current, t_next, t_play = st.tabs(["Current", "Next", "Playbook"])
 with right_col:
-    t_rel, t_lead, t_shock, t_notes = st.tabs(["Relative", "Leaders", "Shocks / What-If", "Notes"])
+    t_rel, t_shock, t_notes = st.tabs(["Relative", "Shocks / What-If", "Notes"])
 
 with t_current:
     c1, c2 = st.columns([1.1, 0.9], gap="large")
@@ -1121,19 +769,16 @@ with t_current:
         st.markdown("<div class='card'><div class='section-title'>CURRENT MAP</div>", unsafe_allow_html=True)
         st.markdown(f"**Phase ➜ {core['current_q']}**")
         st.markdown(f"**Confidence ➜ {pct(core['confidence'])}** {pill_html('Decaying', red=True) if core['fragility'] > 0.55 else pill_html('Stable')}", unsafe_allow_html=True)
-        st.markdown(f"**Agreement ➜ {pct(core['agreement'])}** {pill_html('Official / Nowcast')}", unsafe_allow_html=True)
+        st.markdown(f"**Agreement ➜ {pct(core['agreement'])}** {pill_html('Monthly / Quarterly')}", unsafe_allow_html=True)
         st.markdown(f"**Sub-Phase ➜ {core['sub_phase']}**")
-        st.markdown(f"**Released-only current ➜ {core['official_q']} ({core['official_date']})**")
-        st.markdown(f"**Directional nowcast ➜ {core['directional_q']}**")
-        st.markdown(f"**Labor weakness / stagflation pressure ➜ {core['labor_weak']:+.2f} / {core['stag_pressure']:.2f}**")
         st.markdown(f"**Regime Strength ➜ {pct(core['phase_strength'])}**")
         st.markdown(f"**Breadth ➜ {pct(core['breadth'])}**")
         st.markdown(f"**Fragility ➜ {pct(core['fragility'])}**")
         st.markdown(f"**Signal quality ➜ {core['signal_quality']}**")
         explanation = (
-            f"Current = {core['current_q']} using a directional nowcast blend. Released-only macro still says {core['official_q']} as of {core['official_date']}. "
-            f"Directional nowcast = {core['directional_q']}. Next = {core['next_q']} only if the transition keeps building. "
-            f"The model chooses {core['current_q']} because the nowcast blend has the highest probability, "
+            f"Current = {core['current_q']} now. Sub-phase = {core['sub_phase']}. "
+            f"Next = {core['next_q']} only if the transition keeps building. "
+            f"Today the model still treats {core['current_q']} as current because it has the highest blended probability, "
             f"while the regime still looks {'fragile' if core['fragility'] > 0.5 else 'fairly stable'}."
         )
         st.markdown(f"<div class='note-box'>{explanation}</div>", unsafe_allow_html=True)
@@ -1236,45 +881,6 @@ with t_rel:
     st.markdown(table_html(["Lens", "Dir", "Str", "Score", "State", "Qual", "Sustain", "Conf", "Read"], sr_rows), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-with t_lead:
-    st.markdown("<div class='card'><div class='section-title'>US / IHSG STOCK LEADERSHIP</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>This module ranks stocks versus their market benchmark. It separates names already outperforming from names only starting to outperform.</div>", unsafe_allow_html=True)
-    setup1, setup2 = st.columns(2, gap='large')
-    with setup1:
-        st.selectbox('US watchlist preset', options=list(US_PRESETS.keys()), index=list(US_PRESETS.keys()).index(st.session_state.get('us_leader_preset', 'Quantum / speculative tech')), key='us_leader_preset')
-        st.text_input('US custom tickers (comma-separated)', value=st.session_state.get('us_custom_tickers', ''), key='us_custom_tickers')
-        st.markdown(f"**US leaders now ➜ {us_lead_text}**")
-        st.markdown(f"**US starting to outperform ➜ {us_em_text}**")
-    with setup2:
-        st.selectbox('IHSG watchlist preset', options=list(IHSG_PRESETS.keys()), index=list(IHSG_PRESETS.keys()).index(st.session_state.get('ihsg_leader_preset', 'IHSG large caps')), key='ihsg_leader_preset')
-        st.text_input('IHSG custom tickers (comma-separated, no .JK needed)', value=st.session_state.get('ihsg_custom_tickers', ''), key='ihsg_custom_tickers')
-        st.markdown(f"**IHSG leaders now ➜ {ih_lead_text}**")
-        st.markdown(f"**IHSG starting to outperform ➜ {ih_em_text}**")
-    st.write("")
-
-    lead_c1, lead_c2 = st.columns(2, gap='large')
-    with lead_c1:
-        st.markdown('**US benchmark-relative leadership**')
-        st.markdown(table_html(['Ticker', 'State', 'RS', 'Start', 'α 1M / 3M', 'Read'], leadership_table_rows(us_leaders_df, 'top', 10)), unsafe_allow_html=True)
-        st.write('')
-        st.markdown('**US names starting to outperform**')
-        st.markdown(table_html(['Ticker', 'State', 'RS', 'Start', 'α 1M / 3M', 'Read'], leadership_table_rows(us_leaders_df, 'emerging', 6)), unsafe_allow_html=True)
-    with lead_c2:
-        st.markdown('**IHSG benchmark-relative leadership**')
-        st.markdown(table_html(['Ticker', 'State', 'RS', 'Start', 'α 1M / 3M', 'Read'], leadership_table_rows(ihsg_leaders_df, 'top', 10)), unsafe_allow_html=True)
-        st.write('')
-        st.markdown('**IHSG names starting to outperform**')
-        st.markdown(table_html(['Ticker', 'State', 'RS', 'Start', 'α 1M / 3M', 'Read'], leadership_table_rows(ihsg_leaders_df, 'emerging', 6)), unsafe_allow_html=True)
-    st.write("")
-    lag1, lag2 = st.columns(2, gap='large')
-    with lag1:
-        st.markdown('**US laggards / fading leaders**')
-        st.markdown(table_html(['Ticker', 'State', 'RS', 'Start', 'α 1M / 3M', 'Read'], leadership_table_rows(us_leaders_df, 'fading', 6)), unsafe_allow_html=True)
-    with lag2:
-        st.markdown('**IHSG laggards / fading leaders**')
-        st.markdown(table_html(['Ticker', 'State', 'RS', 'Start', 'α 1M / 3M', 'Read'], leadership_table_rows(ihsg_leaders_df, 'fading', 6)), unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
 with t_shock:
     st.markdown("<div class='card'><div class='section-title'>SHOCKS / WHAT-IF</div>", unsafe_allow_html=True)
     st.markdown(f"**Current mode ➜ {'Override active' if override_active else 'Base case / watch only'}**")
@@ -1304,8 +910,6 @@ with t_notes:
 - **IHSG size rotation is removed**
 - **Crypto alt basket vs BTC** uses a basket proxy
 - **Crypto/Liq** uses a composite proxy (WALCL, M2, USD inverse, NFCI inverse)
-- **Leaders tab** ranks US stocks vs SPY and IHSG stocks vs ^JKSE with EIDO fallback
-- **Emerging** = starting to outperform; **Leader** = already outperforming cleanly
 """)
     st.markdown("</div>", unsafe_allow_html=True)
 
