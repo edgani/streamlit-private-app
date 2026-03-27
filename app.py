@@ -13,6 +13,19 @@ try:
 except Exception:
     yf = None
 
+try:
+    from livequad_data_layer import adjust_series_dict, health_rows, persist_snapshot, snapshot_coverage
+    from livequad_risk_engine import recommended_risk_budget, risk_controls_rows
+    from livequad_validation_suite import readiness_score
+except Exception:
+    adjust_series_dict = None
+    health_rows = None
+    persist_snapshot = None
+    snapshot_coverage = None
+    recommended_risk_budget = None
+    risk_controls_rows = None
+    readiness_score = None
+
 st.set_page_config(page_title="QuantFinalV6_3_Q3Anchored", layout="wide")
 
 APP_NAME = "QuantFinalV6_3_Q3Anchored"
@@ -331,7 +344,7 @@ def stretch_n(s: pd.Series, n: int = 63) -> float:
 # --------------------
 # DATA
 # --------------------
-SER = {
+SER_RAW = {
     "INDPRO": fred_series("INDPRO"),
     "RSAFS": fred_series("RSAFS"),
     "PAYEMS": fred_series("PAYEMS"),
@@ -348,6 +361,9 @@ SER = {
     "M2": fred_series("M2SL"),
     "USD": fred_series("DTWEXBGS"),
 }
+ASOF_TS = pd.Timestamp(date.today())
+SER = adjust_series_dict(SER_RAW, ASOF_TS) if adjust_series_dict is not None else SER_RAW
+SNAPSHOT_DIR = ".livequad_snapshots"
 
 # --------------------
 # CORE ENGINE (single source of truth)
@@ -777,6 +793,28 @@ def compute_core() -> Dict[str, object]:
 
 
 core = compute_core()
+
+DATA_HEALTH_ROWS = health_rows(SER_RAW, SER, ASOF_TS) if health_rows is not None else []
+SNAPSHOT_PATH = persist_snapshot(
+    SER_RAW,
+    SER,
+    SNAPSHOT_DIR,
+    {
+        "asof": str(ASOF_TS.date()),
+        "app_name": APP_NAME,
+        "core_name": CORE_NAME,
+        "current_q": core.get("current_q"),
+        "next_q": core.get("next_q"),
+        "official_date": core.get("official_date"),
+    },
+) if persist_snapshot is not None else None
+SNAPSHOT_COUNT, SNAPSHOT_LAST = snapshot_coverage(SNAPSHOT_DIR) if snapshot_coverage is not None else (0, "n/a")
+VALIDATION_READY = readiness_score(
+    snapshot_count=SNAPSHOT_COUNT,
+    has_release_lag=adjust_series_dict is not None,
+    has_data_health=bool(DATA_HEALTH_ROWS),
+    has_risk_budget=recommended_risk_budget is not None,
+) if readiness_score is not None else None
 
 
 # --------------------
@@ -2315,7 +2353,7 @@ q2_crash_rows = build_q2_crash_watch_rows()
 # EVENTS
 # --------------------
 today = date.today()
-event_rows = [["Macro release timing", "dynamic", "Use actual calendar; avoid fake offsets"], ["Released-only cutoff", core["official_date"], "common macro date used in official state"]]
+event_rows = [["Macro release timing", "dynamic", "Use actual calendar; avoid fake offsets"], ["Released-only cutoff", core["official_date"], "common macro date used in official state"], ["Snapshot archive", f"{SNAPSHOT_COUNT} days", f"last snapshot {SNAPSHOT_LAST}"]]
 
 # --------------------
 
@@ -2328,6 +2366,8 @@ st.write("")
 cur_stage, _ = infer_cycle_stage(core['current_q'])
 variant_now = _transition_variant(core)
 crash_now = current_crash_probability()
+RISK_BUDGET_ROWS = recommended_risk_budget(core, crash_now) if recommended_risk_budget is not None else []
+RISK_CONTROL_ROWS = risk_controls_rows(core, crash_now) if risk_controls_rows is not None else []
 top_state_now = ladder_state(core['top_score'], 'top')
 bottom_state_now = ladder_state(core['bottom_score'], 'bottom')
 
@@ -2422,17 +2462,40 @@ with t_risk:
     st.write("")
     st.markdown(table_html(["Risk item", "Now", "How to use"], build_crash_timing_rows(crash_now)), unsafe_allow_html=True)
     st.write("")
+    if RISK_BUDGET_ROWS:
+        st.markdown("**Portfolio posture / risk budget**")
+        st.markdown(table_html(["Bucket", "Guide weight", "Use"], RISK_BUDGET_ROWS), unsafe_allow_html=True)
+        st.write("")
+        st.markdown(table_html(["Control", "Guide", "Why it matters"], RISK_CONTROL_ROWS), unsafe_allow_html=True)
+        st.write("")
     st.markdown(table_html(["Scenario", "State now", "How to use now", "What must improve", "What invalidates"], build_current_scenario_checks()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_details:
-    st.markdown("<div class='card'><div class='section-title'>DETAILS</div>", unsafe_allow_html=True)
+    st.markdown("<div class='card'><div class='section-title'>DETAILS / DATA / VALIDATION</div>", unsafe_allow_html=True)
     st.markdown(table_html(["", "Quad", "Base read", "Usually works", "Main crash branch", "Base crash risk"], build_quad_scenario_matrix()), unsafe_allow_html=True)
     st.write("")
     st.markdown(table_html(["Event", "When", "In", "Why it matters", "Likely impact"], build_macro_catalyst_rows()), unsafe_allow_html=True)
-    if leaders_status_text() != 'Hidden for now (coverage valid still zero)':
-        st.write("")
-        st.markdown(f"**Leaders status ➜ {leaders_status_text()}**")
     st.write("")
-    st.markdown(f"<div class='small-muted'><b>Core model:</b> {CORE_NAME} • <b>Policy:</b> {core.get('anchor_reason','Model-only')} • <b>Raw model:</b> {core.get('model_current_q', core['current_q'])}</div>", unsafe_allow_html=True)
+    if DATA_HEALTH_ROWS:
+        st.markdown("**Data health / release-lag view**")
+        st.markdown(table_html(["Series", "Status", "Raw last obs", "Usable last obs", "Age days", "Release rule", "Rows dropped"], DATA_HEALTH_ROWS), unsafe_allow_html=True)
+        st.write("")
+    if VALIDATION_READY is not None:
+        validation_rows = [
+            ["Validation readiness", f"{VALIDATION_READY.score*100:.1f}% ({VALIDATION_READY.label})", "Higher is better; still needs real WFO results"],
+            ["Snapshot coverage", f"{SNAPSHOT_COUNT} days", f"Last archive {SNAPSHOT_LAST}"],
+            ["Release-lag mode", "On" if adjust_series_dict is not None else "Off", "Approximate point-in-time availability"],
+            ["Data health panel", "On" if DATA_HEALTH_ROWS else "Off", "Fresh/stale/missing tracking"],
+            ["Risk budget engine", "On" if RISK_BUDGET_ROWS else "Off", "Sizing / exposure guidance scaffold"],
+        ]
+        st.markdown(table_html(["Validation item", "Status", "Read"], validation_rows), unsafe_allow_html=True)
+        if VALIDATION_READY.notes:
+            st.write("")
+            st.markdown(table_html(["Open item"], [[x] for x in VALIDATION_READY.notes]), unsafe_allow_html=True)
+        st.write("")
+    if leaders_status_text() != 'Hidden for now (coverage valid still zero)':
+        st.markdown(f"**Leaders status ➜ {leaders_status_text()}**")
+        st.write("")
+    st.markdown(f"<div class='small-muted'><b>Core model:</b> {CORE_NAME} • <b>Policy:</b> {core.get('anchor_reason','Model-only')} • <b>Raw model:</b> {core.get('model_current_q', core['current_q'])} • <b>Snapshot path:</b> {SNAPSHOT_PATH or 'n/a'}</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
