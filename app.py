@@ -1,42 +1,26 @@
 
 import math
 from datetime import date, datetime, timedelta, timezone
-from typing import Dict, List, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
 
+from livequad_data_layer import adjust_series_dict, health_rows, persist_snapshot, snapshot_coverage
+from livequad_risk_engine import recommended_risk_budget, risk_controls_rows
+from livequad_validation_suite import readiness_score
+
 try:
     import yfinance as yf
 except Exception:
     yf = None
 
-try:
-    from livequad_data_layer import adjust_series_dict, health_rows as dl_health_rows, health_summary as dl_health_summary, persist_snapshot, snapshot_coverage, snapshot_index
-    DATA_LAYER_OK = True
-except Exception:
-    adjust_series_dict = dl_health_rows = dl_health_summary = persist_snapshot = snapshot_coverage = snapshot_index = None
-    DATA_LAYER_OK = False
+st.set_page_config(page_title="QuantFinalV4_Max", layout="wide")
 
-try:
-    from livequad_validation_suite import readiness_score, build_meta_frame, walkforward_rows as val_walkforward_rows, calibration_rows as val_calibration_rows, stability_rows as val_stability_rows
-    VALIDATION_OK = True
-except Exception:
-    readiness_score = build_meta_frame = val_walkforward_rows = val_calibration_rows = val_stability_rows = None
-    VALIDATION_OK = False
-
-try:
-    from livequad_risk_engine import recommended_risk_budget, tactical_sizing_rows, risk_controls_rows, scenario_override_rows
-    RISK_ENGINE_OK = True
-except Exception:
-    recommended_risk_budget = tactical_sizing_rows = risk_controls_rows = scenario_override_rows = None
-    RISK_ENGINE_OK = False
-
-st.set_page_config(page_title="QuantFinalV6_3_Q3Anchored", layout="wide")
-
-APP_NAME = "QuantFinalV6_3_Q3Anchored"
+APP_NAME = "QuantFinalV4_Max"
 CORE_NAME = "Hedgeye_LiveQuad_Core_v2_5"
 
 Q3_CONSENSUS_ANCHOR = True
@@ -352,9 +336,6 @@ def stretch_n(s: pd.Series, n: int = 63) -> float:
 # --------------------
 # DATA
 # --------------------
-ASOF_TS = pd.Timestamp.utcnow().normalize()
-SNAPSHOT_ROOT = ".livequad_snapshots"
-
 RAW_SER = {
     "INDPRO": fred_series("INDPRO"),
     "RSAFS": fred_series("RSAFS"),
@@ -372,8 +353,11 @@ RAW_SER = {
     "M2": fred_series("M2SL"),
     "USD": fred_series("DTWEXBGS"),
 }
-
-SER = adjust_series_dict(RAW_SER, asof=ASOF_TS) if DATA_LAYER_OK else RAW_SER
+ASOF_TS = pd.Timestamp(date.today())
+SER = adjust_series_dict(RAW_SER, asof=ASOF_TS)
+DATA_HEALTH_ROWS = health_rows(RAW_SER, SER, asof=ASOF_TS)
+HEALTH_COUNTS = {k: sum(1 for r in DATA_HEALTH_ROWS if r[1] == k) for k in ["Fresh", "Aging", "Stale", "Missing"]}
+SNAPSHOT_ROOT = Path('.livequad_snapshots')
 
 # --------------------
 # CORE ENGINE (single source of truth)
@@ -803,6 +787,19 @@ def compute_core() -> Dict[str, object]:
 
 
 core = compute_core()
+SNAP_META = {
+    "asof": str(ASOF_TS.date()),
+    "current_q": core.get("current_q"),
+    "next_q": core.get("next_q"),
+    "confidence": float(core.get("confidence", 0.0)),
+    "agreement": float(core.get("agreement", 0.0)),
+    "fragility": float(core.get("fragility", 0.0)),
+    "phase_strength": float(core.get("phase_strength", 0.0)),
+    "anchor_reason": core.get("anchor_reason", "Model-only"),
+}
+_ = persist_snapshot(RAW_SER, SER, SNAPSHOT_ROOT, meta=SNAP_META)
+SNAPSHOT_COUNT, SNAPSHOT_LAST = snapshot_coverage(SNAPSHOT_ROOT)
+VALIDATION_READY = readiness_score(SNAPSHOT_COUNT, True, True, True)
 
 
 # --------------------
@@ -2154,119 +2151,6 @@ def build_current_scenario_checks() -> List[List[str]]:
     return out
 
 
-
-
-def build_energy_complex_rows() -> List[List[str]]:
-    cq = core['current_q']
-    nxt = core['next_q']
-    rows: List[List[str]] = []
-    def add(bucket: str, sits: str, state: str, use_now: str, next_win: str) -> None:
-        rows.append([bucket, sits, state, use_now, next_win])
-
-    if cq == 'Q3':
-        add('Oil / gas', 'majors, upstream, LNG, OFS', 'Usable but selective',
-            'Treat as direct inflation / supply-shock hedge first, not broad clean beta.',
-            f'If {nxt} gets cleaner, shift from hedge logic to cyclical reflation logic.')
-        add('Coal', 'thermal coal, coal miners, coal logistics', 'Usable selectively',
-            'Works as dirty-energy / inflation hedge, especially in bad reflation.',
-            f'If {nxt} confirms, coal becomes more cyclical and less pure hedge.')
-        add('Metals', 'copper, steel, aluminum, diversified miners', 'Not confirmed yet',
-            'Need breadth and industrial confirmation; do not treat as clean winner yet.',
-            f'If {nxt} wins cleanly, metals should improve earlier and broader.')
-        add('Shipping', 'tankers, LNG shipping, dry bulk, energy transport', 'Selective',
-            'Use where energy flow disruption / rates help; do not assume all shipping wins equally.',
-            f'If {nxt} wins, leadership can broaden from energy-linked routes to trade-sensitive names.')
-        add('Positive spillovers', 'oil services, rail/logistics, industrial suppliers, commodity FX', 'Conditional',
-            'Use only where energy shock is translating into pricing power or throughput.',
-            f'If {nxt} wins, these become more volume / cyclical expressions.')
-        add('Pressured losers', 'airlines, fuel-heavy transport, cost-sensitive chemicals, discretionary', 'Still pressured',
-            'Avoid broad longs if fuel shock is still the main driver.',
-            'Pressure should ease only if oil cools and breadth broadens.')
-    elif cq == 'Q2':
-        add('Oil / gas', 'majors, upstream, LNG, OFS', 'Usable',
-            'Treat as reflation / cyclical beneficiary if yields rise orderly.',
-            f'If next regime weakens back to {nxt}, focus shifts to quality and hedges.')
-        add('Coal', 'thermal coal, coal miners, coal logistics', 'Conditional',
-            'Better if nominal growth is real, not just shock inflation.',
-            'If Q2 is dirty, coal may hold but broad beta still struggles.')
-        add('Metals', 'copper, steel, aluminum, diversified miners', 'More usable',
-            'Good if industrial breadth and global growth proxies improve.',
-            f'If {nxt} wins, metals tend to lose the clean reflation bid.')
-        add('Shipping', 'tankers, LNG shipping, dry bulk, energy transport', 'Mixed',
-            'Different routes react differently; use where trade / volume is confirming.',
-            'If Q2 is healthy, trade-sensitive shipping broadens.')
-        add('Positive spillovers', 'industrial suppliers, logistics, commodity FX, local cyclicals', 'Usable',
-            'Use as second-order reflation expressions once breadth confirms.',
-            'If Q2 gets dirtier, keep size smaller.')
-        add('Pressured losers', 'defensives that lag reflation, long duration', 'Relative laggards',
-            'Do not force mean reversion if cyclicals and yields are still leading.',
-            f'If {nxt} rolls over, these can recover.')
-    else:
-        add('Oil / gas', 'majors, upstream, LNG, OFS', 'Mixed',
-            'Use tactically; let regime strength decide.',
-            f"If {nxt} wins, rotate toward that regime's cleaner winners.")
-        add('Coal', 'thermal coal, coal miners, coal logistics', 'Mixed',
-            'Keep as theme-specific, not broad macro default.',
-            f"If {nxt} wins, coal behaves more like that regime's expression.")
-        add('Metals', 'copper, steel, aluminum, diversified miners', 'Mixed',
-            'Wait for industrial breadth confirmation.',
-            f'If {nxt} wins, metals follow the cleaner growth/inflation mix.')
-        add('Shipping', 'tankers, LNG shipping, dry bulk, energy transport', 'Mixed',
-            'Use only where route / rate story is clear.',
-            f'If {nxt} wins, shipping expression changes with trade and energy flow.')
-        add('Positive spillovers', 'logistics, industrial suppliers, commodity FX', 'Conditional',
-            'Use only with confirmation.',
-            'Broaden only after confirmation.')
-        add('Pressured losers', 'fuel-heavy users, cost-sensitive users', 'Conditional pressure',
-            'Respect cost pressure until proven otherwise.',
-            'Pressure eases only when energy impulse cools.')
-    return rows
-
-
-def energy_complex_intro() -> str:
-    cq = core['current_q']
-    nxt = core['next_q']
-    variant = core.get('sub_phase', 'variant')
-    if cq == 'Q3':
-        return f"Sekarang energy complex lebih cocok dibaca sebagai hedge / shock complex, bukan broad clean beta. Dengan state {cq} {variant}, oil-gas dan coal masih lebih direct; metals dan trade-shipping butuh konfirmasi lebih dulu. Kalau next {nxt} menang dengan breadth yang lebih bersih, leadership bisa geser dari hedge names ke cyclical commodity complex."
-    if cq == 'Q2':
-        return f"Sekarang energy complex lebih dekat ke cyclical reflation complex. Oil-gas, metals, dan spillover names lebih usable kalau breadth melebar dan yields naik tertib. Kalau {nxt} nanti menang, balik lagi fokus ke quality / hedge logic."
-    return f"Sekarang energy complex masih campuran. Gunakan direct commodity names lebih dulu, dan tunggu breadth / trade confirmation sebelum menganggap seluruh complex ikut menang. Kalau {nxt} menang, ekspresi energy / commodity complex ikut berubah ke regime berikutnya."
-
-
-def build_ihsg_resource_rows() -> List[List[str]]:
-    cq = core['current_q']
-    nxt = core['next_q']
-    rows: List[List[str]] = []
-    def add(bucket: str, sits: str, state: str, use_now: str, next_win: str) -> None:
-        rows.append([bucket, sits, state, use_now, next_win])
-    if cq == 'Q3':
-        add('IHSG oil-gas', 'MEDC, PGAS, RAJA, ESSA-type energy names', 'Selective', 'Use as inflation / energy-linked hedge, not blind local beta.', f'If {nxt} wins cleanly, can broaden into cyclical reflation names.')
-        add('IHSG coal', 'ADRO, PTBA, ITMG, BUMI-type coal beta', 'Usable selectively', 'Treat as commodity hedge / nominal revenue support first.', f'If {nxt} confirms, coal becomes more cyclical and less pure hedge.')
-        add('IHSG metals', 'ANTM, INCO, MDKA, nickel/copper/minerals beta', 'Not confirmed', 'Need cleaner global growth / industrial breadth.', f'If {nxt} wins, metals should improve earlier.')
-        add('IHSG shipping', 'HUMI, GTSI, WINS, route/rate-sensitive shipping', 'Selective', 'Use only where route/rate story is clear; do not assume all shipping wins.', f'If {nxt} wins, trade-sensitive shipping can broaden.')
-    elif cq == 'Q2':
-        add('IHSG oil-gas', 'MEDC, PGAS, RAJA, ESSA-type energy names', 'Usable', 'Use as commodity / cyclical beta if USD pressure is not brutal.', f'If {nxt} weakens back, move back to hedge logic.')
-        add('IHSG coal', 'ADRO, PTBA, ITMG, BUMI-type coal beta', 'Conditional', 'Best when nominal growth is real, not just oil shock.', 'If dirty Q2, keep size smaller.')
-        add('IHSG metals', 'ANTM, INCO, MDKA, nickel/copper/minerals beta', 'More usable', 'Needs global industrial confirmation and better EM breadth.', f'If {nxt} wins, metals can lose the clean reflation bid.')
-        add('IHSG shipping', 'HUMI, GTSI, WINS, route/rate-sensitive shipping', 'Mixed', 'Different sub-segments react differently; prefer confirmed route stories.', 'Healthy Q2 helps broader trade-linked names.')
-    else:
-        add('IHSG oil-gas', 'MEDC, PGAS, RAJA, ESSA-type energy names', 'Mixed', 'Tactical only until regime strengthens.', f'If {nxt} wins, rotate to that cleaner expression.')
-        add('IHSG coal', 'ADRO, PTBA, ITMG, BUMI-type coal beta', 'Mixed', 'Keep theme-specific, not default broad play.', f'If {nxt} wins, coal behaves more like that regime.')
-        add('IHSG metals', 'ANTM, INCO, MDKA, nickel/copper/minerals beta', 'Mixed', 'Wait for industrial breadth confirmation.', f'If {nxt} wins, metals follow the cleaner mix.')
-        add('IHSG shipping', 'HUMI, GTSI, WINS, route/rate-sensitive shipping', 'Mixed', 'Use only with clear rate/route confirmation.', f'If {nxt} wins, shipping expression changes with trade flow.')
-    return rows
-
-
-def build_commodity_resource_rows() -> List[List[str]]:
-    rows: List[List[str]] = []
-    for bucket, sits, state, use_now, next_win in build_energy_complex_rows():
-        rows.append(['Global', bucket, sits, state, use_now, next_win])
-    for bucket, sits, state, use_now, next_win in build_ihsg_resource_rows():
-        rows.append(['IHSG', bucket, sits, state, use_now, next_win])
-    return rows
-
-
 def hero_simple_help() -> Dict[str, str]:
     return {
         "top": "Top risk tinggi = jangan kejar atas. Lebih cocok tunggu pullback / konfirmasi ulang.",
@@ -2470,65 +2354,6 @@ crash_now = current_crash_probability()
 top_state_now = ladder_state(core['top_score'], 'top')
 bottom_state_now = ladder_state(core['bottom_score'], 'bottom')
 
-# data / validation / risk telemetry
-health_detail_rows = []
-health_summary_rows = [["Health score", "n/a"], ["Fresh", "-"], ["Aging", "-"], ["Stale", "-"], ["Missing", "-"]]
-health_score = float('nan')
-snapshot_count, snapshot_last = (0, 'n/a')
-readiness_label = 'Low'
-readiness_score_value = 0.0
-readiness_notes = ['Validation plumbing belum lengkap.']
-wfo_rows = [["No WFO history yet", "-", "-", "-"]]
-calibration_rows = [["No calibration rows", "-", "-"]]
-stability_report_rows = [["No stability history", "-", "-"]]
-snapshot_index_rows = [["No snapshots", "-", "-", "-", "-", "-", "-"]]
-
-if DATA_LAYER_OK:
-    try:
-        health_detail_rows = dl_health_rows(RAW_SER, SER, ASOF_TS)
-        health_score, health_summary_rows = dl_health_summary(health_detail_rows)
-    except Exception:
-        pass
-
-if DATA_LAYER_OK:
-    try:
-        meta_payload = {
-            'asof': str(ASOF_TS.date()),
-            'current_q': core['current_q'],
-            'next_q': core['next_q'],
-            'confidence': float(core['confidence']),
-            'crash_now': float(crash_now),
-            'health_score': (None if pd.isna(health_score) else float(health_score)),
-            'breadth': float(core['breadth']),
-            'fragility': float(core['fragility']),
-            'anchor_reason': core.get('anchor_reason', 'Model-only'),
-        }
-        persist_snapshot(RAW_SER, SER, SNAPSHOT_ROOT, meta=meta_payload)
-        snapshot_count, snapshot_last = snapshot_coverage(SNAPSHOT_ROOT)
-        idx_df = snapshot_index(SNAPSHOT_ROOT)
-        if not idx_df.empty:
-            snapshot_index_rows = idx_df.tail(8).fillna('').astype(str).values.tolist()
-    except Exception:
-        pass
-
-if VALIDATION_OK:
-    try:
-        readiness = readiness_score(snapshot_count, DATA_LAYER_OK, bool(health_detail_rows), RISK_ENGINE_OK)
-        readiness_label = readiness.label
-        readiness_score_value = readiness.score
-        readiness_notes = readiness.notes or []
-        meta_df = build_meta_frame(SNAPSHOT_ROOT)
-        wfo_rows = val_walkforward_rows(meta_df)
-        calibration_rows = val_calibration_rows(meta_df)
-        stability_report_rows = val_stability_rows(meta_df)
-    except Exception:
-        pass
-
-risk_budget_rows = recommended_risk_budget(core, crash_now) if RISK_ENGINE_OK else []
-sizing_guide_rows = tactical_sizing_rows(core, crash_now) if RISK_ENGINE_OK else []
-risk_control_rows = risk_controls_rows(core, crash_now) if RISK_ENGINE_OK else []
-risk_override_rows = scenario_override_rows(core, crash_now) if RISK_ENGINE_OK else []
-
 if core['current_q'] == 'Q3':
     action_bias = 'Selective'
     action_sub = 'Defensive / preserve capital; tunggu breadth confirm sebelum broad beta.'
@@ -2589,7 +2414,7 @@ with t_decision:
 
 with t_cross:
     st.markdown("<div class='card'><div class='section-title'>CROSS-ASSET DIRECTIONAL BIAS</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Panel operasional utama: stage sekarang, strongest vs weakest cross-asset, ekspresi FX paling simpel, dan commodity / energy complex yang explicit.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Panel operasional utama: stage sekarang, strongest vs weakest cross-asset, dan ekspresi FX yang paling simpel.</div>", unsafe_allow_html=True)
     st.markdown(f"**Current cycle stage ➜ {cur_stage} {core['current_q']}**")
     st.markdown(f"<div class='small-muted'>{STAGE_GUIDE[core['current_q']][cur_stage][2]}</div>", unsafe_allow_html=True)
     st.markdown(table_html(["", "Stage", "Usually strong", "Usually weak", "What confirms"], build_cross_asset_stage_table()), unsafe_allow_html=True)
@@ -2601,13 +2426,14 @@ with t_cross:
     st.markdown(f"**Weakest now ➜ {weak_now}**")
     st.markdown(table_html(["Area", "Bias now", "Use now", "If next wins"], focus_rows), unsafe_allow_html=True)
     st.write("")
+    st.markdown(f"<div class='note-box'>{commodity_resource_intro(core)}</div>", unsafe_allow_html=True)
+    st.write("")
+    st.markdown(table_html(["Scope", "Bucket", "What sits here", "State now", "How to use now", "If next wins"], build_commodity_resource_map_rows(core)), unsafe_allow_html=True)
+    st.write("")
     st.markdown(f"**FX rank strong → weak ➜ {build_fx_rank_text(fx_score_rows)}**")
     st.markdown(table_html(["FX", "Bias", "Best use"], build_fx_display_rows(fx_score_rows)), unsafe_allow_html=True)
     st.write("")
     st.markdown(table_html(["Best simple FX expression", "Edge", "Read"], build_fx_expressions_table(fx_score_rows)), unsafe_allow_html=True)
-    st.write("")
-    st.markdown(f"<div class='note-box'>{energy_complex_intro()}</div>", unsafe_allow_html=True)
-    st.markdown(table_html(["Scope", "Bucket", "What sits here", "State now", "How to use now", "If next wins"], build_commodity_resource_rows()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_risk:
@@ -2624,66 +2450,31 @@ with t_risk:
     st.markdown(table_html(["Risk item", "Now", "How to use"], build_crash_timing_rows(crash_now)), unsafe_allow_html=True)
     st.write("")
     st.markdown(table_html(["Scenario", "State now", "How to use now", "What must improve", "What invalidates"], build_current_scenario_checks()), unsafe_allow_html=True)
-    if RISK_ENGINE_OK:
+    with st.expander("Portfolio posture / risk infrastructure", expanded=False):
+        st.markdown(table_html(["Bucket", "Suggested cap", "Use"], risk_posture_rows()), unsafe_allow_html=True)
         st.write("")
-        with st.expander("Portfolio posture / risk infrastructure", expanded=False):
-            posture_rows = [["Crash meter", f"{pct(crash_now)} ({crash_meter_label(crash_now)})", "Use as hazard window, not exact timing"],
-                            ["Current posture", action_bias, action_sub],
-                            ["Read now", risk_relative_summary(), "Keep the posture aligned with regime + breadth"]]
-            st.markdown(table_html(["Focus", "Read", "How to use"], posture_rows), unsafe_allow_html=True)
-            st.write("")
-            st.markdown(table_html(["Bucket", "Target risk budget", "Use"], risk_budget_rows or [["No budget", "-", "-"]]), unsafe_allow_html=True)
-            st.write("")
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown(table_html(["Sizing", "Guide", "Read"], sizing_guide_rows or [["No sizing", "-", "-"]]), unsafe_allow_html=True)
-            with c2:
-                st.markdown(table_html(["Control", "Limit / trigger", "How to use"], risk_control_rows or [["No controls", "-", "-"]]), unsafe_allow_html=True)
-            st.write("")
-            st.markdown(table_html(["Scenario override", "Action", "Read"], risk_override_rows or [["No overrides", "-", "-"]]), unsafe_allow_html=True)
+        st.markdown(table_html(["Control", "Level", "Read"], risk_control_rows()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_details:
     st.markdown("<div class='card'><div class='section-title'>DETAILS</div>", unsafe_allow_html=True)
-    engine_rows = [
-        ["Data health", (f"{pct(health_score)}" if not pd.isna(health_score) else "n/a"), "Fresh vs stale series after release-lag adjustment"],
-        ["Snapshot coverage", f"{snapshot_count} snapshots / last {snapshot_last}", "Archive depth for replay / WFO"],
-        ["Validation readiness", f"{readiness_label} ({pct(readiness_score_value)})", "How trustworthy the current plumbing is for WFO / calibration"],
-        ["Crash plumbing", crash_meter_label(crash_now), "Crash meter visible now; calibration improves as snapshot history grows"],
-        ["Risk infra", ("Active" if RISK_ENGINE_OK else "Light"), "Risk budget, sizing guide, controls, scenario overrides"],
-    ]
-    st.markdown(table_html(["Layer", "Status now", "Why it matters"], engine_rows), unsafe_allow_html=True)
+    st.markdown(table_html(["", "Quad", "Base read", "Usually works", "Main crash branch", "Base crash risk"], build_quad_scenario_matrix()), unsafe_allow_html=True)
     st.write("")
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown(table_html(["Item", "Count / score"], health_summary_rows), unsafe_allow_html=True)
-    with c2:
-        notes_joined = ' · '.join(readiness_notes[:3]) if readiness_notes else 'Plumbing is active.'
-        validation_snapshot_rows = [
-            ["Readiness", f"{readiness_label} ({pct(readiness_score_value)})"],
-            ["Notes", notes_joined],
-            ["Snapshot rows", str(snapshot_count)],
-            ["Policy", core.get('anchor_reason','Model-only')],
-        ]
-        st.markdown(table_html(["Validation", "Read"], validation_snapshot_rows), unsafe_allow_html=True)
+    st.markdown(table_html(["Event", "When", "In", "Why it matters", "Likely impact"], build_macro_catalyst_rows()), unsafe_allow_html=True)
     st.write("")
-    with st.expander("Scenario map + catalyst calendar", expanded=False):
-        st.markdown(table_html(["", "Quad", "Base read", "Usually works", "Main crash branch", "Base crash risk"], build_quad_scenario_matrix()), unsafe_allow_html=True)
+    with st.expander("Data health / release-lag / snapshot coverage", expanded=False):
+        st.markdown(table_html(["Item", "Value"], data_health_summary_rows()), unsafe_allow_html=True)
         st.write("")
-        st.markdown(table_html(["Event", "When", "In", "Why it matters", "Likely impact"], build_macro_catalyst_rows()), unsafe_allow_html=True)
-        if leaders_status_text() != 'Hidden for now (coverage valid still zero)':
+        st.markdown(table_html(["Series", "Status", "Raw last obs", "Usable last obs", "Age days", "Release rule", "Rows dropped"], DATA_HEALTH_ROWS), unsafe_allow_html=True)
+    with st.expander("Validation readiness / WFO plumbing", expanded=False):
+        st.markdown(table_html(["Check", "Value", "Read"], validation_rows()), unsafe_allow_html=True)
+        if VALIDATION_READY.notes:
             st.write("")
-            st.markdown(f"**Leaders status ➜ {leaders_status_text()}**")
-    with st.expander("Data health + release-lag", expanded=False):
-        st.markdown(table_html(["Series", "Status", "Raw last obs", "Usable last obs", "Age days", "Lag rule", "Rows dropped"], health_detail_rows or [["No data health rows","-","-","-","-","-","-"]]), unsafe_allow_html=True)
+            for note in VALIDATION_READY.notes:
+                st.markdown(f"- {note}")
+    if leaders_status_text() != 'Hidden for now (coverage valid still zero)':
         st.write("")
-        st.markdown(table_html(["asof", "path", "current_q", "next_q", "confidence", "crash_now", "health_score"], snapshot_index_rows), unsafe_allow_html=True)
-    with st.expander("Validation: WFO / calibration / stability", expanded=False):
-        st.markdown(table_html(["Current Q", "Snapshots", "Next-hit rate", "Avg confidence"], wfo_rows), unsafe_allow_html=True)
-        st.write("")
-        st.markdown(table_html(["Confidence bucket", "Avg predicted", "Avg realised"], calibration_rows), unsafe_allow_html=True)
-        st.write("")
-        st.markdown(table_html(["Metric", "Read", "Why it matters"], stability_report_rows), unsafe_allow_html=True)
+        st.markdown(f"**Leaders status ➜ {leaders_status_text()}**")
     st.write("")
     st.markdown(f"<div class='small-muted'><b>Core model:</b> {CORE_NAME} • <b>Policy:</b> {core.get('anchor_reason','Model-only')} • <b>Raw model:</b> {core.get('model_current_q', core['current_q'])}</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
