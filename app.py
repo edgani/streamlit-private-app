@@ -2212,23 +2212,32 @@ def build_ihsg_resource_rows() -> List[List[str]]:
     cq = core['current_q']
     nxt = core['next_q']
     rows: List[List[str]] = []
-    def add(bucket: str, state: str, use_now: str, next_win: str) -> None:
-        rows.append([bucket, state, use_now, next_win])
+    def add(bucket: str, sits: str, state: str, use_now: str, next_win: str) -> None:
+        rows.append([bucket, sits, state, use_now, next_win])
     if cq == 'Q3':
-        add('IHSG oil-gas', 'Selective', 'Use as inflation / energy-linked hedge, not blind local beta.', f'If {nxt} wins cleanly, can broaden into cyclical reflation names.')
-        add('IHSG coal', 'Usable selectively', 'Treat as commodity hedge / nominal revenue support first.', f'If {nxt} confirms, coal becomes more cyclical and less pure hedge.')
-        add('IHSG metals', 'Not confirmed', 'Need cleaner global growth / industrial breadth.', f'If {nxt} wins, metals should improve earlier.')
-        add('IHSG shipping', 'Selective', 'Use only where route/rate story is clear; do not assume all shipping wins.', f'If {nxt} wins, trade-sensitive shipping can broaden.')
+        add('IHSG oil-gas', 'MEDC, PGAS, RAJA, ESSA-type energy names', 'Selective', 'Use as inflation / energy-linked hedge, not blind local beta.', f'If {nxt} wins cleanly, can broaden into cyclical reflation names.')
+        add('IHSG coal', 'ADRO, PTBA, ITMG, BUMI-type coal beta', 'Usable selectively', 'Treat as commodity hedge / nominal revenue support first.', f'If {nxt} confirms, coal becomes more cyclical and less pure hedge.')
+        add('IHSG metals', 'ANTM, INCO, MDKA, nickel/copper/minerals beta', 'Not confirmed', 'Need cleaner global growth / industrial breadth.', f'If {nxt} wins, metals should improve earlier.')
+        add('IHSG shipping', 'HUMI, GTSI, WINS, route/rate-sensitive shipping', 'Selective', 'Use only where route/rate story is clear; do not assume all shipping wins.', f'If {nxt} wins, trade-sensitive shipping can broaden.')
     elif cq == 'Q2':
-        add('IHSG oil-gas', 'Usable', 'Use as commodity / cyclical beta if USD pressure is not brutal.', f'If {nxt} weakens back, move back to hedge logic.')
-        add('IHSG coal', 'Conditional', 'Best when nominal growth is real, not just oil shock.', 'If dirty Q2, keep size smaller.')
-        add('IHSG metals', 'More usable', 'Needs global industrial confirmation and better EM breadth.', f'If {nxt} wins, metals can lose the clean reflation bid.')
-        add('IHSG shipping', 'Mixed', 'Different sub-segments react differently; prefer confirmed route stories.', 'Healthy Q2 helps broader trade-linked names.')
+        add('IHSG oil-gas', 'MEDC, PGAS, RAJA, ESSA-type energy names', 'Usable', 'Use as commodity / cyclical beta if USD pressure is not brutal.', f'If {nxt} weakens back, move back to hedge logic.')
+        add('IHSG coal', 'ADRO, PTBA, ITMG, BUMI-type coal beta', 'Conditional', 'Best when nominal growth is real, not just oil shock.', 'If dirty Q2, keep size smaller.')
+        add('IHSG metals', 'ANTM, INCO, MDKA, nickel/copper/minerals beta', 'More usable', 'Needs global industrial confirmation and better EM breadth.', f'If {nxt} wins, metals can lose the clean reflation bid.')
+        add('IHSG shipping', 'HUMI, GTSI, WINS, route/rate-sensitive shipping', 'Mixed', 'Different sub-segments react differently; prefer confirmed route stories.', 'Healthy Q2 helps broader trade-linked names.')
     else:
-        add('IHSG oil-gas', 'Mixed', 'Tactical only until regime strengthens.', f'If {nxt} wins, rotate to that cleaner expression.')
-        add('IHSG coal', 'Mixed', 'Keep theme-specific, not default broad play.', f'If {nxt} wins, coal behaves more like that regime.')
-        add('IHSG metals', 'Mixed', 'Wait for industrial breadth confirmation.', f'If {nxt} wins, metals follow the cleaner mix.')
-        add('IHSG shipping', 'Mixed', 'Use only with clear rate/route confirmation.', f'If {nxt} wins, shipping expression changes with trade flow.')
+        add('IHSG oil-gas', 'MEDC, PGAS, RAJA, ESSA-type energy names', 'Mixed', 'Tactical only until regime strengthens.', f'If {nxt} wins, rotate to that cleaner expression.')
+        add('IHSG coal', 'ADRO, PTBA, ITMG, BUMI-type coal beta', 'Mixed', 'Keep theme-specific, not default broad play.', f'If {nxt} wins, coal behaves more like that regime.')
+        add('IHSG metals', 'ANTM, INCO, MDKA, nickel/copper/minerals beta', 'Mixed', 'Wait for industrial breadth confirmation.', f'If {nxt} wins, metals follow the cleaner mix.')
+        add('IHSG shipping', 'HUMI, GTSI, WINS, route/rate-sensitive shipping', 'Mixed', 'Use only with clear rate/route confirmation.', f'If {nxt} wins, shipping expression changes with trade flow.')
+    return rows
+
+
+def build_commodity_resource_rows() -> List[List[str]]:
+    rows: List[List[str]] = []
+    for bucket, sits, state, use_now, next_win in build_energy_complex_rows():
+        rows.append(['Global', bucket, sits, state, use_now, next_win])
+    for bucket, sits, state, use_now, next_win in build_ihsg_resource_rows():
+        rows.append(['IHSG', bucket, sits, state, use_now, next_win])
     return rows
 
 
@@ -2513,9 +2522,7 @@ with t_cross:
     st.markdown(table_html(["Best simple FX expression", "Edge", "Read"], build_fx_expressions_table(fx_score_rows)), unsafe_allow_html=True)
     st.write("")
     st.markdown(f"<div class='note-box'>{energy_complex_intro()}</div>", unsafe_allow_html=True)
-    st.markdown(table_html(["Bucket", "What sits here", "State now", "How to use now", "If next wins"], build_energy_complex_rows()), unsafe_allow_html=True)
-    st.write("")
-    st.markdown(table_html(["IHSG resource / cyclical bucket", "State now", "How to use now", "If next wins"], build_ihsg_resource_rows()), unsafe_allow_html=True)
+    st.markdown(table_html(["Scope", "Bucket", "What sits here", "State now", "How to use now", "If next wins"], build_commodity_resource_rows()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_risk:
