@@ -2280,6 +2280,39 @@ def build_cross_asset_compact_rows() -> List[List[str]]:
     return rows[:8]
 
 
+def _merge_groups_from_playbook_text(text: str) -> str:
+    t = (text or '').lower()
+    groups: List[str] = []
+
+    def add(name: str):
+        if name not in groups:
+            groups.append(name)
+
+    if any(k in t for k in ['gold', 'miner', 'oil', 'energy', 'commodity', 'hard-asset', 'precious', 'shipping']):
+        add('Inflation hedge')
+    if any(k in t for k in ['defensive', 'duration', 'bond', 'usd', 'quality', 'staple', 'utility']):
+        add('Defensives / duration')
+    if any(k in t for k in ['cyclical', 'small cap', 'small caps', 'industrial', 'broad beta', 'beta', 'lower-quality', 'commodity fx']):
+        add('Reflation beta')
+    if any(k in t for k in ['em ', 'emfx', 'ihsg', 'europe', 'euro', 'aud', 'nzd', 'cad']):
+        add('Cross-asset beta')
+    if any(k in t for k in ['crypto', 'btc', 'alt']):
+        add('Crypto beta')
+
+    return ', '.join(groups) if groups else '-'
+
+
+def quad_matrix_rows(engine: Dict[str, object], cur_stage: str) -> List[List[str]]:
+    cur_q = str(engine.get('current_q', 'Q3'))
+    nxt_q = str(engine.get('next_q', cur_q))
+    now_strong, now_weak = STAGE_GUIDE[cur_q][cur_stage][0], STAGE_GUIDE[cur_q][cur_stage][1]
+    nxt_strong, nxt_weak = STAGE_GUIDE[nxt_q]['Early'][0], STAGE_GUIDE[nxt_q]['Early'][1]
+    return [
+        ['Current', f'{cur_stage} {cur_q}', now_strong, now_weak, _merge_groups_from_playbook_text(now_strong), _merge_groups_from_playbook_text(now_weak)],
+        ['Next if transition wins', f'Early {nxt_q}', nxt_strong, nxt_weak, _merge_groups_from_playbook_text(nxt_strong), _merge_groups_from_playbook_text(nxt_weak)],
+    ]
+
+
 def build_stage_handoff_rows() -> List[List[str]]:
     current_stage = STAGE_GUIDE[core['current_q']]
     next_stage = STAGE_GUIDE[core['next_q']]
