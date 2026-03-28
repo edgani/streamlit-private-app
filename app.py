@@ -1,26 +1,31 @@
 
 import math
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
 
-from livequad_data_layer import adjust_series_dict, health_rows, persist_snapshot, snapshot_coverage
-from livequad_risk_engine import recommended_risk_budget, risk_controls_rows
-from livequad_validation_suite import readiness_score
+from livequad_archive import (
+    DEFAULT_ROOT,
+    archive_health,
+    build_manifest_table,
+    latest_snapshot as archive_latest_snapshot,
+    save_snapshot,
+)
+from livequad_validation_v2 import run_validation, build_price_panel_from_archive
+from livequad_portfolio_engine import PortfolioConfig, build_risk_report
 
 try:
     import yfinance as yf
 except Exception:
     yf = None
 
-st.set_page_config(page_title="QuantFinalV4_Max", layout="wide")
+st.set_page_config(page_title="QuantFinalV6_3_Q3Anchored", layout="wide")
 
-APP_NAME = "QuantFinalV4_Max"
+APP_NAME = "QuantFinalV6_3_Q3Anchored"
 CORE_NAME = "Hedgeye_LiveQuad_Core_v2_5"
 
 Q3_CONSENSUS_ANCHOR = True
@@ -336,7 +341,7 @@ def stretch_n(s: pd.Series, n: int = 63) -> float:
 # --------------------
 # DATA
 # --------------------
-RAW_SER = {
+SER = {
     "INDPRO": fred_series("INDPRO"),
     "RSAFS": fred_series("RSAFS"),
     "PAYEMS": fred_series("PAYEMS"),
@@ -353,11 +358,6 @@ RAW_SER = {
     "M2": fred_series("M2SL"),
     "USD": fred_series("DTWEXBGS"),
 }
-ASOF_TS = pd.Timestamp(date.today())
-SER = adjust_series_dict(RAW_SER, asof=ASOF_TS)
-DATA_HEALTH_ROWS = health_rows(RAW_SER, SER, asof=ASOF_TS)
-HEALTH_COUNTS = {k: sum(1 for r in DATA_HEALTH_ROWS if r[1] == k) for k in ["Fresh", "Aging", "Stale", "Missing"]}
-SNAPSHOT_ROOT = Path('.livequad_snapshots')
 
 # --------------------
 # CORE ENGINE (single source of truth)
@@ -787,19 +787,6 @@ def compute_core() -> Dict[str, object]:
 
 
 core = compute_core()
-SNAP_META = {
-    "asof": str(ASOF_TS.date()),
-    "current_q": core.get("current_q"),
-    "next_q": core.get("next_q"),
-    "confidence": float(core.get("confidence", 0.0)),
-    "agreement": float(core.get("agreement", 0.0)),
-    "fragility": float(core.get("fragility", 0.0)),
-    "phase_strength": float(core.get("phase_strength", 0.0)),
-    "anchor_reason": core.get("anchor_reason", "Model-only"),
-}
-_ = persist_snapshot(RAW_SER, SER, SNAPSHOT_ROOT, meta=SNAP_META)
-SNAPSHOT_COUNT, SNAPSHOT_LAST = snapshot_coverage(SNAPSHOT_ROOT)
-VALIDATION_READY = readiness_score(SNAPSHOT_COUNT, True, True, True)
 
 
 # --------------------
@@ -2256,110 +2243,6 @@ def build_q2_crash_watch_rows() -> List[List[str]]:
     return rows
 
 
-def _commodity_state(asset_name: str, default: str = "Selective") -> str:
-    now = _asset_now_score(asset_name) if asset_name in ASSET_SCORE_BY_QUAD else 0.0
-    if now >= 0.45:
-        return "Usable"
-    if now >= 0.18:
-        return "Usable but selective"
-    if now >= -0.05:
-        return "Selective"
-    if now >= -0.25:
-        return "Conditional / not confirmed"
-    return "Still pressured"
-
-
-def commodity_resource_intro(core: Dict[str, Any]) -> str:
-    variant = _transition_variant(core)
-    q = core.get("current_q", "Q3")
-    if q == "Q3":
-        return (
-            f"Sekarang commodity / resource complex lebih cocok dibaca sebagai hedge / shock complex, bukan broad clean beta. "
-            f"Dalam {q} dengan varian {variant}, oil-gas dan coal masih lebih direct; metals dan trade-shipping butuh breadth / industrial confirmation dulu. "
-            f"Kalau next {core.get('next_q','Q2')} benar menang dengan breadth lebih bersih, leadership bisa geser dari hedge names ke cyclical commodity complex."
-        )
-    if q == "Q2":
-        return (
-            f"Sekarang commodity / resource complex mulai lebih cyclical, tapi tetap cek apakah {variant.lower()} atau healthy reflation yang dominan. "
-            f"Oil-gas dan metals biasanya membaik lebih dulu; coal / shipping ikut kalau breadth dan trade-sensitive names confirm."
-        )
-    return (
-        f"Sekarang commodity / resource complex lebih tactical. "
-        f"Pakai sebagai confirmation layer, bukan broad conviction sampai growth / breadth dan next-path lebih jelas."
-    )
-
-
-def build_commodity_resource_map_rows(core: Dict[str, Any]) -> List[List[str]]:
-    next_q = core.get("next_q", "Q2")
-    rows = [
-        ["Global", "Oil / gas", "majors, upstream, LNG, OFS", _commodity_state("Oil / energy"),
-         "Treat as direct inflation / supply-shock hedge first; not broad clean beta.",
-         f"If {next_q} wins cleanly, shift from hedge logic to cyclical reflation logic."],
-        ["Global", "Coal", "thermal coal, coal miners, coal logistics", "Usable selectively" if core.get("current_q") == "Q3" else _commodity_state("Oil / energy"),
-         "Works as dirty-energy / inflation hedge, especially in bad reflation.",
-         f"If {next_q} confirms, coal becomes more cyclical and less pure hedge."],
-        ["Global", "Metals", "copper, steel, aluminum, diversified miners", "Not confirmed yet" if core.get("current_q") == "Q3" else "Improving",
-         "Need breadth and industrial confirmation; do not treat as clean winner yet.",
-         f"If {next_q} wins cleanly, metals should improve earlier and broader."],
-        ["Global", "Shipping", "tankers, LNG shipping, dry bulk, energy transport", "Selective",
-         "Use where energy flow disruption / rates help; do not assume all shipping wins equally.",
-         f"If {next_q} wins, leadership can broaden from energy-linked routes to trade-sensitive names."],
-        ["Global", "Positive spillovers", "oil services, rail/logistics, industrial suppliers, commodity FX", "Conditional",
-         "Use only where energy shock is translating into pricing power or throughput.",
-         f"If {next_q} wins, these become more volume / cyclical expressions."],
-        ["Global", "Pressured losers", "airlines, fuel-heavy transport, cost-sensitive chemicals, discretionary", "Still pressured",
-         "Avoid broad longs if fuel shock is still the main driver.",
-         f"Pressure should ease only if oil cools and breadth broadens."],
-        ["IHSG", "IHSG oil-gas", "MEDC, AKRA-linked energy/value exposures", "Selective",
-         "Use as inflation / energy-linked hedge, not blind local beta.",
-         f"If {next_q} wins cleanly, can broaden into cyclical reflation names."],
-        ["IHSG", "IHSG coal", "ADRO, PTBA, ITMG, coal-linked logistics", "Usable selectively",
-         "Treat as commodity hedge / nominal revenue support first.",
-         f"If {next_q} confirms, coal becomes more cyclical and less pure hedge."],
-        ["IHSG", "IHSG metals", "nickel/copper/mining-linked names", "Not confirmed yet",
-         "Need cleaner global growth / industrial breadth.",
-         f"If {next_q} wins, metals should improve earlier."],
-        ["IHSG", "IHSG shipping", "tanker / dry-bulk / trade-route sensitive names", "Selective",
-         "Use only where route / rate story is clear; do not assume all shipping wins.",
-         f"If {next_q} wins, trade-sensitive shipping can broaden."],
-    ]
-    return rows
-
-
-def risk_posture_rows() -> List[List[str]]:
-    return recommended_risk_budget(core, current_crash_probability())
-
-
-def risk_control_rows() -> List[List[str]]:
-    return risk_controls_rows(core, current_crash_probability())
-
-
-def validation_rows() -> List[List[str]]:
-    return [
-        ["Validation readiness", pct(VALIDATION_READY.score), VALIDATION_READY.label],
-        ["Snapshot coverage", str(SNAPSHOT_COUNT), f"Last snapshot: {SNAPSHOT_LAST}"],
-        ["Release-lag mode", "On", "Macro inputs use usable-date approximation"],
-        ["Data health", "On", ", ".join([f"{k}:{HEALTH_COUNTS.get(k,0)}" for k in ["Fresh","Aging","Stale","Missing"]])],
-        ["Risk budget", "On", "Portfolio-minded posture / controls active"],
-    ]
-
-
-def data_health_summary_rows() -> List[List[str]]:
-    total = len(DATA_HEALTH_ROWS)
-    usable = total - HEALTH_COUNTS.get("Missing", 0)
-    return [
-        ["Series tracked", str(total)],
-        ["Fresh", str(HEALTH_COUNTS.get("Fresh", 0))],
-        ["Aging", str(HEALTH_COUNTS.get("Aging", 0))],
-        ["Stale", str(HEALTH_COUNTS.get("Stale", 0))],
-        ["Missing", str(HEALTH_COUNTS.get("Missing", 0))],
-        ["Usable now", str(usable)],
-        ["Snapshot count", str(SNAPSHOT_COUNT)],
-        ["Last snapshot", str(SNAPSHOT_LAST)],
-        ["Release-lag mode", "On"],
-    ]
-
-
 def rel_phase_context(lens: str) -> tuple[str, str, str]:
     map_now = {
         "US/EM": {"Q1":"EM-friendly if USD soft", "Q2":"EM-friendly if USD calm", "Q3":"US over EM", "Q4":"US / defensives over EM"},
@@ -2445,50 +2328,39 @@ today = date.today()
 event_rows = [["Macro release timing", "dynamic", "Use actual calendar; avoid fake offsets"], ["Released-only cutoff", core["official_date"], "common macro date used in official state"]]
 
 # --------------------
-
 # RENDER
-st.title("QuantFinalV4_Max")
-st.markdown("<div class='small-muted'>Core alpha engine: Hedgeye_LiveQuad_Core_v2_5 • Q3-anchored decision support shell • Live backbone: FRED + optional Yahoo</div>", unsafe_allow_html=True)
+# --------------------
+st.title(APP_NAME)
+st.markdown("<div class='small-muted'>Core alpha engine: Hedgeye_LiveQuad_Core_v2_5 • Visual shell: streamlined decision layout • Live backbone: FRED + optional Yahoo • Policy: Q3-anchored live regime</div>", unsafe_allow_html=True)
 st.write("")
 
-# ---- attachment-2 style summary ----
-cur_stage, _ = infer_cycle_stage(core['current_q'])
-variant_now = _transition_variant(core)
-crash_now = current_crash_probability()
-top_state_now = ladder_state(core['top_score'], 'top')
-bottom_state_now = ladder_state(core['bottom_score'], 'bottom')
-
-if core['current_q'] == 'Q3':
-    action_bias = 'Selective'
-    action_sub = 'Defensive / preserve capital; tunggu breadth confirm sebelum broad beta.'
-elif core['current_q'] == 'Q2':
-    action_bias = 'Risk-on selective'
-    action_sub = 'Prefer cyclicals / small caps if breadth confirm.'
-elif core['current_q'] == 'Q4':
-    action_bias = 'Defensive'
-    action_sub = 'Jangan buru-buru base call kalau washout belum bersih.'
-else:
-    action_bias = 'Balanced'
-    action_sub = 'Tactical only sampai confirmation membaik.'
-
-next_read = f"{core['next_q']}"
-if core['current_q'] == 'Q3' and core['next_q'] == 'Q2':
-    next_sub = 'Early Q2 if breadth + small caps + USD cooling confirm'
-elif core['next_q'] == core['current_q']:
-    next_sub = f"Stay in {core['current_q']} / pressure persists"
-else:
-    next_sub = f"Most likely path from {core['current_q']}"
-
-hero_cols = st.columns(6)
+hero_cols = st.columns(5)
 hero_items = [
-    ("Decision Regime", core['current_q'], pill_html(f"{cur_stage} {core['current_q']}") if cur_stage else pill_html(core['current_q'])),
-    ("Confidence", pct(core['confidence']), pill_html(f"Agreement {pct(core['agreement'])}")),
-    ("Variant Now", variant_now, pill_html(core['sub_phase'])),
-    ("Next Most Likely", next_read, pill_html(next_sub)),
-    ("Crash Meter", pct(crash_now), pill_html(crash_meter_label(crash_now))),
-    ("Action Bias", action_bias, pill_html(action_sub)),
+    ("Current Phase", core["current_q"], pill_html(core.get("anchor_reason", "Live")) if core.get("anchor_reason") != "Model-only" else (pill_html("Decaying", red=True) if core["fragility"] > 0.55 else pill_html("Stable"))),
+    ("Confidence", pct(core["confidence"]), pill_html(f"Agreement {pct(core['agreement'])}")),
+    ("Sub-Phase", core["sub_phase"], pill_html(f"Strength {pct(core['phase_strength'])}")),
+    ("Top Risk", pct(core["top_score"]), pill_html(f"Higher-top {pct(core['higher_top'])}")),
+    ("Bottom Risk", pct(core["bottom_score"]), pill_html(f"Lower-bottom {pct(core['lower_bottom'])}")),
 ]
 for col, (title, value, sub_html) in zip(hero_cols, hero_items):
+    with col:
+        st.markdown(f"""
+        <div class='hero-card'>
+          <div class='metric-title'>{title}</div>
+          <div class='metric-value'>{value}</div>
+          <div class='metric-sub'>{sub_html}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+mini_cols = st.columns(5)
+mini = [
+    ("CURRENT", core["current_q"], pill_html(core.get("anchor_reason", "Live")) if core.get("anchor_reason") != "Model-only" else (pill_html("Decaying", red=True) if core["fragility"] > 0.55 else pill_html("Stable"))),
+    ("NEXT", core["next_q"], pill_html(f"Hazard {pct(core['transition_pressure'])}")),
+    ("PLAYBOOK", ", ".join(play_cur["US Stocks"][:1]), pill_html(f"Conviction {pct(core['confidence'])}")),
+    ("RELATIVE", relative_rows[0]["Read"], pill_html(relative_rows[1]["Read"])),
+    ("SHOCKS", "Overlay", pill_html(f"Top {pct(core['top_score'])} / Bottom {pct(core['bottom_score'])}")),
+]
+for col, (title, value, sub_html) in zip(mini_cols, mini):
     with col:
         st.markdown(f"""
         <div class='hero-card'>
@@ -2498,27 +2370,66 @@ for col, (title, value, sub_html) in zip(hero_cols, hero_items):
         </div>
         """, unsafe_allow_html=True)
 
-quick_read = (
-    f"Quick read: Sekarang {cur_stage} {core['current_q']} / {variant_now}. "
-    f"Base case masih {core['current_q']}, tapi kalau transition lanjut jalur paling mungkin adalah {core['next_q']}. "
-    f"Action bias sekarang: {action_bias}; {action_sub}"
-)
-st.markdown(f"<div class='note-box'><b>{quick_read}</b></div>", unsafe_allow_html=True)
+help_map = hero_simple_help()
+help_cols = st.columns(4)
+help_rows = [
+    ("TOP RISK", help_map["top"]),
+    ("BOTTOM RISK", help_map["bottom"]),
+    ("RELATIVE", help_map["relative"]),
+    ("SHOCKS", help_map["shocks"]),
+]
+for col, (ttl, msg) in zip(help_cols, help_rows):
+    with col:
+        st.markdown(f"<div class='small-muted'><b>{ttl}</b>: {msg}</div>", unsafe_allow_html=True)
 
-# tabs like attachment-2
-t_decision, t_cross, t_risk, t_details = st.tabs(["Decision", "Cross-Asset", "Risk / Relative", "Details"])
 
-with t_decision:
+left_col, right_col = st.columns([1.05, 0.95], gap="large")
+with left_col:
+    cur_stage, cur_maturity = infer_cycle_stage(core['current_q'])
+    variant_now = _transition_variant(core)
+    top_state_now = ladder_state(core['top_score'], 'top')
+    bottom_state_now = ladder_state(core['bottom_score'], 'bottom')
+
     st.markdown("<div class='card'><div class='section-title'>DECISION SNAPSHOT</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Satu panel inti: sekarang di mana, kalau next menang bakal seperti apa, apa yang harus dikonfirmasi, dan event apa yang paling bisa mengubah bacaannya.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Mulai baca dari sini. Panel ini jawab 5 hal: sekarang fase apa, tahapnya di mana, varian sekarang apa, apa yang dipakai sekarang, dan apa yang perlu dikonfirmasi sebelum pindah fase.</div>", unsafe_allow_html=True)
+    st.markdown(f"**Now ➜ {cur_stage} {core['current_q']}**")
+    st.markdown(f"**If transition extends ➜ Early {core['next_q']}**")
+    st.markdown(f"**Variant now ➜ {variant_now}**")
+    st.markdown(f"**Global state now ➜ {cur_stage} {core['current_q']} / {variant_now} / selective, not broad clean risk-on**")
+    st.markdown(f"**Top / bottom state ➜ {top_state_now} / {bottom_state_now}**")
+    st.markdown(f"**Next macro catalysts ➜ {macro_catalyst_summary(3)}**")
+    explanation = (
+        f"Decision regime sekarang = {core['current_q']} dengan policy {core.get('anchor_reason','Model-only')}. Model raw sebelum anchor masih {core.get('model_current_q', core['current_q'])}; official macro cohort = {core['official_q']} (cutoff {core['official_date']}), directional macro = {core['directional_q']}, dan live cross-asset = {core['live_q']}. "
+        f"Jadi buat decision support live, dashboard ini sengaja memihak ke Q3 kalau tekanan stagflasi lintas-aset sudah kebaca. Next = {core['next_q']} cuma naik kelas kalau transisinya lanjut kebangun."
+    )
+    st.markdown(f"<div class='note-box'>{explanation}</div>", unsafe_allow_html=True)
     st.markdown(table_html(["Focus", "Read", "Why it matters"], build_decision_key_rows()), unsafe_allow_html=True)
     st.write("")
     st.markdown(table_html(["Priority", "Area", "Use now", "If next wins", "Confirm first"], build_playbook_priority_rows()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-with t_cross:
+with right_col:
+    crash_now = current_crash_probability()
+    st.markdown("<div class='card'><div class='section-title'>RISK STACK</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Kalau panel kiri jawab arah utama, panel ini jawab: seberapa berbahaya kondisi sekarang, apa yang belum confirm, dan skenario mana yang sudah usable sekarang vs masih jelek.</div>", unsafe_allow_html=True)
+    st.markdown(f"**Crash meter now ➜ {pct(crash_now)} ({crash_meter_label(crash_now)})**")
+    st.markdown(f"**Watch window ➜ {crash_watch_window()}**")
+    st.markdown(f"**Top / bottom state ➜ {top_state_now} / {bottom_state_now}**")
+    if leaders_status_text() != 'Hidden for now (coverage valid still zero)':
+        st.markdown(f"**Leaders status ➜ {leaders_status_text()}**")
+    st.markdown(f"<div class='note-box'>{risk_relative_summary()}<br><br><b>Cara baca cepat:</b> lihat kolom <i>State now</i> dulu. Kalau state masih <i>pressured</i>, <i>not confirmed</i>, atau <i>tactical only</i>, berarti belum boleh dipakai sebagai broad conviction long.</div>", unsafe_allow_html=True)
+    st.markdown(table_html(["Risk item", "Now", "How to use"], build_crash_timing_rows(crash_now)), unsafe_allow_html=True)
+    st.write("")
+    st.markdown(table_html(["Lens", "Bias now", "Simple read", "If next wins"], build_relative_compact_rows()), unsafe_allow_html=True)
+    st.write("")
+    st.markdown(table_html(["Scenario", "State now", "How to use now", "What must improve", "What invalidates"], build_current_scenario_checks()), unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+show_cross_bias = st.toggle("Show cross-asset directional bias", value=True, key="show_cross_bias_v62")
+if show_cross_bias:
     st.markdown("<div class='card'><div class='section-title'>CROSS-ASSET DIRECTIONAL BIAS</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Panel operasional utama: stage sekarang, strongest vs weakest cross-asset, dan ekspresi FX yang paling simpel.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Ini tempat utama buat baca stage sekarang, strongest vs weakest cross-asset, dan ekspresi FX yang paling simpel.</div>", unsafe_allow_html=True)
+    cur_stage, _ = infer_cycle_stage(core['current_q'])
     st.markdown(f"**Current cycle stage ➜ {cur_stage} {core['current_q']}**")
     st.markdown(f"<div class='small-muted'>{STAGE_GUIDE[core['current_q']][cur_stage][2]}</div>", unsafe_allow_html=True)
     st.markdown(table_html(["", "Stage", "Usually strong", "Usually weak", "What confirms"], build_cross_asset_stage_table()), unsafe_allow_html=True)
@@ -2530,55 +2441,156 @@ with t_cross:
     st.markdown(f"**Weakest now ➜ {weak_now}**")
     st.markdown(table_html(["Area", "Bias now", "Use now", "If next wins"], focus_rows), unsafe_allow_html=True)
     st.write("")
-    st.markdown(f"<div class='note-box'>{commodity_resource_intro(core)}</div>", unsafe_allow_html=True)
-    st.write("")
-    st.markdown(table_html(["Scope", "Bucket", "What sits here", "State now", "How to use now", "If next wins"], build_commodity_resource_map_rows(core)), unsafe_allow_html=True)
-    st.write("")
     st.markdown(f"**FX rank strong → weak ➜ {build_fx_rank_text(fx_score_rows)}**")
     st.markdown(table_html(["FX", "Bias", "Best use"], build_fx_display_rows(fx_score_rows)), unsafe_allow_html=True)
     st.write("")
     st.markdown(table_html(["Best simple FX expression", "Edge", "Read"], build_fx_expressions_table(fx_score_rows)), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
-with t_risk:
-    st.markdown("<div class='card'><div class='section-title'>RISK / RELATIVE SNAPSHOT</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Relative, participation, shock overlay, crash meter, dan scenario state-now gue kumpulin di sini biar nggak kebanyakan panel kecil.</div>", unsafe_allow_html=True)
-    st.markdown(f"**Current mode ➜ Base case / watch only**")
-    st.markdown(f"**Top risk ➜ {top_state_now}**")
-    st.markdown(f"**Bottom risk ➜ {bottom_state_now}**")
-    st.markdown(f"**Crash meter now ➜ {pct(crash_now)} ({crash_meter_label(crash_now)})**")
-    st.markdown(f"**Watch window ➜ {crash_watch_window()}**")
-    st.write("")
-    st.markdown(table_html(["Lens", "Bias now", "Simple read", "If next wins"], build_relative_compact_rows()), unsafe_allow_html=True)
-    st.write("")
-    st.markdown(table_html(["Risk item", "Now", "How to use"], build_crash_timing_rows(crash_now)), unsafe_allow_html=True)
-    st.write("")
-    st.markdown(table_html(["Scenario", "State now", "How to use now", "What must improve", "What invalidates"], build_current_scenario_checks()), unsafe_allow_html=True)
-    with st.expander("Portfolio posture / risk infrastructure", expanded=False):
-        st.markdown(table_html(["Bucket", "Suggested cap", "Use"], risk_posture_rows()), unsafe_allow_html=True)
-        st.write("")
-        st.markdown(table_html(["Control", "Level", "Read"], risk_control_rows()), unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-with t_details:
-    st.markdown("<div class='card'><div class='section-title'>DETAILS</div>", unsafe_allow_html=True)
+with st.expander("More detail: scenario branches, catalyst calendar, leadership, model notes", expanded=False):
+    st.markdown("**Scenario map + crash branches**")
     st.markdown(table_html(["", "Quad", "Base read", "Usually works", "Main crash branch", "Base crash risk"], build_quad_scenario_matrix()), unsafe_allow_html=True)
     st.write("")
+    st.markdown("**Next economy data that can move Q / next Q**")
     st.markdown(table_html(["Event", "When", "In", "Why it matters", "Likely impact"], build_macro_catalyst_rows()), unsafe_allow_html=True)
-    st.write("")
-    with st.expander("Data health / release-lag / snapshot coverage", expanded=False):
-        st.markdown(table_html(["Item", "Value"], data_health_summary_rows()), unsafe_allow_html=True)
+    us_valid = 0 if us_leaders_df is None or us_leaders_df.empty else int(us_leaders_df['Ticker'].nunique())
+    ih_valid = 0 if ihsg_leaders_df is None or ihsg_leaders_df.empty else int(ihsg_leaders_df['Ticker'].nunique())
+    if us_valid > 0 or ih_valid > 0:
         st.write("")
-        st.markdown(table_html(["Series", "Status", "Raw last obs", "Usable last obs", "Age days", "Release rule", "Rows dropped"], DATA_HEALTH_ROWS), unsafe_allow_html=True)
-    with st.expander("Validation readiness / WFO plumbing", expanded=False):
-        st.markdown(table_html(["Check", "Value", "Read"], validation_rows()), unsafe_allow_html=True)
-        if VALIDATION_READY.notes:
-            st.write("")
-            for note in VALIDATION_READY.notes:
-                st.markdown(f"- {note}")
-    if leaders_status_text() != 'Hidden for now (coverage valid still zero)':
-        st.write("")
-        st.markdown(f"**Leaders status ➜ {leaders_status_text()}**")
+        st.markdown("**Stock leadership detail**")
+        setup1, setup2 = st.columns(2, gap='large')
+        with setup1:
+            st.markdown(f"US leaders now ➜ {us_lead_text}")
+            st.markdown(table_html(['Ticker', 'State', 'RS', 'Start', 'α 1M / 3M', 'Read'], leadership_table_rows(us_leaders_df, 'top', 6)), unsafe_allow_html=True)
+        with setup2:
+            st.markdown(f"IHSG leaders now ➜ {ih_lead_text}")
+            st.markdown(table_html(['Ticker', 'State', 'RS', 'Start', 'α 1M / 3M', 'Read'], leadership_table_rows(ihsg_leaders_df, 'top', 6)), unsafe_allow_html=True)
     st.write("")
-    st.markdown(f"<div class='small-muted'><b>Core model:</b> {CORE_NAME} • <b>Policy:</b> {core.get('anchor_reason','Model-only')} • <b>Raw model:</b> {core.get('model_current_q', core['current_q'])}</div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown(f"""
+- **Core model actually used**: `{CORE_NAME}`
+- **Decision Snapshot** already merges current + next + playbook into one main read
+- **Risk Stack** already merges relative, size confirmation, shock overlay, catalyst timing, scenario checks, and crash meter
+- **Cross-Asset Bias** stays separate karena itu tempat utama buat baca stage sekarang + strongest / weakest asset + FX expression
+- **Top risk / bottom risk** are turn-process probabilities, not exact top or exact bottom calls
+- **Crash meter** is a heuristic overlay: useful for respect / sizing / timing windows, not for exact crash date prediction
+- **Leaders** stay secondary until valid coverage exists
+""")
+
+st.caption("Q3-anchor shell frozen. If the screen shape changes materially, the wrong file/version is running.")
+
+
+# --------------------
+# RESEARCH + RISK STACK BRIDGE
+# --------------------
+archive_root = st.sidebar.text_input("Archive root", value=DEFAULT_ROOT)
+validation_horizon = st.sidebar.selectbox("Validation horizon", [5, 10, 21, 42, 63], index=2)
+
+def _current_market_snapshot() -> Dict[str, pd.Series]:
+    tickers = ["SPY", "QQQ", "IWM", "GLD", "TLT", "DBC", "XLE", "EEM", "EIDO", "BTC-USD"]
+    out: Dict[str, pd.Series] = {}
+    for t in tickers:
+        try:
+            s = yahoo_close(t, "1y")
+            if s is not None and not s.empty:
+                out[t.replace('-USD','')] = s.dropna()
+        except Exception:
+            continue
+    return out
+
+
+def _current_state_payload() -> Dict[str, object]:
+    crash_now = current_crash_probability()
+    return {
+        "decision_regime": core["current_q"],
+        "next_regime": core["next_q"],
+        "stage": infer_cycle_stage(core['current_q'])[0],
+        "variant": _transition_variant(core),
+        "confidence": float(core.get("confidence", 0.0)),
+        "crash_meter": float(crash_now),
+        "risk_posture": exposure_posture(core.get("confidence", 0.0), core.get("fragility", 0.0)),
+        "sub_phase": core.get("sub_phase"),
+        "official_q": core.get("official_q"),
+        "directional_q": core.get("directional_q"),
+        "live_q": core.get("live_q"),
+        "official_date": core.get("official_date"),
+    }
+
+
+st.write("")
+with st.expander("Research + Risk Stack: archive / validation / portfolio", expanded=False):
+    st.markdown("<div class='mini-caption'>Layer ini nyambungin dashboard regime utama ke archive permanen, validation snapshot-aware, dan portfolio/risk engine. Jadi bukan dashboard terpisah lagi.</div>", unsafe_allow_html=True)
+    rr1, rr2, rr3 = st.columns([0.9, 1.1, 1.0])
+    with rr1:
+        if st.button("Archive current state", type="secondary"):
+            try:
+                snap_path = save_snapshot(
+                    archive_root,
+                    asof_date=str(date.today()),
+                    macro_raw=SER,
+                    market=_current_market_snapshot(),
+                    state=_current_state_payload(),
+                    notes=["Archived from integrated V4/Q3 dashboard"],
+                    tags=["integrated", "q3_anchor"],
+                    app_version=APP_NAME,
+                )
+                st.success(f"Snapshot saved: {snap_path}")
+            except Exception as exc:
+                st.error(f"Snapshot save failed: {exc}")
+        arch = archive_health(archive_root)
+        st.markdown("**Archive health**")
+        arch_df = pd.DataFrame([
+            {
+                "Snapshots": arch.get("snapshot_count", 0),
+                "Latest": arch.get("latest_asof") or "n/a",
+                "Gaps >3d": arch.get("gaps_over_3d", 0),
+            }
+        ])
+        st.dataframe(arch_df, use_container_width=True, hide_index=True)
+        st.markdown("**Manifest preview**")
+        st.dataframe(build_manifest_table(archive_root, limit=10), use_container_width=True, hide_index=True)
+    with rr2:
+        st.markdown("**Validation snapshot-aware**")
+        val = run_validation(archive_root, horizon_days=validation_horizon)
+        if val.notes:
+            for note in val.notes[:2]:
+                st.caption(note)
+        st.dataframe(val.summary, use_container_width=True, hide_index=True)
+        with st.expander("Confidence / crash calibration", expanded=False):
+            st.dataframe(val.confidence_calibration, use_container_width=True, hide_index=True)
+            st.dataframe(val.crash_calibration, use_container_width=True, hide_index=True)
+        with st.expander("Regime stability / confusion / WFO rows", expanded=False):
+            st.dataframe(val.regime_stability, use_container_width=True, hide_index=True)
+            st.dataframe(val.confusion, use_container_width=True)
+            st.dataframe(val.walkforward_rows.tail(50), use_container_width=True, hide_index=True)
+    with rr3:
+        st.markdown("**Portfolio / risk posture**")
+        panel = build_price_panel_from_archive(archive_root)
+        rets = panel.pct_change().dropna(how="all") if not panel.empty else pd.DataFrame()
+        risk_report = build_risk_report(
+            core["current_q"],
+            core["next_q"],
+            confidence=float(core.get("confidence", 0.0)),
+            crash_meter=float(current_crash_probability()),
+            fragility=float(core.get("fragility", 0.0)),
+            returns_df=rets,
+            current_weights={"Gold": 0.10, "Energy": 0.10, "Cash": 0.20},
+            config=PortfolioConfig(),
+        )
+        st.markdown(f"**Posture ➜ {risk_report['posture']}**")
+        tgt = risk_report["targets"].copy()
+        show_col = "target_weight_corr_capped" if "target_weight_corr_capped" in tgt.columns else "target_weight"
+        disp = tgt[["bucket", show_col]].copy().rename(columns={show_col: "Target"})
+        if not disp.empty:
+            disp["Target"] = disp["Target"].map(pct)
+        st.dataframe(disp, use_container_width=True, hide_index=True)
+        with st.expander("Rebalance / controls / correlation", expanded=False):
+            rb = risk_report["rebalance"].copy()
+            for col in ["current_weight", "target_weight", "trade"]:
+                if col in rb.columns:
+                    rb[col] = rb[col].map(pct)
+            st.dataframe(rb, use_container_width=True, hide_index=True)
+            st.dataframe(risk_report["controls"], use_container_width=True, hide_index=True)
+            if isinstance(risk_report["correlation"], pd.DataFrame) and not risk_report["correlation"].empty:
+                st.dataframe(risk_report["correlation"], use_container_width=True)
+            else:
+                st.caption("Correlation matrix akan makin berguna begitu archive price history bertambah.")
