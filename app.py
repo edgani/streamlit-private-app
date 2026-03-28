@@ -723,6 +723,30 @@ def compute_core() -> Dict[str, object]:
     ranked = sorted(decision_blend.items(), key=lambda x: x[1], reverse=True)
     current_q, current_p = ranked[0]
     next_q, next_p = ranked[1]
+    alt_next_q, alt_next_p = next_q, next_p
+
+    # Stabilize the displayed "next" path so it does not flip too easily on noisy live inputs.
+    # We keep the raw model runner-up in model_next_q/model_next_p above, but use a structure-aware
+    # next leg for downstream playbooks and dashboard text.
+    if current_q == "Q3":
+        q1_struct = decision_blend.get("Q1", 0.0)
+        q2_struct = decision_blend.get("Q2", 0.0)
+        q4_struct = decision_blend.get("Q4", 0.0)
+        q1_struct += 0.05 * max(0.0, -i_live) + 0.04 * max(0.0, g_live) + 0.03 * breadth + 0.02 * (1 - max(0.0, s_m))
+        q2_struct += 0.05 * max(0.0, i_live) + 0.04 * max(0.0, g_live) + 0.03 * cross_growth_pos_breadth + 0.02 * float(not q2_veto)
+        q4_struct += 0.04 * max(0.0, -g_live) + 0.03 * max(0.0, s_m)
+        q3_next_rank = sorted([("Q1", q1_struct), ("Q2", q2_struct), ("Q4", q4_struct)], key=lambda x: x[1], reverse=True)
+        stable_next_q, stable_next_score = q3_next_rank[0]
+        stable_alt_q, stable_alt_score = q3_next_rank[1]
+        if abs(stable_next_score - stable_alt_score) <= 0.05:
+            if stable_next_q == "Q1" and stable_alt_q == "Q2" and (i_live > 0.08 or q3_live_pressure > 0.56):
+                stable_next_q, stable_alt_q = "Q2", "Q1"
+            elif stable_next_q == "Q2" and stable_alt_q == "Q1" and (i_live < 0.02 and breadth > 0.52 and s_m < 0.15):
+                stable_next_q, stable_alt_q = "Q1", "Q2"
+        alt_next_q = stable_alt_q
+        alt_next_p = decision_blend.get(stable_alt_q, stable_alt_score)
+        next_q = stable_next_q
+        next_p = decision_blend.get(stable_next_q, stable_next_score)
 
     dist_od = sum(abs(official_probs[k] - directional_probs[k]) for k in official_probs)
     dist_ol = sum(abs(official_probs[k] - live_probs[k]) for k in official_probs)
@@ -795,6 +819,8 @@ def compute_core() -> Dict[str, object]:
         "current_p": current_p,
         "next_q": next_q,
         "next_p": next_p,
+        "alt_next_q": alt_next_q,
+        "alt_next_p": alt_next_p,
         "model_current_q": model_current_q,
         "model_current_p": model_current_p,
         "model_next_q": model_next_q,
@@ -3185,11 +3211,11 @@ risk_total = max(1e-9, risk_pack['risk_on'] + risk_pack['risk_off'])
 risk_on_share = risk_pack['risk_on'] / risk_total
 risk_off_share = risk_pack['risk_off'] / risk_total
 action_bias = 'Selective' if core['current_q'] in ['Q3','Q4'] else ('Risk-on selective' if core['current_q'] == 'Q2' else 'Balanced')
-next_sub = 'Early Q2 if breadth + small caps + USD cooling confirm' if core['current_q']=='Q3' and core['next_q']=='Q2' else (f"Stay in {core['current_q']} / pressure persists" if core['next_q']==core['current_q'] else f"Most likely path from {core['current_q']}")
+next_sub = (f"alt {core.get('alt_next_q','-')} close" if abs(float(core.get('next_p',0.0)) - float(core.get('alt_next_p',0.0))) <= 0.06 else f"transition {pct(core['transition_prob'])}")
 hero_cols = st.columns(7)
 hero_items = [
     ('Current Quad', core['current_q'], pill_html(f"{cur_stage} • {core['sub_phase']}")),
-    ('Next Likely', core['next_q'], pill_html(f"transition {pct(core['transition_prob'])}")),
+    ('Next Likely', core['next_q'], pill_html(next_sub)),
     ('Confidence', pct(core['confidence']), pill_html(f"agreement {pct(core['agreement'])}")),
     ('Risk-On Share', pct(risk_on_share), pill_html(meter_label(risk_pack['risk_on']))),
     ('Risk-Off Share', pct(risk_off_share), pill_html(meter_label(risk_pack['risk_off']))),
@@ -3208,7 +3234,7 @@ for col, (title, value, sub_html) in zip(hero_cols, hero_items):
 
 quick_read = (
     f"Quick read: now {cur_stage} {core['current_q']} with {variant_now.lower()}. Base case favors {', '.join(play_cur['US Stocks'])}; "
-    f"if {core['next_q']} takes over, watch for {', '.join(play_next['US Stocks'])}. Breadth {pct(core['breadth'])}, "
+    f"if {core['next_q']} takes over, watch for {', '.join(play_next['US Stocks'])}; alt path {core.get('alt_next_q','-')} still alive. Breadth {pct(core['breadth'])}, "
     f"fragility {pct(core['fragility'])}, top risk state: {ladder_state(core['top_score'], 'top')}."
 )
 st.markdown(f"<div class='note-box'><b>{quick_read}</b></div>", unsafe_allow_html=True)
@@ -3236,6 +3262,8 @@ with q_right:
     st.markdown("<div class='card'><div class='section-title'>Regime Read</div>", unsafe_allow_html=True)
     regime_rows = [
         ['Variant', variant_now],
+        ['Path now', f"{core['current_q']} → {core['next_q']}"],
+        ['Alt path', f"{core['current_q']} → {core.get('alt_next_q','-')}"],
         ['Signal quality', core['signal_quality']],
         ['Maturity', pct(cur_maturity)],
         ['Official macro cutoff', core['official_date']],
