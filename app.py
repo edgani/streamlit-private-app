@@ -2351,6 +2351,33 @@ CRYPTO_TICKERS = {
 }
 
 
+POLICY_LONG_PROXIES = {
+    "Energy": "XLE",
+    "Industrials": "XLI",
+    "Financials": "XLF",
+    "Regional banks": "KRE",
+    "Defense": "ITA",
+    "Small caps": "IWM",
+}
+
+POLICY_SHORT_PROXIES = {
+    "Clean energy": "ICLN",
+    "Solar": "TAN",
+    "Innovation beta": "ARKK",
+    "Clean tech": "PBW",
+    "Long-duration REIT": "IYR",
+    "Utilities": "XLU",
+}
+
+POLICY_CONFIRM_TICKERS = {
+    "Policy basket": "__BASKET__",
+    "BTC": "BTC-USD",
+    "IWM": "IWM",
+    "ARKK": "ARKK",
+    "SPY": "SPY",
+}
+
+
 def latest_value(s: pd.Series) -> float:
     s = s.dropna()
     return float(s.iloc[-1]) if not s.empty else float('nan')
@@ -2530,6 +2557,347 @@ def build_index_internals_rows() -> list[list[str]]:
         ['Mega-cap dependence', pct(dep), dep_label, 'Higher = index strength depends more on a few heavyweights.'],
         ['Index strength read', 'Healthy' if breadth_label == 'Broad' and dep < 0.42 else ('Questionable' if breadth_label in ['Narrow', 'Fragile'] else 'False / fragile'), leadership_quality_note(), 'Fast summary of whether headline index strength is healthy or not.'],
     ]
+
+
+def _normalize_to_100(s: pd.Series) -> pd.Series:
+    s = s.dropna()
+    if s.empty:
+        return s
+    return 100.0 * s / float(s.iloc[0])
+
+
+def _beta_to_bench(asset_ret: pd.Series, bench_ret: pd.Series, lookback: int = 63) -> float:
+    df = pd.concat([asset_ret.rename('asset'), bench_ret.rename('bench')], axis=1).dropna().tail(lookback)
+    if len(df) < 20:
+        return 0.0
+    var = float(df['bench'].var(ddof=0))
+    if not np.isfinite(var) or var < 1e-10:
+        return 0.0
+    cov = float(np.cov(df['asset'], df['bench'], ddof=0)[0, 1])
+    return cov / var
+
+
+def _inv_vol_weights(ret_df: pd.DataFrame, lookback: int = 63) -> pd.Series:
+    if ret_df.empty:
+        return pd.Series(dtype=float)
+    vol = ret_df.tail(lookback).std(ddof=0).replace(0, np.nan)
+    inv = (1.0 / vol).replace([np.inf, -np.inf], np.nan).dropna()
+    if inv.empty:
+        cols = ret_df.columns.tolist()
+        return pd.Series(1.0 / len(cols), index=cols) if cols else pd.Series(dtype=float)
+    w = inv / inv.sum()
+    return w
+
+
+def _last_frac_ma(px: pd.DataFrame, window: int = 50, side: str = 'above') -> float:
+    if px.empty or len(px) < window:
+        return 0.5
+    ma = px.rolling(window).mean().iloc[-1]
+    last = px.iloc[-1]
+    if side == 'above':
+        mask = last > ma
+    else:
+        mask = last < ma
+    return float(mask.mean()) if len(mask) else 0.5
+
+
+def _safe_roll_corr(a: pd.Series, b: pd.Series, lookback: int = 63) -> float:
+    df = pd.concat([a.rename('a'), b.rename('b')], axis=1).dropna()
+    if len(df) < max(20, lookback // 2):
+        return 0.0
+    corr = df['a'].rolling(lookback).corr(df['b']).dropna()
+    return float(corr.iloc[-1]) if not corr.empty else float(df['a'].corr(df['b']))
+
+
+def _safe_ret_from_df(df: pd.DataFrame, col: str, n: int = 21) -> float:
+    if df.empty or col not in df.columns:
+        return 0.0
+    return ret_n(df[col].dropna(), n)
+
+
+def _policy_overlay_fallback() -> dict[str, object]:
+    variant = _transition_variant(core)
+    q = core['current_q']
+    if q == 'Q3' and variant == 'Bad reflation':
+        state = 'Narrative unwind'
+        decoupling = 'Mixed / no live proxy read'
+        policy_vs_liq = 'Overlay unavailable'
+    elif core['next_q'] == 'Q2':
+        state = 'Watch for re-accumulation'
+        decoupling = 'Need BTC / IWM / breadth confirm'
+        policy_vs_liq = 'Overlay unavailable'
+    else:
+        state = 'No live proxy read'
+        decoupling = 'No live proxy read'
+        policy_vs_liq = 'Overlay unavailable'
+    return {
+        'available': False,
+        'headline': 'Political / policy overlay tidak dipakai sebagai core call; live proxy basket belum cukup bersih.',
+        'state': state,
+        'decoupling': decoupling,
+        'policy_vs_liquidity': policy_vs_liq,
+        'rotation_vs_crash': 'Use core crash meter instead',
+        'crowded_unwind': 0.50,
+        'reacc_prob': 0.35,
+        'btc_linkage': 0.0,
+        'corr_btc': 0.0,
+        'corr_iwm': 0.0,
+        'roc20': 0.0,
+        'roc60': 0.0,
+        'dd': 0.0,
+        'vol20': 0.0,
+        'breadth': 0.50,
+        'long_ma50': 0.50,
+        'long_ma200': 0.50,
+        'short_below50': 0.50,
+        'short_below200': 0.50,
+        'ad_support': 0.50,
+        'concentration': 0.20,
+        'policy_confirm': 0.0,
+        'chart': pd.DataFrame(),
+        'long_weights': pd.Series(dtype=float),
+        'short_weights': pd.Series(dtype=float),
+        'proxy_note': 'Proxy basket unavailable',
+    }
+
+
+def compute_policy_narrative_overlay(period: str = '1y') -> dict[str, object]:
+    tickers = list(POLICY_LONG_PROXIES.values()) + list(POLICY_SHORT_PROXIES.values()) + ['SPY', 'BTC-USD', 'ARKK', 'IWM']
+    px = yahoo_close_batch(tickers, period)
+    if px.empty:
+        return _policy_overlay_fallback()
+
+    long_cols = [t for t in POLICY_LONG_PROXIES.values() if t in px.columns and px[t].dropna().shape[0] >= 120]
+    short_cols = [t for t in POLICY_SHORT_PROXIES.values() if t in px.columns and px[t].dropna().shape[0] >= 120]
+    if 'SPY' not in px.columns or len(long_cols) < 3 or len(short_cols) < 3:
+        return _policy_overlay_fallback()
+
+    work = px[sorted(set(long_cols + short_cols + ['SPY', 'BTC-USD', 'ARKK', 'IWM']).intersection(px.columns))].copy().sort_index().ffill()
+    rets = work.pct_change().replace([np.inf, -np.inf], np.nan)
+    spy_ret = rets['SPY'].dropna()
+
+    long_rets = rets[long_cols].dropna(how='all')
+    short_rets = rets[short_cols].dropna(how='all')
+    long_w = _inv_vol_weights(long_rets)
+    short_w = _inv_vol_weights(short_rets)
+    if long_w.empty or short_w.empty:
+        return _policy_overlay_fallback()
+
+    long_leg = long_rets.mul(long_w, axis=1).sum(axis=1, min_count=1)
+    short_leg = short_rets.mul(short_w, axis=1).sum(axis=1, min_count=1)
+    aligned = pd.concat([long_leg.rename('long'), short_leg.rename('short'), spy_ret.rename('spy')], axis=1).dropna()
+    if len(aligned) < 80:
+        return _policy_overlay_fallback()
+
+    beta_l = _beta_to_bench(aligned['long'], aligned['spy'])
+    beta_s = _beta_to_bench(aligned['short'], aligned['spy'])
+    raw = aligned['long'] - aligned['short']
+    clean = (aligned['long'] - beta_l * aligned['spy']) - (aligned['short'] - beta_s * aligned['spy'])
+    clean = clean.dropna()
+    if len(clean) < 80:
+        return _policy_overlay_fallback()
+
+    basket_idx = 100.0 * (1.0 + clean.fillna(0.0)).cumprod()
+    chart = pd.DataFrame(index=work.index)
+    chart['Policy basket'] = _normalize_to_100(basket_idx.reindex(work.index).ffill())
+    if 'BTC-USD' in work.columns:
+        chart['BTC'] = _normalize_to_100(work['BTC-USD'])
+    if 'IWM' in work.columns:
+        chart['IWM'] = _normalize_to_100(work['IWM'])
+    if 'ARKK' in work.columns:
+        chart['ARKK'] = _normalize_to_100(work['ARKK'])
+    chart = chart.dropna(how='all').tail(252)
+
+    basket20 = ret_n(basket_idx, 21)
+    basket60 = ret_n(basket_idx, 63)
+    basket5 = ret_n(basket_idx, 5)
+    dd = float(basket_idx.iloc[-1] / basket_idx.cummax().iloc[-1] - 1.0) if not basket_idx.empty else 0.0
+    vol20 = float(clean.tail(20).std(ddof=0) * np.sqrt(252)) if len(clean) >= 20 else 0.0
+    corr_btc = _safe_roll_corr(clean, rets.get('BTC-USD', pd.Series(dtype=float)), 63) if 'BTC-USD' in rets.columns else 0.0
+    corr_iwm = _safe_roll_corr(clean, rets.get('IWM', pd.Series(dtype=float)), 63) if 'IWM' in rets.columns else 0.0
+
+    long_px = work[long_cols].dropna(axis=1, how='all')
+    short_px = work[short_cols].dropna(axis=1, how='all')
+    long_ma50 = _last_frac_ma(long_px, 50, 'above')
+    long_ma200 = _last_frac_ma(long_px, 200, 'above')
+    short_below50 = _last_frac_ma(short_px, 50, 'below')
+    short_below200 = _last_frac_ma(short_px, 200, 'below')
+    breadth = clamp01(0.30 * long_ma50 + 0.22 * long_ma200 + 0.28 * short_below50 + 0.20 * short_below200)
+
+    ad_long = float((long_rets.iloc[-1] > 0).mean()) if not long_rets.empty else 0.5
+    ad_short = float((short_rets.iloc[-1] < 0).mean()) if not short_rets.empty else 0.5
+    ad_support = 0.5 * ad_long + 0.5 * ad_short
+    concentration = float(max(long_w.max() if not long_w.empty else 0.0, short_w.max() if not short_w.empty else 0.0))
+
+    confirm_spreads = [
+        _pair_spread('IWM', 'SPY', '6mo')[0],
+        _pair_spread('KRE', 'SPY', '6mo')[0],
+        _pair_spread('XLI', 'SPY', '6mo')[0],
+        _pair_spread('XLE', 'SPY', '6mo')[0],
+    ]
+    policy_confirm = float(np.nanmean(confirm_spreads)) if confirm_spreads else 0.0
+    btc20 = _safe_ret_from_df(chart, 'BTC', 21)
+    iwm20 = _safe_ret_from_df(chart, 'IWM', 21)
+    arkk20 = _safe_ret_from_df(chart, 'ARKK', 21)
+
+    crowded_unwind = clamp01(
+        0.34 * clamp01((-basket20 + 0.08) / 0.16)
+        + 0.24 * clamp01((-dd) / 0.25)
+        + 0.18 * clamp01((vol20 - 0.18) / 0.30)
+        + 0.16 * (1 - breadth)
+        + 0.08 * clamp01((concentration - 0.18) / 0.20)
+    )
+    reacc_prob = clamp01(
+        0.24 * clamp01((basket5 + 0.03) / 0.08)
+        + 0.24 * clamp01((basket20 + 0.05) / 0.12)
+        + 0.22 * breadth
+        + 0.18 * clamp01((policy_confirm + 0.02) / 0.08)
+        + 0.12 * clamp01((iwm20 + 0.02) / 0.08)
+    )
+    btc_linkage = clamp01(0.55 * (corr_btc + 1.0) / 2.0 + 0.45 * clamp01((btc20 + 0.05) / 0.15))
+
+    if basket20 < -0.03 and btc20 > 0.04:
+        decoupling = 'BTC-led decoupling'
+    elif basket20 > 0.03 and btc20 < -0.03:
+        decoupling = 'Basket-led decoupling'
+    elif basket20 < -0.03 and btc20 < -0.03:
+        decoupling = 'Synced unwind'
+    elif basket20 > 0.03 and btc20 > 0.03:
+        decoupling = 'Synced risk-on'
+    else:
+        decoupling = 'Mixed / partial'
+
+    if corr_btc > 0.45 and corr_iwm > 0.25 and breadth < 0.58:
+        policy_vs_liq = 'Liquidity-driven / crowding'
+    elif policy_confirm > 0.01 and breadth >= 0.58 and corr_iwm > 0.15:
+        policy_vs_liq = 'Policy-like breadth confirm'
+    elif policy_confirm < -0.01 and corr_btc > 0.35:
+        policy_vs_liq = 'Narrative mostly liquidity'
+    else:
+        policy_vs_liq = 'Mixed / unproven'
+
+    if current_crash_probability() > 0.68 and risk_off_score() > 0.60 and breadth < 0.45 and basket20 < -0.04:
+        rotation_vs_crash = 'Accident / crash skew'
+    elif basket20 < -0.03 and leadership_quality_label() in ['Narrow', 'Fragile', 'Breaking']:
+        rotation_vs_crash = 'Rotation / unwind first'
+    elif basket20 > 0.03 and breadth > 0.58:
+        rotation_vs_crash = 'Broadening / re-risking'
+    else:
+        rotation_vs_crash = 'Mixed / catalyst dependent'
+
+    if basket20 > 0.03 and basket60 > 0.08 and breadth > 0.58 and policy_confirm > 0.0:
+        state = 'Narrative strong'
+    elif basket20 < -0.04 and dd < -0.12 and breadth < 0.50:
+        state = 'Narrative unwind'
+    elif 'decoupling' in decoupling.lower() or decoupling == 'Mixed / partial':
+        state = 'Divergent / mixed'
+    else:
+        state = 'Weakening / repair'
+
+    if state == 'Narrative strong':
+        headline = 'Policy / political proxy basket lagi dihargai dan internals ikut confirm; treat as usable overlay, bukan core engine.'
+    elif state == 'Narrative unwind':
+        headline = 'Proxy basket lagi di-unwind; treat headline policy strength as suspect sampai breadth dan cross-asset confirm membaik.'
+    elif state == 'Divergent / mixed':
+        headline = 'Basket, BTC, dan small caps tidak sinkron penuh; jangan samakan satu narasi dengan broad macro call.'
+    else:
+        headline = 'Narrative tidak bersih: ada tanda repair, tapi belum cukup buat override core macro read.'
+
+    proxy_note = 'Proxy replica only: pakai ETF cluster sebagai policy/narrative lens, bukan klaim exact Citrini basket.'
+    return {
+        'available': True,
+        'headline': headline,
+        'state': state,
+        'decoupling': decoupling,
+        'policy_vs_liquidity': policy_vs_liq,
+        'rotation_vs_crash': rotation_vs_crash,
+        'crowded_unwind': crowded_unwind,
+        'reacc_prob': reacc_prob,
+        'btc_linkage': btc_linkage,
+        'corr_btc': corr_btc,
+        'corr_iwm': corr_iwm,
+        'roc20': basket20,
+        'roc60': basket60,
+        'dd': dd,
+        'vol20': vol20,
+        'breadth': breadth,
+        'long_ma50': long_ma50,
+        'long_ma200': long_ma200,
+        'short_below50': short_below50,
+        'short_below200': short_below200,
+        'ad_support': ad_support,
+        'concentration': concentration,
+        'policy_confirm': policy_confirm,
+        'chart': chart,
+        'long_weights': long_w.sort_values(ascending=False),
+        'short_weights': short_w.sort_values(ascending=False),
+        'proxy_note': proxy_note,
+    }
+
+
+def build_policy_overlay_metric_rows() -> list[list[str]]:
+    pov = policy_overlay
+    return [
+        ['State', str(pov['state']), str(pov['headline']), 'Overlay only — tidak mengubah quad core.'],
+        ['Crowded unwind', pct(float(pov['crowded_unwind'])), 'Higher = trade makin crowded lalu dibersihkan / di-unwind.', 'Respect weakness if breadth and BTC/IWM ikut rusak.'],
+        ['BTC linkage', pct(float(pov['btc_linkage'])), f"Corr BTC {float(pov['corr_btc']):+.2f} · Corr IWM {float(pov['corr_iwm']):+.2f}", 'Higher = lebih dekat ke liquidity / speculative pulse.'],
+        ['Policy vs liquidity', str(pov['policy_vs_liquidity']), f"Policy confirm {100*float(pov['policy_confirm']):+.1f}% vs SPY", 'Bedakan policy repricing vs crowd/liquidity mirroring.'],
+        ['Decoupling state', str(pov['decoupling']), f"20d basket {100*float(pov['roc20']):+.1f}% · 60d {100*float(pov['roc60']):+.1f}%", 'Jangan overgeneralize kalau basket dan BTC tidak sinkron.'],
+        ['Rotation vs crash', str(pov['rotation_vs_crash']), f"Drawdown {100*float(pov['dd']):+.1f}% · vol20 {100*float(pov['vol20']):.1f}%", 'Pisahkan unwind/rotasi dari true accident branch.'],
+        ['Re-accumulation', pct(float(pov['reacc_prob'])), f"Breadth {pct(float(pov['breadth']))} · A/D support {pct(float(pov['ad_support']))}", 'Naik kalau repair + breadth + IWM confirmation membaik.'],
+    ]
+
+
+def build_policy_overlay_breadth_rows() -> list[list[str]]:
+    pov = policy_overlay
+    return [
+        ['Long leg > MA50', pct(float(pov['long_ma50'])), 'Higher = policy-winner proxies broadening.'],
+        ['Long leg > MA200', pct(float(pov['long_ma200'])), 'Structural trend health of the long leg.'],
+        ['Short leg < MA50', pct(float(pov['short_below50'])), 'Higher = opposite leg really weakening.'],
+        ['Short leg < MA200', pct(float(pov['short_below200'])), 'Longer-horizon confirmation on the short leg.'],
+        ['A/D support', pct(float(pov['ad_support'])), 'Today support for the narrative basket, not broad market A/D.'],
+        ['Top weight concentration', pct(float(pov['concentration'])), 'Higher = basket being carried by fewer proxies.'],
+    ]
+
+
+def build_policy_overlay_scenario_rows() -> list[list[str]]:
+    pov = policy_overlay
+    return [
+        ['Narrative strong', 'Basket up + BTC/IWM confirm + breadth sehat', 'Crowded unwind stays low and policy confirm stays positive', 'Breadth narrows and basket stops outperforming'],
+        ['Weakening / repair', 'Basket no longer strong, but damage not yet complete', 'Breadth and IWM improve before headline chasing resumes', 'Drawdown deepens while breadth keeps fading'],
+        ['Full narrative unwind', 'Basket drawdown grows and BTC/IWM fail to repair', 'Crowded unwind high + rotation/crash lens deteriorates', 'Clean breadth repair and better policy confirm'],
+        ['Divergence / decoupling', str(pov['decoupling']), 'Use this when one leg leads but macro extrapolation is dangerous', 'Synchronised breadth + cross-asset confirmation returns'],
+    ]
+
+
+def build_policy_proxy_rows(side: str = 'long', n: int = 4) -> list[list[str]]:
+    universe = POLICY_LONG_PROXIES if side == 'long' else POLICY_SHORT_PROXIES
+    ranked = rank_simple_universe(universe, benchmark_ticker='SPY')
+    if ranked:
+        ordered = ranked[:n] if side == 'long' else list(reversed(ranked[-n:]))
+        rows = []
+        for label, score, comment in ordered:
+            state = 'Buy / confirm first' if side == 'long' else 'Avoid / fade first'
+            rows.append([label, f"{100*score:+.1f}", state, comment])
+        return rows
+    fallback_long = [
+        ['Energy (XLE)', 'proxy', 'Buy / confirm first', 'Inflation / nominal-growth transmission'],
+        ['Industrials (XLI)', 'proxy', 'Buy / confirm first', 'Cleaner policy / capex confirmation'],
+        ['Regional banks (KRE)', 'proxy', 'Buy / confirm first', 'Domestic beta if rates stay orderly'],
+        ['Defense (ITA)', 'proxy', 'Buy / confirm first', 'Policy / fiscal-sensitive bucket'],
+    ]
+    fallback_short = [
+        ['Innovation beta (ARKK)', 'proxy', 'Avoid / fade first', 'Duration-sensitive speculative bucket'],
+        ['Clean energy (ICLN)', 'proxy', 'Avoid / fade first', 'Opposite-leg policy proxy only'],
+        ['Solar (TAN)', 'proxy', 'Avoid / fade first', 'High-beta thematic / crowded'],
+        ['Clean tech (PBW)', 'proxy', 'Avoid / fade first', 'Use tactically, not as a core macro read'],
+    ]
+    return fallback_long if side == 'long' else fallback_short
+
+
+def positioning_headline_text() -> str:
+    pov = policy_overlay
+    return f"{pov['state']} · {pov['policy_vs_liquidity']} · {pov['decoupling']}"
 
 
 def _market_regime_bucket() -> str:
@@ -2938,6 +3306,8 @@ st.title("QuantFinalV7_StructureMerged")
 st.markdown("<div class='small-muted'>Core alpha engine: Hedgeye_LiveQuad_Core_v2_5 • merged decision shell • hero row + decision snapshot + cross-asset + risk stack + commodity/resource map</div>", unsafe_allow_html=True)
 st.write("")
 
+policy_overlay = compute_policy_narrative_overlay()
+
 cur_stage, _ = infer_cycle_stage(core['current_q'])
 variant_now = _transition_variant(core)
 crash_now = current_crash_probability()
@@ -2987,7 +3357,8 @@ with t_decision:
     st.markdown("<div class='mini-caption'>Panel inti dibikin lebih ringkas: snapshot utama di kiri, scenario check di kanan, playbook detail di bawah.</div>", unsafe_allow_html=True)
     dc1, dc2 = st.columns([1.15, 0.85])
     with dc1:
-        st.markdown(table_html(["Focus", "Read", "Why it matters"], build_decision_snapshot_rows()), unsafe_allow_html=True)
+        decision_rows = build_decision_snapshot_rows() + [["Positioning overlay", positioning_headline_text(), str(policy_overlay['headline'])]]
+        st.markdown(table_html(["Focus", "Read", "Why it matters"], decision_rows), unsafe_allow_html=True)
     with dc2:
         st.markdown(table_html(["Scenario", "Now", "Use now", "What must improve", "What invalidates"], build_current_scenario_checks()), unsafe_allow_html=True)
     st.write("")
@@ -3071,7 +3442,7 @@ with t_cross:
 
 with t_risk:
     st.markdown("<div class='card'><div class='section-title'>RISK / RELATIVE STACK</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Yang benar-benar berkorelasi ditaruh berdampingan: liquidity / rates / crash di atas, leadership internals dan relative cross-check di bawah.</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Yang benar-benar berkorelasi ditaruh berdampingan: liquidity / rates / crash di atas, leadership internals + positioning / narrative overlay di bawah.</div>", unsafe_allow_html=True)
     rc1, rc2 = st.columns(2)
     with rc1:
         st.markdown("**Liquidity / Rates / Stress Engine**")
@@ -3108,8 +3479,28 @@ with t_risk:
                 st.markdown("**Top detractors**")
                 st.markdown(table_html(["Mkt", "Ticker", "Theme", "Driver", "Source"], us_neg + ih_neg), unsafe_allow_html=True)
     with rc4:
-        st.markdown("**Relative cross-check**")
-        st.markdown(table_html(["Lens", "Bias now", "Simple read", "If next wins"], build_relative_compact_rows()), unsafe_allow_html=True)
+        st.markdown("**Positioning / Narrative Overlay**")
+        st.markdown(f"<div class='small-muted'>{policy_overlay['proxy_note']}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='note-box'><b>{policy_overlay['headline']}</b></div>", unsafe_allow_html=True)
+        st.write("")
+        st.markdown(table_html(["Overlay lens", "Now", "Read", "How to use"], build_policy_overlay_metric_rows()), unsafe_allow_html=True)
+        if isinstance(policy_overlay.get('chart'), pd.DataFrame) and not policy_overlay['chart'].empty:
+            st.write("")
+            st.markdown("**Policy basket vs BTC / IWM / ARKK**")
+            st.line_chart(policy_overlay['chart'])
+        pr1, pr2 = st.columns(2)
+        with pr1:
+            st.markdown("**Policy-winner proxies / confirm first**")
+            st.markdown(table_html(["Proxy", "Edge", "State", "Read"], build_policy_proxy_rows('long')), unsafe_allow_html=True)
+        with pr2:
+            st.markdown("**Opposite leg / avoid first**")
+            st.markdown(table_html(["Proxy", "Edge", "State", "Read"], build_policy_proxy_rows('short')), unsafe_allow_html=True)
+        with st.expander("Cross-check / breadth / scenarios", expanded=False):
+            st.markdown(table_html(["Breadth / internal", "Now", "Read"], build_policy_overlay_breadth_rows()), unsafe_allow_html=True)
+            st.write("")
+            st.markdown(table_html(["Lens", "Bias now", "Simple read", "If next wins"], build_relative_compact_rows()), unsafe_allow_html=True)
+            st.write("")
+            st.markdown(table_html(["Scenario", "State now", "What confirms", "What invalidates"], build_policy_overlay_scenario_rows()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_commodity:
@@ -3139,6 +3530,13 @@ with t_details:
         st.markdown(table_html(["Risk item", "Now", "How to use"], build_crash_timing_rows(crash_now)), unsafe_allow_html=True)
         st.write("")
         st.markdown(table_html(["", "Quad", "Base read", "Usually works", "Main crash branch", "Base crash risk"], build_quad_scenario_matrix()), unsafe_allow_html=True)
+    with st.expander("Political / policy overlay methodology", expanded=False):
+        st.markdown(table_html(["Piece", "What it does", "Why it is not core"], [
+            ['Proxy basket', 'Replica long-short ETF basket for policy / narrative trade lens', 'Exact Citrini constituents are unknown, so this is a proxy overlay only.'],
+            ['Market-neutral clean return', 'De-betas long and short legs vs SPY', 'Helps remove broad-market noise, but does not replace macro regime math.'],
+            ['Cross-asset confirmation', 'Checks BTC / IWM / ARKK sync or divergence', 'Useful for crowding/liquidity read, not standalone entry timing.'],
+            ['Breadth sanity check', 'Tracks MA50/MA200 support on long vs short legs', 'Needed to avoid trusting narrow / fake strength.'],
+        ]), unsafe_allow_html=True)
     with st.expander("Scenario tree / debug notes", expanded=False):
         st.markdown(table_html(["Focus", "Read", "Why it matters"], build_decision_key_rows()), unsafe_allow_html=True)
         st.write("")
