@@ -227,19 +227,35 @@ input, textarea {
 
 /* Tabs */
 div[data-baseweb="tab-list"] {
-  gap: 0.45rem;
+  gap: 1rem;
+  border-bottom: 1px solid #22344d;
+  padding-bottom: .1rem;
 }
 button[data-baseweb="tab"] {
-  background: rgba(8,19,36,.85);
-  border:1px solid #22344f;
-  border-radius: 12px 12px 0 0;
-  color:#b8cbe4;
-  padding: 0.45rem 0.9rem;
+  position: relative;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: #b8cbe4;
+  padding: 0.2rem 0.1rem 0.9rem;
+}
+button[data-baseweb="tab"]:hover {
+  color: var(--text);
 }
 button[data-baseweb="tab"][aria-selected="true"] {
-  background: linear-gradient(180deg, rgba(20,35,63,.98), rgba(11,21,39,.98));
+  background: transparent;
   color: var(--text);
-  border-color:#36527b;
+  border: none;
+}
+button[data-baseweb="tab"][aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--red);
 }
 
 /* Horizontal rule / spacing helpers */
@@ -3393,9 +3409,11 @@ st.markdown("<div class='card'><div class='section-title'>Current / Next Winners
 st.markdown(table_html(['Window', 'Quad', 'Usually strong', 'Usually weak', 'Merged strong groups', 'Merged weak groups'], quad_matrix_rows(core, cur_stage)), unsafe_allow_html=True)
 st.markdown('</div>', unsafe_allow_html=True)
 
-# IMPACT BOARD
+# IMPACT BOARD (display-only layer; core engine and calculations stay unchanged)
 st.markdown('### Impact Board')
 impact_metric_label = impact_summary.get('impact_label', 'Δ MCap') if impact_summary else 'Δ MCap'
+if impact_summary and impact_summary.get('mode') == 'proxy_equal_weight':
+    impact_metric_label = 'EqW contrib'
 impact_mode_text = 'Real market-cap attribution' if impact_summary.get('mode') == 'market_cap' else ('Proxy mode: equal-weight contribution fallback' if impact_summary.get('mode') == 'proxy_equal_weight' else 'Macro proxy fallback: score-weighted impact')
 i_left, i_mid, i_right = st.columns([1.15, 1.15, 1.1])
 with i_left:
@@ -3520,7 +3538,7 @@ with m2:
     st.markdown(table_html(['Bucket','Watch','Why it matters'], [[r[0], r[1], r[3]] for r in build_macro_catalyst_rows(limit=5)]), unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
-# LONG / SHORT TICKER SCORE
+# LONG / SHORT TICKER SCORE (display-only layer; uses existing score outputs)
 st.markdown('### Long / Short Ticker Score')
 market_payloads = [
     ('US', us_score_df, watch_us_score_df, watchlist_us, us_universe),
@@ -3540,9 +3558,6 @@ def render_market_panels(label: str, df: pd.DataFrame, watch_score_df: pd.DataFr
         st.markdown(f"<div class='card'><div class='section-title'>Top Short Candidates • {label}</div>", unsafe_allow_html=True)
         st.markdown(table_html(['Ticker','Bias','Long','Short','Cluster','Comment'], score_rows_for_display(df, 'short', show_count)), unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown(f"<div class='card'><div class='section-title'>Exact Watchlist • {label}</div>", unsafe_allow_html=True)
-    st.markdown(table_html(['Ticker','Bias','Long','Short','State','Cluster','Comment'], exact_rows_for_display(watch_score_df, watchlist, max(show_count, len(watchlist) if watchlist else show_count))), unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
 
 if region_mode == 'All markets':
     tabs = st.tabs([x[0] for x in market_payloads])
@@ -3573,6 +3588,9 @@ with st.expander('Show supporting tables that still matter', expanded=False):
                 st.write('')
                 st.markdown(f"<div class='section-title'>Coverage / diagnostics</div>", unsafe_allow_html=True)
                 st.markdown(table_html(['Coverage','Missing examples'], coverage_rows(universe, df)), unsafe_allow_html=True)
+                st.write('')
+                st.markdown(f"<div class='section-title'>Exact Watchlist</div>", unsafe_allow_html=True)
+                st.markdown(table_html(['Ticker','Bias','Long','Short','State','Cluster','Comment'], exact_rows_for_display(_watch_score, _watchlist, max(show_count, len(_watchlist) if _watchlist else show_count))), unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
 
 with st.expander('Show merged engine details that still matter', expanded=False):
