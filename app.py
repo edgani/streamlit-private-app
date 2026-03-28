@@ -725,6 +725,9 @@ def compute_core() -> Dict[str, object]:
     next_q, next_p = ranked[1]
     alt_next_q, alt_next_p = next_q, next_p
 
+    # Broad participation summary used by transition logic and later risk/read blocks.
+    breadth = 0.34 * growth_pos_breadth + 0.26 * infl_off_pos_breadth + 0.20 * cross_growth_pos_breadth + 0.20 * cross_infl_pos_breadth
+
     # Stabilize the displayed "next" path so it does not flip too easily on noisy live inputs.
     # We keep the raw model runner-up in model_next_q/model_next_p above, but use a structure-aware
     # next leg for downstream playbooks and dashboard text.
@@ -755,7 +758,6 @@ def compute_core() -> Dict[str, object]:
     confidence = clamp01(0.52 * current_p + 0.22 * agreement + 0.26 * max(live_p, directional_p))
 
     phase_strength = clamp01(0.34 * abs(g_live) + 0.34 * abs(i_live) + 0.18 * max(0.0, current_p - 0.25) + 0.14 * q3_live_pressure)
-    breadth = 0.34 * growth_pos_breadth + 0.26 * infl_off_pos_breadth + 0.20 * cross_growth_pos_breadth + 0.20 * cross_infl_pos_breadth
     regime_divergence = abs(g_live - g_off) + abs(i_live - i_off)
     fragility = clamp01(
         0.34 * (1 - current_p)
