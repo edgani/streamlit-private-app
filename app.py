@@ -634,6 +634,237 @@ def iwm_read() -> str:
         return "Small-cap stress"
     return "Mixed"
 
+
+
+def _series_percentile_score(s: pd.Series, invert: bool = False, lookback: int = 756) -> float:
+    s = s.dropna()
+    if len(s) < 30:
+        return 0.5
+    hist = s.iloc[-lookback:] if len(s) > lookback else s
+    last = hist.iloc[-1]
+    rank = float((hist <= last).mean())
+    score = 1.0 - rank if invert else rank
+    return clamp01(score ** 1.5)
+
+
+def _distance_below_ma_score(s: pd.Series, window: int = 200, scale: float = 0.18) -> float:
+    s = s.dropna()
+    if len(s) < window + 5:
+        return 0.5
+    ma = s.rolling(window).mean().iloc[-1]
+    if not np.isfinite(ma) or ma == 0:
+        return 0.5
+    dist = float((s.iloc[-1] - ma) / ma)
+    return clamp01(max(0.0, -dist) / scale)
+
+
+def _drawdown_score(s: pd.Series, window: int = 63, scale: float = 0.20) -> float:
+    s = s.dropna()
+    if len(s) < window:
+        return 0.5
+    peak = float(s.iloc[-window:].max())
+    if peak <= 0:
+        return 0.5
+    dd = 1.0 - float(s.iloc[-1] / peak)
+    return clamp01(dd / scale)
+
+
+def _failed_rebound_score(s: pd.Series) -> float:
+    s = s.dropna()
+    if len(s) < 220:
+        return 0.5
+    ma50 = s.rolling(50).mean()
+    ma200 = s.rolling(200).mean()
+    last = float(s.iloc[-1])
+    m50 = float(ma50.iloc[-1])
+    m200 = float(ma200.iloc[-1])
+    recent = s.iloc[-30:]
+    bounce = float(recent.max() / max(s.iloc[-90:-30].min(), 1e-9) - 1)
+    score = 0.0
+    if last < m200:
+        score += 0.35
+    if last < m50:
+        score += 0.20
+    if bounce > 0.06 and last < recent.max() * 0.97:
+        score += 0.25
+    if recent.iloc[-1] < recent.iloc[0]:
+        score += 0.20
+    return clamp01(score)
+
+
+def _term_structure_score(vix9d: pd.Series, vix3m: pd.Series) -> float:
+    if vix9d.empty or vix3m.empty:
+        return 0.5
+    pair = pd.concat([vix9d.rename('v9'), vix3m.rename('v3')], axis=1).dropna()
+    if len(pair) < 30:
+        return 0.5
+    ratio = pair['v9'] / pair['v3']
+    return _series_percentile_score(ratio, invert=False)
+
+
+def _binary_flag(x: bool, on: float = 1.0, off: float = 0.0) -> float:
+    return on if x else off
+
+
+def _zone_from_score(x: float) -> str:
+    if x <= 25:
+        return 'Normal'
+    if x <= 40:
+        return 'Risk-off light'
+    if x <= 55:
+        return 'Elevated stress'
+    if x <= 70:
+        return 'High crash risk'
+    if x <= 85:
+        return 'Severe crash setup'
+    return 'Extreme crash regime'
+
+
+def _riskoff_zone(x: float) -> str:
+    if x <= 25:
+        return 'Normal'
+    if x <= 45:
+        return 'Caution'
+    if x <= 65:
+        return 'Risk-off'
+    if x <= 80:
+        return 'Heavy de-risking'
+    return 'Panic / unwind'
+
+
+def compute_riskoff_and_crash() -> Dict[str, object]:
+    spy = yahoo_close('SPY', '3y')
+    iwm = yahoo_close('IWM', '3y')
+    rsp = yahoo_close('RSP', '3y')
+    hyg = yahoo_close('HYG', '3y')
+    lqd = yahoo_close('LQD', '3y')
+    vix = yahoo_close('^VIX', '3y')
+    vvix = yahoo_close('^VVIX', '3y')
+    vix9d = yahoo_close('^VIX9D', '3y')
+    vix3m = yahoo_close('^VIX3M', '3y')
+
+    # Russell / small caps stress (15)
+    r_ratio = pd.concat([iwm.rename('iwm'), spy.rename('spy')], axis=1).dropna()
+    r_ratio_s = (r_ratio['iwm'] / r_ratio['spy']) if not r_ratio.empty else pd.Series(dtype=float)
+    r1 = _series_percentile_score(np.log(r_ratio_s.replace(0, np.nan)).dropna(), invert=True) if not r_ratio_s.empty else 0.5
+    r2 = _distance_below_ma_score(iwm, 200, 0.18)
+    r3 = _drawdown_score(iwm, 63, 0.22)
+    r4 = _failed_rebound_score(iwm)
+    R = 15 * (0.35*r1 + 0.25*r2 + 0.20*r3 + 0.20*r4)
+
+    # Breadth damage (20) via breadth proxies
+    b1 = clamp01((1.0 - core['breadth']) ** 1.2)
+    rspr = pd.concat([rsp.rename('rsp'), spy.rename('spy')], axis=1).dropna()
+    rspr_s = (rspr['rsp'] / rspr['spy']) if not rspr.empty else pd.Series(dtype=float)
+    b2 = _series_percentile_score(np.log(rspr_s.replace(0, np.nan)).dropna(), invert=True) if not rspr_s.empty else 0.5
+    b3 = _binary_flag((not spy.empty and _distance_below_ma_score(spy, 50, 0.10) > 0.45), 0.8, 0.2)
+    b4 = _binary_flag((not iwm.empty and _distance_below_ma_score(iwm, 50, 0.10) > 0.55), 0.9, 0.2)
+    B = 20 * (0.30*b1 + 0.25*b2 + 0.25*b3 + 0.20*b4)
+
+    # Volatility complex (20)
+    v1 = _series_percentile_score(vix, invert=False)
+    v2 = _series_percentile_score(vvix, invert=False) if not vvix.empty else min(1.0, v1 + 0.1)
+    skew_s = SER['SKEW'].dropna()
+    raw_skew = _series_percentile_score(skew_s, invert=False) if not skew_s.empty else 0.5
+    v3 = raw_skew * (0.5 + 0.5 * _binary_flag(v1 > 0.55 or b1 > 0.55, 1.0, 0.0))
+    v4 = _term_structure_score(vix9d, vix3m)
+    V = 20 * (0.30*v1 + 0.30*v2 + 0.15*v3 + 0.25*v4)
+
+    # Credit / liquidity stress (15)
+    hy = SER['HY'].dropna()
+    nfci = SER['NFCI'].dropna()
+    c1 = _series_percentile_score(hy, invert=False) if not hy.empty else 0.5
+    hl = pd.concat([hyg.rename('hyg'), lqd.rename('lqd')], axis=1).dropna()
+    hl_s = (hl['hyg'] / hl['lqd']) if not hl.empty else pd.Series(dtype=float)
+    c2 = _series_percentile_score(np.log(hl_s.replace(0, np.nan)).dropna(), invert=True) if not hl_s.empty else 0.5
+    c3 = _series_percentile_score(nfci, invert=False) if not nfci.empty else 0.5
+    C = 15 * (0.40*c1 + 0.30*c2 + 0.30*c3)
+
+    # Trend / structure failure (10)
+    t1 = _binary_flag((not spy.empty and (_distance_below_ma_score(spy, 50, 0.10) > 0.35 or _distance_below_ma_score(spy, 200, 0.15) > 0.25)), 0.85, 0.15)
+    t2 = _failed_rebound_score(spy)
+    t3 = clamp01((_drawdown_score(spy, 21, 0.10) + _drawdown_score(spy, 63, 0.18)) / 2.0)
+    T = 10 * (0.35*t1 + 0.35*t2 + 0.30*t3)
+
+    # Macro / rates / dollar pressure (10)
+    dxy = SER['USD'].dropna()
+    real10 = SER['REAL10Y'].dropna()
+    m1 = _series_percentile_score(dxy, invert=False) if not dxy.empty else 0.5
+    m2 = _series_percentile_score(real10, invert=False) if not real10.empty else 0.5
+    m3 = _series_percentile_score(real10.diff(20).dropna(), invert=False) if len(real10) > 30 else 0.5
+    M = 10 * (0.35*m1 + 0.35*m2 + 0.30*m3)
+
+    # Sentiment / fear & greed (10)
+    fg_stress = clamp01((100 - fg_score) / 100) ** 1.2
+    # proxy hedge demand if no put/call: use VIX percentile lightly
+    pcr_proxy = 0.5 * v1 + 0.5 * _binary_flag(fg_score < 25 or fg_score > 80, 1.0, 0.2)
+    S = 10 * (0.60*fg_stress + 0.40*clamp01(pcr_proxy))
+
+    big_raw = R + B + V + C + T + M + S
+    core_blocks = {
+        'Russell / small caps': R,
+        'Breadth damage': B,
+        'Vol complex': V,
+        'Credit / liquidity': C,
+    }
+    core_confirm = sum([
+        R >= 9.0,
+        B >= 12.0,
+        V >= 12.0,
+        C >= 9.0,
+    ])
+    gate_mult = 1.0 if core_confirm >= 3 else (0.88 if core_confirm == 2 else 0.72)
+    big_crash = clamp01((big_raw * gate_mult) / 100.0) * 100.0
+
+    # Risk-off meter uses lighter/earlier layers
+    ro_fg = 12 * fg_stress
+    ro_vix = 18 * v1
+    ro_dxy = 12 * m1
+    ro_rates = 12 * ((m2 + m3) / 2.0)
+    ro_breadth = 18 * b1
+    ro_russell = 14 * ((r1 + r2) / 2.0)
+    ro_def = 14 * clamp01((B/20 + T/10) / 2.0)
+    risk_off = min(100.0, ro_fg + ro_vix + ro_dxy + ro_rates + ro_breadth + ro_russell + ro_def)
+
+    riskoff_breakdown = [
+        ['Fear & Greed', f'{ro_fg:.1f}', 'Risk-off core'],
+        ['VIX / vol', f'{ro_vix:.1f}', 'Risk-off core'],
+        ['DXY stress', f'{ro_dxy:.1f}', 'Risk-off overlap'],
+        ['Rates / real yields', f'{ro_rates:.1f}', 'Risk-off overlap'],
+        ['Breadth narrowing', f'{ro_breadth:.1f}', 'Risk-off core'],
+        ['Russell weakness', f'{ro_russell:.1f}', 'Risk-off overlap'],
+        ['Defensive rotation / structure', f'{ro_def:.1f}', 'Risk-off overlap'],
+    ]
+    crash_breakdown = [
+        ['Russell / small caps', f'{R:.1f} / 15', 'Crash core'],
+        ['Breadth damage', f'{B:.1f} / 20', 'Crash core'],
+        ['Vol complex', f'{V:.1f} / 20', 'Crash core'],
+        ['Credit / liquidity', f'{C:.1f} / 15', 'Crash core'],
+        ['Trend / structure', f'{T:.1f} / 10', 'Crash overlap'],
+        ['Macro / rates / dollar', f'{M:.1f} / 10', 'Crash overlap'],
+        ['Sentiment / Fear & Greed', f'{S:.1f} / 10', 'Supporting'],
+    ]
+    core_gate_rows = []
+    for name, score, maxv in [
+        ('Russell / small caps', R, 15.0),
+        ('Breadth damage', B, 20.0),
+        ('Vol complex', V, 20.0),
+        ('Credit / liquidity', C, 15.0),
+    ]:
+        state = 'Confirmed' if score >= 0.60 * maxv else ('Warning' if score >= 0.45 * maxv else 'Not confirmed')
+        core_gate_rows.append([name, f'{score:.1f} / {maxv:.0f}', state])
+
+    return {
+        'risk_off': risk_off,
+        'risk_off_zone': _riskoff_zone(risk_off),
+        'big_crash': big_crash,
+        'big_crash_zone': _zone_from_score(big_crash),
+        'core_confirm_count': int(core_confirm),
+        'riskoff_breakdown': riskoff_breakdown,
+        'crash_breakdown': crash_breakdown,
+        'core_gate_rows': core_gate_rows,
+    }
+
 fg_score, fg_vibe = fear_greed_value()
 iwm_overlay = iwm_read()
 risk_meter = compute_riskoff_and_crash()
