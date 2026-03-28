@@ -2672,52 +2672,98 @@ def compute_impact_table(tickers: List[str], period: str = '5d') -> pd.DataFrame
         prices = pd.concat(frames, axis=1).sort_index() if frames else pd.DataFrame()
     if prices.empty:
         return pd.DataFrame()
+
+    # Prefer real market-cap attribution, but never leave the board empty.
     caps = yahoo_market_caps(tuple(tickers))
-    total_cap = float(sum(caps.values())) if caps else 0.0
-    rows = []
+    cap_cov = len(caps) / max(1, len(tickers))
+    use_cap = len(caps) >= max(5, int(0.35 * len(tickers))) and cap_cov >= 0.35
+    impact_mode = 'market_cap' if use_cap else 'proxy_equal_weight'
+    impact_label = 'Δ MCap' if use_cap else 'EqW contrib'
+    impact_unit = 'B' if use_cap else '%'
+
+    valid = []
     for t in tickers:
-        if t not in prices.columns or t not in caps:
+        if t not in prices.columns:
             continue
         s = pd.to_numeric(prices[t], errors='coerce').dropna()
         if len(s) < 2:
             continue
         prev = float(s.iloc[-2]); last = float(s.iloc[-1])
-        if prev <= 0:
-            continue
-        ret = last / prev - 1.0
-        impact_b = caps[t] * ret / 1e9
-        wt = caps[t] / total_cap if total_cap > 0 else np.nan
-        rows.append({
-            'Ticker': t,
-            'DailyRet': ret,
-            'ImpactB': impact_b,
-            'Weight': wt,
-            'IndexContributionPct': 100.0 * wt * ret if np.isfinite(wt) else np.nan,
-            'MarketCap': caps[t],
-        })
+        if prev > 0:
+            valid.append((t, last / prev - 1.0))
+    if not valid:
+        return pd.DataFrame()
+
+    if use_cap:
+        usable_caps = {t: float(caps[t]) for t, _ in valid if t in caps and np.isfinite(float(caps[t])) and float(caps[t]) > 0}
+        if len(usable_caps) < max(5, int(0.35 * len(valid))):
+            use_cap = False
+            impact_mode = 'proxy_equal_weight'
+            impact_label = 'EqW contrib'
+            impact_unit = '%'
+
+    rows = []
+    if use_cap:
+        total_cap = float(sum(usable_caps.values()))
+        for t, ret in valid:
+            if t not in usable_caps:
+                continue
+            wt = usable_caps[t] / total_cap if total_cap > 0 else np.nan
+            impact_val = usable_caps[t] * ret / 1e9
+            rows.append({
+                'Ticker': t,
+                'DailyRet': ret,
+                'ImpactVal': impact_val,
+                'Weight': wt,
+                'IndexContributionPct': 100.0 * wt * ret if np.isfinite(wt) else np.nan,
+                'MarketCap': usable_caps[t],
+                'ImpactMode': impact_mode,
+                'ImpactLabel': impact_label,
+                'ImpactUnit': impact_unit,
+            })
+    else:
+        n = len(valid)
+        for t, ret in valid:
+            wt = 1.0 / max(1, n)
+            impact_val = 100.0 * wt * ret
+            rows.append({
+                'Ticker': t,
+                'DailyRet': ret,
+                'ImpactVal': impact_val,
+                'Weight': wt,
+                'IndexContributionPct': 100.0 * wt * ret,
+                'MarketCap': np.nan,
+                'ImpactMode': impact_mode,
+                'ImpactLabel': impact_label,
+                'ImpactUnit': impact_unit,
+            })
     if not rows:
         return pd.DataFrame()
-    return pd.DataFrame(rows).sort_values('ImpactB', ascending=False).reset_index(drop=True)
+    return pd.DataFrame(rows).sort_values('ImpactVal', ascending=False).reset_index(drop=True)
 
 
 def impact_summary_from_df(df: pd.DataFrame) -> Dict[str, float]:
     if df is None or df.empty:
         return {}
-    total_abs = float(df['ImpactB'].abs().sum())
-    concentration = float(df['ImpactB'].abs().nlargest(3).sum() / total_abs) if total_abs > 0 else 0.0
+    total_abs = float(df['ImpactVal'].abs().sum())
+    concentration = float(df['ImpactVal'].abs().nlargest(3).sum() / total_abs) if total_abs > 0 else 0.0
+    mode = str(df['ImpactMode'].iloc[0]) if 'ImpactMode' in df.columns and len(df) else 'market_cap'
     return {
+        'mode': mode,
+        'impact_label': str(df['ImpactLabel'].iloc[0]) if 'ImpactLabel' in df.columns and len(df) else ('Δ MCap' if mode == 'market_cap' else 'EqW contrib'),
         'advancers': float((df['DailyRet'] > 0).mean()),
         'equal_weight_return': float(df['DailyRet'].mean()),
         'cap_weight_return': float(100.0 * (df['DailyRet'] * df['Weight']).sum()),
         'concentration': concentration,
-        'bag7_impact': float(df[df['Ticker'].isin(BAG7)]['ImpactB'].sum()),
-        'old_wall_impact': float(df[df['Ticker'].isin(OLD_WALL)]['ImpactB'].sum()),
+        'bag7_impact': float(df[df['Ticker'].isin(BAG7)]['ImpactVal'].sum()),
+        'old_wall_impact': float(df[df['Ticker'].isin(OLD_WALL)]['ImpactVal'].sum()),
     }
 
 
 def basket_showdown_rows(df: pd.DataFrame) -> List[List[str]]:
     if df is None or df.empty:
         return [['No data','-','-','-','-','-']]
+    unit = str(df['ImpactUnit'].iloc[0]) if 'ImpactUnit' in df.columns and len(df) else 'B'
     universe = set(df['Ticker'])
     baskets = [
         ('Bag7', [t for t in BAG7 if t in universe]),
@@ -2730,10 +2776,11 @@ def basket_showdown_rows(df: pd.DataFrame) -> List[List[str]]:
         sub = df[df['Ticker'].isin(members)]
         if sub.empty:
             continue
+        impact_text = f"{sub['ImpactVal'].sum():+.2f}%" if unit == '%' else f"{sub['ImpactVal'].sum():+.1f}B"
         rows.append([
             name,
             str(int(len(sub))),
-            f"{sub['ImpactB'].sum():+.1f}B",
+            impact_text,
             f"{sub['IndexContributionPct'].sum():+.2f}%",
             f"{100*sub['DailyRet'].mean():+.2f}%",
             pct(float(sub['Weight'].sum())) if sub['Weight'].notna().any() else '-',
@@ -2744,17 +2791,81 @@ def basket_showdown_rows(df: pd.DataFrame) -> List[List[str]]:
 def theme_impact_rows(df: pd.DataFrame, mapping: Dict[str, set]) -> List[List[str]]:
     if df is None or df.empty:
         return [['No data','-','-','-','-']]
+    unit = str(df['ImpactUnit'].iloc[0]) if 'ImpactUnit' in df.columns and len(df) else 'B'
     work = df.copy()
     work['ThemeCluster'] = work['Ticker'].apply(lambda x: _cluster_from_bucket(_macro_bucket_for_ticker(str(x), 'US', _theme_from_tags(str(x), mapping)), 'US'))
     agg = (
         work.groupby('ThemeCluster', as_index=False)
-        .agg(Names=('Ticker', 'count'), ImpactB=('ImpactB', 'sum'), AvgRet=('DailyRet', 'mean'), Weight=('Weight','sum'))
-        .sort_values('ImpactB', ascending=False)
+        .agg(Names=('Ticker', 'count'), ImpactVal=('ImpactVal', 'sum'), AvgRet=('DailyRet', 'mean'), Weight=('Weight','sum'))
+        .sort_values('ImpactVal', ascending=False)
     )
     rows = []
     for _, r in agg.iterrows():
-        rows.append([r['ThemeCluster'], str(int(r['Names'])), f"{r['ImpactB']:+.1f}B", f"{100*r['AvgRet']:+.2f}%", pct(float(r['Weight']))])
+        impact_text = f"{r['ImpactVal']:+.2f}%" if unit == '%' else f"{r['ImpactVal']:+.1f}B"
+        rows.append([r['ThemeCluster'], str(int(r['Names'])), impact_text, f"{100*r['AvgRet']:+.2f}%", pct(float(r['Weight']))])
     return rows or [['No data','-','-','-','-']]
+
+
+def fallback_rank_from_prices(tickers: List[str], benchmark_ticker: str, period: str = "6mo", fallback_benchmark: str | None = None) -> pd.DataFrame:
+    tickers = [t for t in tickers if t]
+    if not tickers:
+        return pd.DataFrame()
+    fetch = _dedupe_keep([benchmark_ticker] + tickers + ([fallback_benchmark] if fallback_benchmark else []))
+    prices = yahoo_close_batch(fetch, period)
+    if prices.empty:
+        frames = []
+        for ticker in fetch:
+            s = yahoo_close(ticker, period)
+            if not s.empty:
+                frames.append(s.rename(ticker))
+        prices = pd.concat(frames, axis=1).sort_index() if frames else pd.DataFrame()
+    if prices.empty:
+        return pd.DataFrame()
+    prices = prices.sort_index().ffill().dropna(how='all')
+
+    bench = pd.Series(dtype=float)
+    for name in [benchmark_ticker, fallback_benchmark]:
+        if name and name in prices.columns:
+            s = pd.to_numeric(prices[name], errors='coerce').dropna()
+            if len(s) >= 15:
+                bench = s
+                break
+    if bench.empty:
+        cols = [c for c in tickers if c in prices.columns]
+        basket_parts = []
+        for c in cols:
+            s = pd.to_numeric(prices[c], errors='coerce').dropna()
+            if len(s) >= 15:
+                basket_parts.append((s / s.iloc[0]).rename(c))
+        if basket_parts:
+            bench = pd.concat(basket_parts, axis=1).dropna(how='all').mean(axis=1).dropna()
+    if bench.empty:
+        return pd.DataFrame()
+
+    rows = []
+    for ticker in tickers:
+        if ticker not in prices.columns:
+            continue
+        s = pd.to_numeric(prices[ticker], errors='coerce').dropna()
+        df = pd.concat([s.rename('asset'), bench.rename('bench')], axis=1).sort_index().ffill().dropna()
+        if len(df) < 15:
+            continue
+        asset = df['asset']; bm = df['bench']
+        r21, r63, r126 = ret_n(asset, 21), ret_n(asset, min(63, max(21, len(asset)-1))), ret_n(asset, min(126, max(21, len(asset)-1)))
+        b21, b63, b126 = ret_n(bm, 21), ret_n(bm, min(63, max(21, len(bm)-1))), ret_n(bm, min(126, max(21, len(bm)-1)))
+        alpha21, alpha63, alpha126 = r21 - b21, r63 - b63, r126 - b126
+        trend = _trend_score(asset)
+        accel = alpha21 - 0.45 * alpha63
+        rs_score = clamp01(0.40 * _norm_tanh(alpha21, 0.08) + 0.35 * _norm_tanh(alpha63, 0.15) + 0.25 * max(trend, 0.30))
+        start_score = clamp01(0.40 * _norm_tanh(accel, 0.08) + 0.30 * _norm_tanh(r21, 0.12) + 0.30 * max(trend, 0.25))
+        state = _lead_state(alpha21, alpha63, alpha126, max(trend, 0.25))
+        comment = _lead_comment(state, alpha21, alpha63, max(trend, 0.25))
+        rows.append({
+            'Ticker': ticker, 'Benchmark': 'FALLBACK', 'State': state, 'RSScore': rs_score, 'StartScore': start_score,
+            'Alpha21': alpha21, 'Alpha63': alpha63, 'Alpha126': alpha126, 'Ret21': r21, 'Ret63': r63,
+            'Trend': max(trend, 0.25), 'Comment': comment, 'Bars': len(df)
+        })
+    return pd.DataFrame(rows).sort_values(['RSScore','StartScore','Alpha21'], ascending=False).reset_index(drop=True) if rows else pd.DataFrame()
 
 
 def market_score_payload(market: str, universe: List[str], watchlist: List[str], benchmark: str, fallback: str | None = None, suffix: str = '') -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -2763,6 +2874,8 @@ def market_score_payload(market: str, universe: List[str], watchlist: List[str],
         rank_df = rank_market_leaders(universe, benchmark_ticker=benchmark, period='6mo', fallback_benchmark=fallback)
     if rank_df.empty and fallback:
         rank_df = rank_market_leaders(universe, benchmark_ticker=fallback, period='6mo', fallback_benchmark=benchmark)
+    if rank_df.empty:
+        rank_df = fallback_rank_from_prices(universe, benchmark_ticker=benchmark, period='6mo', fallback_benchmark=fallback)
     score_df = score_ticker_table(rank_df, market, core) if not rank_df.empty else pd.DataFrame()
     watch = _dedupe_keep(watchlist)
     if watch:
@@ -2771,6 +2884,8 @@ def market_score_payload(market: str, universe: List[str], watchlist: List[str],
             w_rank = rank_market_leaders(watch, benchmark_ticker=benchmark, period='6mo', fallback_benchmark=fallback)
         if w_rank.empty and fallback:
             w_rank = rank_market_leaders(watch, benchmark_ticker=fallback, period='6mo', fallback_benchmark=benchmark)
+        if w_rank.empty:
+            w_rank = fallback_rank_from_prices(watch, benchmark_ticker=benchmark, period='6mo', fallback_benchmark=fallback)
         w_score = score_ticker_table(w_rank, market, core) if not w_rank.empty else pd.DataFrame()
     else:
         w_score = pd.DataFrame()
@@ -2980,37 +3095,46 @@ st.markdown('</div>', unsafe_allow_html=True)
 
 # IMPACT BOARD
 st.markdown('### Impact Board')
+impact_metric_label = impact_summary.get('impact_label', 'Δ MCap') if impact_summary else 'Δ MCap'
+impact_mode_text = 'Real market-cap attribution' if impact_summary.get('mode') == 'market_cap' else 'Proxy mode: equal-weight contribution fallback'
 i_left, i_mid, i_right = st.columns([1.15, 1.15, 1.1])
 with i_left:
     st.markdown("<div class='card'><div class='section-title'>Largest Positive Impact</div>", unsafe_allow_html=True)
     if impact_df.empty:
-        st.info('No impact data available from Yahoo / market cap feed.')
+        st.info('No impact data available.')
     else:
-        pos = impact_df.sort_values('ImpactB', ascending=False).head(show_count)
-        rows = [[r['Ticker'], f"{100*r['DailyRet']:+.2f}%", f"{r['ImpactB']:+.1f}B", pct(float(r['Weight']))] for _, r in pos.iterrows()]
-        st.markdown(table_html(['Ticker', '1D', 'Δ MCap', 'Weight'], rows), unsafe_allow_html=True)
+        pos = impact_df.sort_values('ImpactVal', ascending=False).head(show_count)
+        def _impact_fmt(v):
+            return f"{v:+.2f}%" if impact_summary.get('mode') != 'market_cap' else f"{v:+.1f}B"
+        rows = [[r['Ticker'], f"{100*r['DailyRet']:+.2f}%", _impact_fmt(float(r['ImpactVal'])), pct(float(r['Weight']))] for _, r in pos.iterrows()]
+        st.markdown(table_html(['Ticker', '1D', impact_metric_label, 'Weight'], rows), unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 with i_mid:
     st.markdown("<div class='card'><div class='section-title'>Largest Negative Impact</div>", unsafe_allow_html=True)
     if impact_df.empty:
-        st.info('No impact data available from Yahoo / market cap feed.')
+        st.info('No impact data available.')
     else:
-        neg = impact_df.sort_values('ImpactB', ascending=True).head(show_count)
-        rows = [[r['Ticker'], f"{100*r['DailyRet']:+.2f}%", f"{r['ImpactB']:+.1f}B", pct(float(r['Weight']))] for _, r in neg.iterrows()]
-        st.markdown(table_html(['Ticker', '1D', 'Δ MCap', 'Weight'], rows), unsafe_allow_html=True)
+        neg = impact_df.sort_values('ImpactVal', ascending=True).head(show_count)
+        def _impact_fmt(v):
+            return f"{v:+.2f}%" if impact_summary.get('mode') != 'market_cap' else f"{v:+.1f}B"
+        rows = [[r['Ticker'], f"{100*r['DailyRet']:+.2f}%", _impact_fmt(float(r['ImpactVal'])), pct(float(r['Weight']))] for _, r in neg.iterrows()]
+        st.markdown(table_html(['Ticker', '1D', impact_metric_label, 'Weight'], rows), unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 with i_right:
     st.markdown("<div class='card'><div class='section-title'>Breadth & Basket Read</div>", unsafe_allow_html=True)
     if not impact_summary:
         st.info('No summary available.')
     else:
+        bag7_text = f"{impact_summary['bag7_impact']:+.2f}%" if impact_summary.get('mode') != 'market_cap' else f"{impact_summary['bag7_impact']:+.1f}B"
+        old_wall_text = f"{impact_summary['old_wall_impact']:+.2f}%" if impact_summary.get('mode') != 'market_cap' else f"{impact_summary['old_wall_impact']:+.1f}B"
         summary_rows = [
+            ['Impact mode', impact_mode_text],
             ['Advancers', pct(impact_summary['advancers'])],
             ['Equal-weight return', f"{100*impact_summary['equal_weight_return']:+.2f}%"],
-            ['Cap-weight return', f"{impact_summary['cap_weight_return']:+.2f}%"],
+            ['Weighted return', f"{impact_summary['cap_weight_return']:+.2f}%"],
             ['Top-3 impact concentration', pct(impact_summary['concentration'])],
-            ['Bag7 impact', f"{impact_summary['bag7_impact']:+.1f}B"],
-            ['Old Wall impact', f"{impact_summary['old_wall_impact']:+.1f}B"],
+            ['Bag7 impact', bag7_text],
+            ['Old Wall impact', old_wall_text],
         ]
         st.markdown(table_html(['Metric', 'Read'], summary_rows), unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
@@ -3019,11 +3143,11 @@ if not impact_df.empty:
     impact_extra_cols = st.columns([1.1, 1.1])
     with impact_extra_cols[0]:
         st.markdown("<div class='card'><div class='section-title'>Basket Showdown</div>", unsafe_allow_html=True)
-        st.markdown(table_html(['Basket', 'Names', 'Δ MCap', 'Idx contrib', 'Avg 1D', 'Weight'], basket_showdown_rows(impact_df)), unsafe_allow_html=True)
+        st.markdown(table_html(['Basket', 'Names', impact_metric_label, 'Idx contrib', 'Avg 1D', 'Weight'], basket_showdown_rows(impact_df)), unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
     with impact_extra_cols[1]:
         st.markdown("<div class='card'><div class='section-title'>Merged Correlated Impact</div>", unsafe_allow_html=True)
-        st.markdown(table_html(['Cluster', 'Names', 'Δ MCap', 'Avg 1D', 'Weight'], theme_impact_rows(impact_df, US_THEME_TAGS)), unsafe_allow_html=True)
+        st.markdown(table_html(['Cluster', 'Names', impact_metric_label, 'Avg 1D', 'Weight'], theme_impact_rows(impact_df, US_THEME_TAGS)), unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
 # SIGNAL BOARD
@@ -3162,7 +3286,8 @@ with st.expander('Show supporting tables that still matter', expanded=False):
                 st.markdown('</div>', unsafe_allow_html=True)
 
 with st.expander('Show merged engine details that still matter', expanded=False):
-    detail_tabs = st.tabs(['Decision snapshot','Cross-asset bias','Risk / relative','Details'])
+    st.markdown("<div class='small-muted'>Read order: 1) Decision snapshot → 2) Cross-asset bias → 3) Risk / relative → 4) Details.</div>", unsafe_allow_html=True)
+    detail_tabs = st.tabs(['1) Decision snapshot','2) Cross-asset bias','3) Risk / relative','4) Details'])
     with detail_tabs[0]:
         st.markdown("<div class='card'><div class='section-title'>Decision Snapshot</div>", unsafe_allow_html=True)
         st.markdown(table_html(['Focus','Read','Why it matters'], build_decision_key_rows()), unsafe_allow_html=True)
