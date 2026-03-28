@@ -259,24 +259,55 @@ def _clean_tickers(raw: str, suffix: str = "") -> List[str]:
 def _coerce_series(obj, name: str = "value") -> pd.Series:
     if obj is None:
         return pd.Series(dtype=float, name=name)
+
     if isinstance(obj, pd.DataFrame):
         if obj.empty:
             return pd.Series(dtype=float, name=name)
         if name in obj.columns:
-            obj = obj[name]
+            sel = obj.loc[:, name]
+            obj = sel.iloc[:, 0] if isinstance(sel, pd.DataFrame) else sel
         else:
             obj = obj.iloc[:, 0]
-    if not isinstance(obj, pd.Series):
-        obj = pd.Series(obj)
-    s = pd.to_numeric(obj, errors="coerce").dropna()
+
+    if isinstance(obj, pd.Series):
+        s = obj.copy()
+    else:
+        arr = np.asarray(obj)
+        if arr.size == 0:
+            return pd.Series(dtype=float, name=name)
+        if arr.ndim == 0:
+            s = pd.Series([arr.item()])
+        elif arr.ndim == 1:
+            s = pd.Series(arr)
+        else:
+            # Defensive fallback for duplicated columns / 2D slices from pandas.
+            s = pd.Series(arr[:, 0])
+
+    s = pd.to_numeric(s, errors="coerce").dropna()
     s.name = name
     return s
 
 
 def _get_col_as_series(df: pd.DataFrame, col: str) -> pd.Series:
-    if df is None or df.empty or col not in df.columns:
+    if df is None or df.empty:
         return pd.Series(dtype=float, name=col)
-    return _coerce_series(df.loc[:, col], col)
+
+    if isinstance(df.columns, pd.MultiIndex):
+        last_level = df.columns.get_level_values(-1)
+        if col in last_level:
+            sel = df.loc[:, last_level == col]
+            return _coerce_series(sel, col)
+        first_level = df.columns.get_level_values(0)
+        if col in first_level:
+            sel = df.loc[:, first_level == col]
+            return _coerce_series(sel, col)
+        return pd.Series(dtype=float, name=col)
+
+    if col not in df.columns:
+        return pd.Series(dtype=float, name=col)
+
+    sel = df.loc[:, col]
+    return _coerce_series(sel, col)
 
 
 def _period_to_range(period: str) -> str:
@@ -371,6 +402,19 @@ def yahoo_close_batch(tickers: List[str], period: str = "1y") -> pd.DataFrame:
     tickers = [t for t in tickers if t]
     if not tickers:
         return pd.DataFrame()
+
+    def _flatten_cols(df: pd.DataFrame) -> pd.DataFrame:
+        if df is None or df.empty:
+            return pd.DataFrame()
+        out = df.copy()
+        if isinstance(out.columns, pd.MultiIndex):
+            out.columns = [str(c[-1]) if isinstance(c, tuple) else str(c) for c in out.columns]
+        else:
+            out.columns = [str(c) for c in out.columns]
+        out = out.apply(pd.to_numeric, errors="coerce")
+        out = out.groupby(level=0, axis=1).first()
+        return out.sort_index()
+
     if yf is not None:
         for chunk_size in (max(1, min(40, len(tickers))), 15, 8, 1):
             frames = []
@@ -402,22 +446,27 @@ def yahoo_close_batch(tickers: List[str], period: str = "1y") -> pd.DataFrame:
                         col = "Close" if "Close" in data.columns else data.columns[0]
                         close = data[[col]].copy()
                         close.columns = [chunk[0]]
-                    close = close.apply(pd.to_numeric, errors="coerce")
-                    frames.append(close)
+                    close = _flatten_cols(close)
+                    if not close.empty:
+                        frames.append(close)
                 except Exception:
                     ok = False
                     break
             if ok and frames:
                 merged = pd.concat(frames, axis=1)
-                merged = merged.loc[:, ~merged.columns.duplicated()].sort_index()
+                merged = _flatten_cols(merged)
                 if not merged.empty:
                     return merged
+
     frames = []
     for ticker in tickers:
         s = yahoo_close_http(ticker, period)
         if not s.empty:
             frames.append(s.rename(ticker))
-    return pd.concat(frames, axis=1).sort_index() if frames else pd.DataFrame()
+    if not frames:
+        return pd.DataFrame()
+    merged = pd.concat(frames, axis=1).sort_index()
+    return _flatten_cols(merged)
 
 
 @st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
