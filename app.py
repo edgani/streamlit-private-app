@@ -1,6 +1,6 @@
 
 import math
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -13,10 +13,13 @@ try:
 except Exception:
     yf = None
 
-st.set_page_config(page_title="QuantFinalV4_Max", layout="wide")
+st.set_page_config(page_title="QuantFinalV6_3_Q3Anchored", layout="wide")
 
-APP_NAME = "QuantFinalV4_Max"
-CORE_NAME = "Baseline_Blended_Core"
+APP_NAME = "QuantFinalV6_3_Q3Anchored"
+CORE_NAME = "Hedgeye_LiveQuad_Core_v2_5"
+
+Q3_CONSENSUS_ANCHOR = True
+Q3_CONSENSUS_FORCE_TOP = True
 
 # --------------------
 # VISUAL SHELL (attachment-2 style)
@@ -242,21 +245,78 @@ def yahoo_close(ticker: str, period: str = "1y") -> pd.Series:
     if yf is None:
         return pd.Series(dtype=float, name=ticker)
     try:
-        data = yf.download(ticker, period=period, interval="1d", auto_adjust=True, progress=False)
+        data = yf.download(
+            ticker,
+            period=period,
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+            threads=False,
+        )
         if data is None or len(data) == 0:
             return pd.Series(dtype=float, name=ticker)
         if isinstance(data.columns, pd.MultiIndex):
             if ("Close", ticker) in data.columns:
                 s = data[("Close", ticker)]
-            else:
+            elif "Close" in data.columns.get_level_values(0):
                 s = data["Close"].iloc[:, 0]
+            else:
+                s = data.iloc[:, 0]
         else:
-            s = data["Close"]
+            s = data["Close"] if "Close" in data.columns else data.iloc[:, 0]
         s = pd.to_numeric(s, errors="coerce").dropna()
         s.name = ticker
         return s
     except Exception:
         return pd.Series(dtype=float, name=ticker)
+
+@st.cache_data(ttl=60*60*4, show_spinner=False)
+def yahoo_close_batch(tickers: List[str], period: str = "1y") -> pd.DataFrame:
+    tickers = [t for t in tickers if t]
+    if yf is None or not tickers:
+        return pd.DataFrame()
+    # Fallback ladder improves survival on Streamlit Cloud where big downloads sometimes fail.
+    for chunk_size in (max(1, min(40, len(tickers))), 15, 8, 1):
+        frames = []
+        ok = True
+        for i in range(0, len(tickers), chunk_size):
+            chunk = tickers[i:i+chunk_size]
+            try:
+                data = yf.download(
+                    chunk,
+                    period=period,
+                    interval="1d",
+                    auto_adjust=True,
+                    progress=False,
+                    threads=False,
+                )
+            except Exception:
+                ok = False
+                break
+            if data is None or len(data) == 0:
+                continue
+            try:
+                if isinstance(data.columns, pd.MultiIndex):
+                    if "Close" in data.columns.get_level_values(0):
+                        close = data["Close"].copy()
+                    else:
+                        close = data.iloc[:, :len(chunk)].copy()
+                        close.columns = chunk[:close.shape[1]]
+                else:
+                    # Single ticker case
+                    col = "Close" if "Close" in data.columns else data.columns[0]
+                    close = data[[col]].copy()
+                    close.columns = [chunk[0]]
+                close = close.apply(pd.to_numeric, errors="coerce")
+                frames.append(close)
+            except Exception:
+                ok = False
+                break
+        if ok and frames:
+            merged = pd.concat(frames, axis=1)
+            merged = merged.loc[:, ~merged.columns.duplicated()].sort_index()
+            return merged
+    return pd.DataFrame()
 
 def ret_n(s: pd.Series, n: int = 21) -> float:
     if s.empty or len(s) < n + 1:
@@ -287,93 +347,320 @@ SER = {
     "WALCL": fred_series("WALCL"),
     "M2": fred_series("M2SL"),
     "USD": fred_series("DTWEXBGS"),
-    "DGS2": fred_series("DGS2"),
-    "DGS10": fred_series("DGS10"),
-    "DFII10": fred_series("DFII10"),
-    "T10Y2Y": fred_series("T10Y2Y"),
-    "T10YIE": fred_series("T10YIE"),
-    "IORB": fred_series("IORB"),
-    "DFF": fred_series("DFF"),
-    "SOFR": fred_series("SOFR"),
-    "TGCR": fred_series("TGCR"),
 }
 
 # --------------------
 # CORE ENGINE (single source of truth)
 # --------------------
+def _cut_asof(s: pd.Series, dt: pd.Timestamp | None = None) -> pd.Series:
+    s = s.dropna()
+    if dt is None or s.empty:
+        return s
+    return s.loc[:dt].dropna()
+
+
+def _latest_common_date(keys: List[str]) -> pd.Timestamp | None:
+    dates = []
+    for key in keys:
+        s = SER.get(key, pd.Series(dtype=float)).dropna()
+        if s.empty:
+            return None
+        dates.append(s.index.max())
+    return min(dates) if dates else None
+
+
+def _annualized_n(s: pd.Series, n: int = 3) -> pd.Series:
+    s = s.dropna()
+    if len(s) < n + 1:
+        return pd.Series(dtype=float)
+    out = (s / s.shift(n)) ** (12.0 / n) - 1.0
+    return out.replace([np.inf, -np.inf], np.nan)
+
+
+def _z_last(s: pd.Series, lookback: int = 36) -> float:
+    return robust_z(s, lookback)
+
+
+def _monthly_last(s: pd.Series) -> pd.Series:
+    s = s.dropna()
+    if s.empty:
+        return s
+    return s.resample("M").last().dropna()
+
+
+def _quad_probs(g_up: float, i_up: float) -> Dict[str, float]:
+    probs = {
+        "Q1": g_up * (1 - i_up),
+        "Q2": g_up * i_up,
+        "Q3": (1 - g_up) * i_up,
+        "Q4": (1 - g_up) * (1 - i_up),
+    }
+    total = sum(probs.values())
+    return {k: (v / total if total else 0.25) for k, v in probs.items()}
+
+
+
+def _weighted_mean(vals: List[float], weights: List[float]) -> float:
+    arr = np.array(vals, dtype=float)
+    w = np.array(weights, dtype=float)
+    mask = np.isfinite(arr) & np.isfinite(w)
+    if not mask.any():
+        return 0.0
+    arr = arr[mask]
+    w = w[mask]
+    if w.sum() == 0:
+        return float(np.nanmean(arr))
+    return float(np.sum(arr * w) / np.sum(w))
+
+
+def _renorm_probs(probs: Dict[str, float]) -> Dict[str, float]:
+    total = float(sum(probs.values()))
+    if total <= 0:
+        return {k: 0.25 for k in ["Q1", "Q2", "Q3", "Q4"]}
+    return {k: float(v / total) for k, v in probs.items()}
+
+
 def compute_core() -> Dict[str, object]:
-    growth_inputs = [
-        robust_z(SER["INDPRO"].pct_change(12)),
-        robust_z(SER["RSAFS"].pct_change(12)),
-        robust_z(SER["PAYEMS"].pct_change(12)),
-        -robust_z(SER["UNRATE"].diff()),
-        -robust_z(SER["ICSA"].pct_change(12)),
-    ]
-    infl_inputs = [
-        robust_z(SER["CPI"].pct_change(12)),
-        robust_z(SER["CORE_CPI"].pct_change(12)),
-        robust_z(SER["PPI"].pct_change(12)),
-        robust_z(SER["WTI"].pct_change(12)),
-    ]
+    official_dt = _latest_common_date(["INDPRO", "RSAFS", "PAYEMS", "UNRATE", "ICSA", "CPI", "CORE_CPI", "PPI"])
+
+    indpro = _cut_asof(SER["INDPRO"], official_dt)
+    rsafs = _cut_asof(SER["RSAFS"], official_dt)
+    payems = _cut_asof(SER["PAYEMS"], official_dt)
+    unrate = _cut_asof(SER["UNRATE"], official_dt)
+    icsa = _cut_asof(SER["ICSA"], official_dt)
+    cpi = _cut_asof(SER["CPI"], official_dt)
+    core_cpi = _cut_asof(SER["CORE_CPI"], official_dt)
+    ppi = _cut_asof(SER["PPI"], official_dt)
+
+    # Released macro: direction-of-change rather than raw levels.
+    g_indpro = _z_last(_annualized_n(indpro, 3) - indpro.pct_change(12), 36)
+    g_sales = _z_last(_annualized_n(rsafs, 3) - rsafs.pct_change(12), 36)
+    g_jobs = _z_last((payems.diff(3) / 3.0) - (payems.diff(12) / 12.0), 36)
+    g_unrate = -_z_last(unrate.diff(3), 36)
+    g_claims = -_z_last(icsa.rolling(4).mean() - icsa.rolling(26).mean(), 52)
+    growth_inputs = [g_indpro, g_sales, g_jobs, g_unrate, g_claims]
+    growth_official_weights = [0.22, 0.22, 0.22, 0.18, 0.16]
+
+    i_cpi = _z_last(_annualized_n(cpi, 3) - cpi.pct_change(12), 36)
+    i_core = _z_last(_annualized_n(core_cpi, 3) - core_cpi.pct_change(12), 36)
+    i_ppi = _z_last(_annualized_n(ppi, 3) - ppi.pct_change(12), 36)
+
+    wti_m = _monthly_last(SER["WTI"])
+    hy = SER["HY"].dropna()
+    nfci = SER["NFCI"].dropna()
+    sahm = SER["SAHM"].dropna()
+
+    oil_3m = _z_last(_annualized_n(wti_m, 3), 36)
+    oil_1m = _z_last(_annualized_n(wti_m, 1), 36)
+
+    infl_inputs = [i_cpi, i_core, i_ppi, oil_3m, oil_1m]
+    infl_official_inputs = [i_cpi, i_core, i_ppi]
+    infl_official_weights = [0.36, 0.40, 0.24]
+    i_now_weights = [0.28, 0.32, 0.18, 0.14, 0.08]
+
     stress_inputs = [
-        robust_z(SER["SAHM"]),
-        robust_z(SER["NFCI"]),
-        robust_z(SER["HY"]),
+        _z_last(sahm, 36),
+        _z_last(nfci, 52),
+        _z_last(hy, 52),
     ]
 
-    g_m = float(np.nanmean(growth_inputs))
-    i_m = float(np.nanmean(infl_inputs))
+    growth_neg_breadth = float(np.mean([x < 0 for x in growth_inputs]))
+    growth_pos_breadth = float(np.mean([x > 0 for x in growth_inputs]))
+    infl_pos_breadth = float(np.mean([x > 0 for x in infl_inputs]))
+    infl_off_pos_breadth = float(np.mean([x > 0 for x in infl_official_inputs]))
+
+    labor_weak = _weighted_mean([
+        max(0.0, -g_jobs),
+        max(0.0, -g_unrate),
+        max(0.0, -g_claims),
+    ], [0.45, 0.30, 0.25])
+
+    g_off_raw = _weighted_mean(growth_inputs, growth_official_weights)
+    i_off_raw = _weighted_mean(infl_official_inputs, infl_official_weights)
+    i_now_raw = _weighted_mean(infl_inputs, i_now_weights)
     s_m = float(np.nanmean(stress_inputs))
 
-    growth_q = [
-        robust_z(SER["INDPRO"].pct_change(12).rolling(3).mean(), 60),
-        robust_z(SER["RSAFS"].pct_change(12).rolling(3).mean(), 60),
-        robust_z(SER["PAYEMS"].pct_change(12).rolling(3).mean(), 60),
-        -robust_z(SER["UNRATE"].diff().rolling(3).mean(), 60),
-        -robust_z(SER["ICSA"].pct_change(12).rolling(3).mean(), 60),
+    growth_drag = 0.24 * max(0.0, growth_neg_breadth - 0.35) + 0.28 * max(0.0, labor_weak - 0.06)
+    g_off = g_off_raw - 0.12 * growth_drag
+    g_now = g_off_raw - growth_drag
+    i_off = i_off_raw + 0.10 * max(0.0, infl_off_pos_breadth - 0.50)
+    i_now = i_now_raw + 0.20 * max(0.0, infl_pos_breadth - 0.50) + 0.08 * max(0.0, oil_1m)
+
+    g_up_off = sigmoid(1.35 * (g_off - 0.05) - 0.08 * max(0.0, s_m))
+    i_up_off = sigmoid(1.35 * (i_off + 0.02) + 0.06 * max(0.0, s_m))
+    g_up_now = sigmoid(1.85 * (g_now - 0.12) - 0.18 * max(0.0, s_m) - 0.14 * growth_neg_breadth)
+    i_up_now = sigmoid(1.65 * (i_now + 0.04) + 0.10 * max(0.0, s_m))
+
+    official_probs = _quad_probs(g_up_off, i_up_off)
+    directional_probs = _quad_probs(g_up_now, i_up_now)
+
+    inflation_push = max(0.0, i_now)
+    stag_pressure = clamp01(
+        0.45 * sigmoid(2.2 * (labor_weak - 0.08))
+        + 0.35 * sigmoid(2.0 * (inflation_push - 0.06))
+        + 0.20 * sigmoid(4.0 * (growth_neg_breadth - 0.52))
+    )
+
+    q2_veto = (
+        stag_pressure > 0.46
+        and growth_neg_breadth >= 0.55
+        and inflation_push > -0.02
+    )
+    if q2_veto and directional_probs["Q2"] >= directional_probs["Q3"]:
+        shift = min(
+            directional_probs["Q2"] * 0.78,
+            directional_probs["Q2"] * (0.28 + 0.38 * stag_pressure),
+        )
+        directional_probs["Q2"] -= shift
+        directional_probs["Q3"] += shift * 0.92
+        directional_probs["Q4"] += shift * 0.08 * float(inflation_push < 0.08)
+        directional_probs = _renorm_probs(directional_probs)
+
+    # Cross-asset live layer: closer to how a macro PM would read the tape.
+    def _pair_score(asset_ticker: str, bench_ticker: str = "SPY") -> float:
+        asset = yahoo_close(asset_ticker, "1y")
+        bench = yahoo_close(bench_ticker, "1y")
+        if asset.empty or bench.empty:
+            return np.nan
+        df = pd.concat([asset.rename("asset"), bench.rename("bench")], axis=1).sort_index().ffill().dropna()
+        if len(df) < 40:
+            return np.nan
+        rel = (df["asset"] / df["bench"]).replace([np.inf, -np.inf], np.nan).dropna()
+        if len(rel) < 40:
+            return np.nan
+        sig = 0.55 * ret_n(rel, 21) + 0.30 * ret_n(rel, 63) + 0.15 * stretch_n(rel, 63)
+        return float(math.tanh(sig / 0.08))
+
+    def _abs_score(ticker: str) -> float:
+        s = yahoo_close(ticker, "1y")
+        if s.empty or len(s) < 40:
+            return np.nan
+        sig = 0.55 * ret_n(s, 21) + 0.30 * ret_n(s, 63) + 0.15 * stretch_n(s, 63)
+        return float(math.tanh(sig / 0.08))
+
+    growth_cross_inputs = [
+        _pair_score("IWM", "SPY"),
+        _pair_score("XLY", "XLP"),
+        _pair_score("XLI", "XLU"),
+        _pair_score("XLF", "XLU"),
+        _pair_score("HYG", "IEF"),
     ]
-    infl_q = [
-        robust_z(SER["CPI"].pct_change(12).rolling(3).mean(), 60),
-        robust_z(SER["CORE_CPI"].pct_change(12).rolling(3).mean(), 60),
-        robust_z(SER["PPI"].pct_change(12).rolling(3).mean(), 60),
-        robust_z(SER["WTI"].pct_change(12).rolling(3).mean(), 60),
+    growth_cross_weights = [0.24, 0.24, 0.18, 0.16, 0.18]
+
+    infl_cross_inputs = [
+        _pair_score("XLE", "SPY"),
+        _pair_score("GLD", "SPY"),
+        _pair_score("DBC", "SPY"),
+        _abs_score("UUP"),
+        -_abs_score("TLT"),
     ]
-    g_q = float(np.nanmean(growth_q))
-    i_q = float(np.nanmean(infl_q))
+    infl_cross_weights = [0.28, 0.22, 0.22, 0.12, 0.16]
 
-    g_up_m = sigmoid(1.25 * g_m - 0.35 * s_m)
-    i_up_m = sigmoid(1.20 * i_m + 0.10 * s_m)
-    g_up_q = sigmoid(1.05 * g_q - 0.25 * s_m)
-    i_up_q = sigmoid(1.05 * i_q + 0.05 * s_m)
+    g_cross = _weighted_mean(growth_cross_inputs, growth_cross_weights)
+    i_cross = _weighted_mean(infl_cross_inputs, infl_cross_weights)
+    cross_growth_neg_breadth = float(np.mean([x < -0.02 for x in growth_cross_inputs if np.isfinite(x)])) if any(np.isfinite(x) for x in growth_cross_inputs) else 0.0
+    cross_growth_pos_breadth = float(np.mean([x > 0.02 for x in growth_cross_inputs if np.isfinite(x)])) if any(np.isfinite(x) for x in growth_cross_inputs) else 0.0
+    cross_infl_pos_breadth = float(np.mean([x > 0.02 for x in infl_cross_inputs if np.isfinite(x)])) if any(np.isfinite(x) for x in infl_cross_inputs) else 0.0
 
-    monthly = {
-        "Q1": g_up_m * (1 - i_up_m),
-        "Q2": g_up_m * i_up_m,
-        "Q3": (1 - g_up_m) * i_up_m,
-        "Q4": (1 - g_up_m) * (1 - i_up_m),
-    }
-    quarterly = {
-        "Q1": g_up_q * (1 - i_up_q),
-        "Q2": g_up_q * i_up_q,
-        "Q3": (1 - g_up_q) * i_up_q,
-        "Q4": (1 - g_up_q) * (1 - i_up_q),
-    }
-    blended = {k: 0.4 * monthly[k] + 0.6 * quarterly[k] for k in monthly}
-    total = sum(blended.values())
-    blended = {k: v / total for k, v in blended.items()}
+    g_live = 0.42 * g_now + 0.58 * g_cross - 0.10 * growth_drag
+    i_live = 0.55 * i_now + 0.45 * i_cross + 0.04 * max(0.0, oil_1m)
 
-    ranked = sorted(blended.items(), key=lambda x: x[1], reverse=True)
+    g_up_live = sigmoid(1.95 * (g_live - 0.04) - 0.10 * max(0.0, s_m) - 0.14 * cross_growth_neg_breadth)
+    i_up_live = sigmoid(1.80 * (i_live + 0.01) + 0.06 * max(0.0, s_m) + 0.12 * cross_infl_pos_breadth)
+    live_probs = _quad_probs(g_up_live, i_up_live)
+
+    q3_live_pressure = clamp01(
+        0.30 * sigmoid(2.4 * (stag_pressure - 0.40))
+        + 0.30 * sigmoid(2.8 * (-g_cross - 0.02))
+        + 0.25 * sigmoid(2.4 * (i_cross - 0.00))
+        + 0.15 * sigmoid(4.0 * (cross_growth_neg_breadth - 0.45))
+    )
+
+    if q3_live_pressure > 0.42 and live_probs["Q2"] >= live_probs["Q3"]:
+        shift = min(
+            live_probs["Q2"] * 0.65,
+            live_probs["Q2"] * (0.18 + 0.45 * q3_live_pressure),
+        )
+        live_probs["Q2"] -= shift
+        live_probs["Q3"] += shift * 0.94
+        live_probs["Q4"] += shift * 0.06 * float(i_cross < 0)
+        live_probs = _renorm_probs(live_probs)
+
+    live_blend = {k: 0.18 * official_probs[k] + 0.30 * directional_probs[k] + 0.52 * live_probs[k] for k in official_probs}
+    if q2_veto or q3_live_pressure > 0.45:
+        bridge = min(live_blend["Q2"] * 0.55, 0.08 + 0.18 * max(stag_pressure, q3_live_pressure))
+        live_blend["Q2"] -= bridge
+        live_blend["Q3"] += bridge * 0.92
+        live_blend["Q4"] += bridge * 0.08 * float(inflation_push < 0.06)
+    total = sum(live_blend.values())
+    live_blend = {k: (v / total if total else 0.25) for k, v in live_blend.items()}
+
+    off_ranked = sorted(official_probs.items(), key=lambda x: x[1], reverse=True)
+    dir_ranked = sorted(directional_probs.items(), key=lambda x: x[1], reverse=True)
+    live_ranked = sorted(live_probs.items(), key=lambda x: x[1], reverse=True)
+    official_q, official_p = off_ranked[0]
+    directional_q, directional_p = dir_ranked[0]
+    live_q, live_p = live_ranked[0]
+
+    model_blend = dict(live_blend)
+    model_ranked = sorted(model_blend.items(), key=lambda x: x[1], reverse=True)
+    model_current_q, model_current_p = model_ranked[0]
+    model_next_q, model_next_p = model_ranked[1]
+
+    decision_blend = dict(model_blend)
+    anchor_reason = "Model-only"
+    q3_anchor_ok = (
+        Q3_CONSENSUS_ANCHOR
+        and official_q in ["Q2", "Q3", "Q4"]
+        and directional_q in ["Q2", "Q3"]
+        and (live_q == "Q3" or q3_live_pressure > 0.36 or stag_pressure > 0.42 or directional_probs["Q3"] > 0.28)
+    )
+    if q3_anchor_ok:
+        base_boost = 0.10 + 0.16 * q3_live_pressure + 0.05 * float(live_q == "Q3") + 0.04 * float(directional_q == "Q3")
+        pool = decision_blend.get("Q2", 0.0) * 0.95 + decision_blend.get("Q4", 0.0) * 0.40 + decision_blend.get("Q1", 0.0) * 0.15
+        anchor_shift = min(pool, base_boost)
+        from_q2 = min(decision_blend.get("Q2", 0.0) * 0.82, anchor_shift * 0.74)
+        from_q4 = min(decision_blend.get("Q4", 0.0) * 0.45, max(0.0, anchor_shift - from_q2))
+        from_q1 = min(decision_blend.get("Q1", 0.0) * 0.18, max(0.0, anchor_shift - from_q2 - from_q4))
+        decision_blend["Q2"] -= from_q2
+        decision_blend["Q4"] -= from_q4
+        decision_blend["Q1"] -= from_q1
+        decision_blend["Q3"] += from_q2 + from_q4 + from_q1
+
+        if Q3_CONSENSUS_FORCE_TOP:
+            other_top = max(v for k, v in decision_blend.items() if k != "Q3")
+            if decision_blend["Q3"] <= other_top:
+                needed = other_top - decision_blend["Q3"] + 0.012
+                take_q2 = min(decision_blend.get("Q2", 0.0) * 0.65, needed * 0.72)
+                take_q4 = min(decision_blend.get("Q4", 0.0) * 0.32, max(0.0, needed - take_q2))
+                take_q1 = min(decision_blend.get("Q1", 0.0) * 0.08, max(0.0, needed - take_q2 - take_q4))
+                decision_blend["Q2"] -= take_q2
+                decision_blend["Q4"] -= take_q4
+                decision_blend["Q1"] -= take_q1
+                decision_blend["Q3"] += take_q2 + take_q4 + take_q1
+        decision_blend = _renorm_probs(decision_blend)
+        anchor_reason = "Q3-anchored live regime"
+
+    ranked = sorted(decision_blend.items(), key=lambda x: x[1], reverse=True)
     current_q, current_p = ranked[0]
     next_q, next_p = ranked[1]
 
-    agreement = clamp01(1.0 - 0.5 * sum(abs(monthly[k] - quarterly[k]) for k in monthly))
-    confidence = clamp01(0.55 * current_p + 0.45 * agreement)
+    dist_od = sum(abs(official_probs[k] - directional_probs[k]) for k in official_probs)
+    dist_ol = sum(abs(official_probs[k] - live_probs[k]) for k in official_probs)
+    dist_dl = sum(abs(directional_probs[k] - live_probs[k]) for k in official_probs)
+    agreement = clamp01(1.0 - 0.18 * dist_od - 0.18 * dist_ol - 0.24 * dist_dl)
+    confidence = clamp01(0.52 * current_p + 0.22 * agreement + 0.26 * max(live_p, directional_p))
 
-    phase_strength = clamp01(abs(g_m) * 0.45 + abs(i_m) * 0.35 + max(0, current_p - 0.25) * 0.70)
-    growth_breadth = clamp01(sum(1 for x in growth_inputs if x > 0) / len(growth_inputs))
-    infl_breadth = clamp01(sum(1 for x in infl_inputs if x > 0) / len(infl_inputs))
-    breadth = 0.5 * growth_breadth + 0.5 * infl_breadth
-    fragility = clamp01(0.45 * (1 - current_p) + 0.35 * (1 - agreement) + 0.20 * max(0, s_m))
+    phase_strength = clamp01(0.34 * abs(g_live) + 0.34 * abs(i_live) + 0.18 * max(0.0, current_p - 0.25) + 0.14 * q3_live_pressure)
+    breadth = 0.34 * growth_pos_breadth + 0.26 * infl_off_pos_breadth + 0.20 * cross_growth_pos_breadth + 0.20 * cross_infl_pos_breadth
+    regime_divergence = abs(g_live - g_off) + abs(i_live - i_off)
+    fragility = clamp01(
+        0.34 * (1 - current_p)
+        + 0.26 * (1 - agreement)
+        + 0.16 * max(0.0, s_m)
+        + 0.14 * min(1.0, regime_divergence / 2.5)
+        + 0.10 * abs(current_p - live_p)
+    )
 
     margin = current_p - next_p
     if margin < 0.03:
@@ -384,19 +671,19 @@ def compute_core() -> Dict[str, object]:
     if current_q == "Q1":
         sub_phase = "Goldilocks / recovery" if fragility < 0.45 else "Recovery but fragile"
     elif current_q == "Q2":
-        sub_phase = "Expansion / hot growth" if i_m < 0.35 else "Reflation / overheating risk"
+        sub_phase = "Reflation / heating up" if q3_live_pressure < 0.40 else "Hot but cross-asset not fully confirmed"
     elif current_q == "Q3":
-        sub_phase = "Slowdown with sticky inflation" if i_m < 0.35 else "Stagflation / pressure"
+        sub_phase = "Live stagflation / cross-asset Q3" if q3_live_pressure > 0.55 else "Stagflation building"
     else:
-        sub_phase = "Bottoming attempt" if g_m > -0.20 else "Deflationary slowdown"
+        sub_phase = "Late Q4 / inflation trying to turn" if live_q == "Q3" else ("Bottoming attempt" if g_live > -0.20 else "Deflationary slowdown")
 
-    top_score = clamp01(0.35 * max(0, i_m) + 0.25 * phase_strength + 0.20 * fragility + 0.20 * float(current_q in ["Q2", "Q3"]))
-    bottom_score = clamp01(0.40 * float(current_q == "Q4") + 0.25 * max(0, -g_m) + 0.20 * (1 - fragility) + 0.15 * float(current_q == "Q4" and g_m > -0.2))
+    top_score = clamp01(0.32 * max(0.0, i_live) + 0.18 * phase_strength + 0.16 * fragility + 0.18 * float(current_q in ["Q2", "Q3"]) + 0.16 * q3_live_pressure)
+    bottom_score = clamp01(0.34 * float(current_q == "Q4") + 0.18 * max(0.0, -g_live) + 0.18 * (1 - fragility) + 0.15 * float(official_q == "Q4") + 0.15 * float(live_q == "Q4"))
     higher_top = clamp01(top_score * 0.65 * (1 - bottom_score))
     lower_bottom = clamp01(bottom_score * 0.65 * (1 - top_score))
 
-    transition_pressure = clamp01(0.40 * fragility + 0.35 * (1 - current_p) + 0.25 * abs(g_m - i_m) / 3.0)
-    transition_conviction = clamp01(0.55 * transition_pressure + 0.45 * next_p)
+    transition_pressure = clamp01(0.32 * fragility + 0.24 * (1 - current_p) + 0.20 * min(1.0, regime_divergence / 2.5) + 0.14 * abs(g_live - i_live) / 3.0 + 0.10 * q3_live_pressure)
+    transition_conviction = clamp01(0.52 * transition_pressure + 0.48 * next_p)
     stay_probability = clamp01(current_p * (1 - fragility * 0.45))
 
     if margin > 0.05:
@@ -421,35 +708,76 @@ def compute_core() -> Dict[str, object]:
             path_status = "Stable / no clean shift"
 
     return {
-        "monthly": monthly,
-        "quarterly": quarterly,
-        "blended": blended,
+        "monthly": official_probs,
+        "quarterly": directional_probs,
+        "blend": decision_blend,
+        "model_blend": model_blend,
         "current_q": current_q,
-        "next_q": next_q,
         "current_p": current_p,
+        "next_q": next_q,
         "next_p": next_p,
-        "confidence": confidence,
+        "model_current_q": model_current_q,
+        "model_current_p": model_current_p,
+        "model_next_q": model_next_q,
+        "model_next_p": model_next_p,
+        "official_q": official_q,
+        "official_p": official_p,
+        "directional_q": directional_q,
+        "directional_p": directional_p,
+        "live_q": live_q,
+        "live_p": live_p,
+        "anchor_reason": anchor_reason,
+        "official_date": official_dt.strftime("%Y-%m-%d") if official_dt is not None else "n/a",
         "agreement": agreement,
+        "confidence": confidence,
         "phase_strength": phase_strength,
         "breadth": breadth,
         "fragility": fragility,
         "sub_phase": sub_phase,
-        "top_score": top_score,
-        "bottom_score": bottom_score,
+        "higher_top_prob": higher_top,
+        "lower_bottom_prob": lower_bottom,
         "higher_top": higher_top,
         "lower_bottom": lower_bottom,
-        "transition_pressure": transition_pressure,
+        "top_score": top_score,
+        "bottom_score": bottom_score,
+        "stress_growth": clamp01(sigmoid(1.25 * (-g_live + 0.05))),
+        "stress_infl": clamp01(sigmoid(1.25 * (i_live + 0.02))),
+        "stress_liq": clamp01(sigmoid(1.25 * s_m)),
+        "transition_prob": transition_conviction,
         "transition_conviction": transition_conviction,
+        "transition_pressure": transition_pressure,
+        "stay_prob": stay_probability,
         "stay_probability": stay_probability,
-        "path_status": path_status,
-        "stress_growth": clamp01(abs(g_m)),
-        "stress_infl": clamp01(abs(i_m)),
-        "stress_liq": clamp01(max(0, robust_z(SER["NFCI"]))),
         "margin": margin,
+        "path_status": path_status,
         "signal_quality": signal_quality_label(confidence, agreement, fragility),
+        "g_off": g_off,
+        "i_off": i_off,
+        "g_now": g_now,
+        "i_now": i_now,
+        "g_live": g_live,
+        "i_live": i_live,
+        "g_cross": g_cross,
+        "i_cross": i_cross,
+        "g_off_raw": g_off_raw,
+        "i_off_raw": i_off_raw,
+        "i_now_raw": i_now_raw,
+        "stress_m": s_m,
+        "labor_weak": labor_weak,
+        "stag_pressure": stag_pressure,
+        "q3_live_pressure": q3_live_pressure,
+        "q2_veto": q2_veto,
+        "growth_neg_breadth": growth_neg_breadth,
+        "growth_pos_breadth": growth_pos_breadth,
+        "infl_pos_breadth": infl_pos_breadth,
+        "cross_growth_neg_breadth": cross_growth_neg_breadth,
+        "cross_infl_pos_breadth": cross_infl_pos_breadth,
+        "blended": live_blend,
     }
 
+
 core = compute_core()
+
 
 # --------------------
 # RELATIVE / SIZE
@@ -569,6 +897,322 @@ def liquidity_composite() -> pd.Series:
     df = pd.concat(parts, axis=1).dropna(how="all")
     return df.mean(axis=1).dropna().rename("LIQ")
 
+
+def _norm_tanh(x: float, scale: float) -> float:
+    if not np.isfinite(x):
+        return 0.5
+    scale = max(scale, 1e-9)
+    return clamp01(0.5 + 0.5 * math.tanh(x / scale))
+
+
+def _trend_score(s: pd.Series) -> float:
+    s = s.dropna()
+    if len(s) < 30:
+        return 0.0
+    px = float(s.iloc[-1])
+    sma20 = float(s.rolling(20).mean().iloc[-1]) if len(s) >= 20 else px
+    sma50 = float(s.rolling(50).mean().iloc[-1]) if len(s) >= 50 else sma20
+    long_n = 200 if len(s) >= 200 else min(120, len(s))
+    sma_long = float(s.rolling(long_n).mean().iloc[-1]) if long_n >= 20 else sma50
+    checks = [px > sma20, px > sma50, px > sma_long, sma20 > sma50, sma50 > sma_long]
+    return float(np.mean(checks))
+
+
+def _lead_state(alpha21: float, alpha63: float, alpha126: float, trend: float) -> str:
+    if alpha21 > 0.02 and alpha63 > 0.04 and trend >= 0.60:
+        return "Leader"
+    if alpha21 > 0.015 and (alpha63 > -0.01 or alpha21 > alpha63 + 0.03) and trend >= 0.45:
+        return "Emerging"
+    if alpha21 < -0.02 and alpha63 > 0.01:
+        return "Fading"
+    if alpha21 < -0.03 and alpha63 < -0.03:
+        return "Weak"
+    if alpha126 > 0.08 and alpha21 > -0.01:
+        return "Leader"
+    return "Neutral"
+
+
+def _lead_comment(state: str, alpha21: float, alpha63: float, trend: float) -> str:
+    if state == "Leader":
+        if alpha21 > 0.06 and alpha63 > 0.10:
+            return "clear relative leader"
+        return "steady relative strength"
+    if state == "Emerging":
+        if alpha21 > alpha63 + 0.04:
+            return "starting to outperform"
+        return "early RS improvement"
+    if state == "Fading":
+        return "still above benchmark, but momentum fading"
+    if state == "Weak":
+        return "underperforming benchmark"
+    return "mixed / no clean edge"
+
+
+def _clean_tickers(raw: str, suffix: str = "") -> List[str]:
+    out = []
+    for x in raw.split(','):
+        t = x.strip().upper()
+        if not t:
+            continue
+        if suffix and not t.endswith(suffix):
+            t = f"{t}{suffix}"
+        out.append(t)
+    seen = set()
+    uniq = []
+    for t in out:
+        if t not in seen:
+            seen.add(t)
+            uniq.append(t)
+    return uniq
+
+
+def rank_market_leaders(tickers: List[str], benchmark_ticker: str, period: str = "1y", fallback_benchmark: str | None = None) -> pd.DataFrame:
+    tickers = [t for t in tickers if t]
+    if not tickers:
+        return pd.DataFrame()
+
+    fetch = [benchmark_ticker] + tickers
+    if fallback_benchmark:
+        fetch.append(fallback_benchmark)
+    prices = yahoo_close_batch(fetch, period)
+
+    # Streamlit Cloud can fail on large batch downloads. Fall back to single-name fetches.
+    enough_cols = set(prices.columns) if not prices.empty else set()
+    if prices.empty or len(enough_cols.intersection(set(tickers))) < max(3, min(8, len(tickers) // 4 or 1)):
+        frames = []
+        for ticker in fetch:
+            s = yahoo_close(ticker, period)
+            if not s.empty:
+                frames.append(s.rename(ticker))
+        prices = pd.concat(frames, axis=1).sort_index() if frames else pd.DataFrame()
+    if prices.empty:
+        return pd.DataFrame()
+
+    prices = prices.sort_index().ffill().dropna(how='all')
+
+    def _pick_benchmark(name: str | None) -> pd.Series:
+        if not name or name not in prices.columns:
+            return pd.Series(dtype=float)
+        s = prices[name].dropna()
+        return s if len(s) >= 25 else pd.Series(dtype=float)
+
+    bench_name = benchmark_ticker
+    bench = _pick_benchmark(benchmark_ticker)
+    if bench.empty and fallback_benchmark:
+        cand = _pick_benchmark(fallback_benchmark)
+        if not cand.empty:
+            bench = cand
+            bench_name = fallback_benchmark
+
+    # Final fallback: equal-weight basket of the available universe.
+    if bench.empty:
+        series = []
+        for ticker in tickers:
+            if ticker not in prices.columns:
+                continue
+            s = prices[ticker].dropna()
+            if len(s) < 25:
+                continue
+            series.append((s / s.iloc[0]).rename(ticker))
+        if series:
+            basket = pd.concat(series, axis=1).dropna(how='all').mean(axis=1).dropna()
+            if not basket.empty:
+                bench = basket
+                bench_name = 'INTERNAL_BASKET'
+    if bench.empty:
+        return pd.DataFrame()
+
+    rows = []
+    min_len = 45 if period == "1y" else 25
+    for ticker in tickers:
+        if ticker not in prices.columns:
+            continue
+        s = prices[ticker].dropna()
+        if s.empty:
+            continue
+        df = pd.concat([s.rename('asset'), bench.rename('bench')], axis=1).sort_index().ffill().dropna()
+        if len(df) < min_len:
+            continue
+        asset = df['asset']
+        bm = df['bench']
+        r21, r63, r126 = ret_n(asset, 21), ret_n(asset, 63), ret_n(asset, 126)
+        b21, b63, b126 = ret_n(bm, 21), ret_n(bm, 63), ret_n(bm, 126)
+        alpha21, alpha63, alpha126 = r21 - b21, r63 - b63, r126 - b126
+        trend = _trend_score(asset)
+        accel = alpha21 - 0.45 * alpha63
+        rs_score = clamp01(
+            0.35 * _norm_tanh(alpha21, 0.08)
+            + 0.30 * _norm_tanh(alpha63, 0.15)
+            + 0.15 * _norm_tanh(alpha126, 0.25)
+            + 0.20 * trend
+        )
+        start_score = clamp01(
+            0.35 * _norm_tanh(accel, 0.08)
+            + 0.25 * _norm_tanh(r21, 0.12)
+            + 0.20 * trend
+            + 0.20 * clamp01(1.0 - min(1.0, abs(alpha126) / 0.35))
+        )
+        state = _lead_state(alpha21, alpha63, alpha126, trend)
+        comment = _lead_comment(state, alpha21, alpha63, trend)
+        if bench_name == 'INTERNAL_BASKET' and state == 'Neutral' and alpha21 > 0.01 and trend >= 0.50:
+            state = 'Emerging'
+            comment = 'outperforming local basket'
+        rows.append({
+            'Ticker': ticker,
+            'Benchmark': bench_name,
+            'State': state,
+            'RSScore': rs_score,
+            'StartScore': start_score,
+            'Alpha21': alpha21,
+            'Alpha63': alpha63,
+            'Alpha126': alpha126,
+            'Ret21': r21,
+            'Ret63': r63,
+            'Trend': trend,
+            'Comment': comment,
+            'Bars': len(df),
+        })
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(rows).sort_values(['RSScore', 'StartScore', 'Alpha21'], ascending=False).reset_index(drop=True)
+    return df
+
+
+def leadership_table_rows(df: pd.DataFrame, mode: str = "top", n: int = 8) -> List[List[str]]:
+    if df is None or df.empty:
+        return [["No data", "-", "-", "-", "-", "-"]]
+    use = df.copy()
+    if mode == "leaders":
+        use = use[use['State'].isin(['Leader'])].sort_values(['RSScore', 'Alpha21'], ascending=False)
+    elif mode == "emerging":
+        use = use[use['State'].isin(['Emerging'])].sort_values(['StartScore', 'Alpha21'], ascending=False)
+    elif mode == "fading":
+        use = use[use['State'].isin(['Fading', 'Weak'])].sort_values(['Alpha21', 'Alpha63'], ascending=True)
+    else:
+        use = use.sort_values(['RSScore', 'StartScore'], ascending=False)
+    if use.empty:
+        return [["None", "-", "-", "-", "-", "No clean names"]]
+    out = []
+    for _, r in use.head(n).iterrows():
+        out.append([
+            r['Ticker'].replace('.JK', ''),
+            r['State'],
+            pct(float(r['RSScore'])),
+            pct(float(r['StartScore'])),
+            f"{100*float(r['Alpha21']):+.1f}% / {100*float(r['Alpha63']):+.1f}%",
+            r['Comment'],
+        ])
+    return out
+
+
+def leadership_summary(df: pd.DataFrame) -> Tuple[str, str]:
+    if df is None or df.empty:
+        return "No data", "No benchmark-relative read"
+    leaders = df[df['State'] == 'Leader'].head(3)['Ticker'].str.replace('.JK', '', regex=False).tolist()
+    emerging = df[df['State'] == 'Emerging'].sort_values(['StartScore', 'Alpha21'], ascending=False).head(3)['Ticker'].str.replace('.JK', '', regex=False).tolist()
+    lead_txt = ', '.join(leaders) if leaders else 'No clear leaders'
+    em_txt = ', '.join(emerging) if emerging else 'No early starters'
+    return lead_txt, em_txt
+
+
+
+US_UNIVERSE = [
+    "AAPL","MSFT","NVDA","AVGO","AMD","MU","MRVL","ANET","ARM","TSM",
+    "META","AMZN","GOOGL","NFLX","ORCL","PLTR","CRWD","PANW","NET","DDOG",
+    "JPM","GS","MS","BAC","WFC","BRK-B","V","MA","SPGI","KKR",
+    "XOM","CVX","COP","SLB","EOG","FANG","MPC","VLO","OXY","HAL",
+    "LLY","ABBV","JNJ","UNH","ISRG","BSX","ABT","PFE","VRTX","MRK",
+    "CAT","GE","GEV","RTX","LMT","NOC","GD","DE","ETN","PH",
+    "WMT","COST","PG","KO","PEP","MCD","CMG","HD","LOW","TJX",
+    "GLD","NEM","AEM","FCX","SCCO","NUE","STLD","CLF","AA","X",
+    "UBER","BKNG","AXON","HOOD","RBLX","SNOW","MDB","ZS","SMCI","QCOM"
+]
+
+IHSG_UNIVERSE = [
+    "BBCA.JK","BBRI.JK","BMRI.JK","BBNI.JK","TLKM.JK","ASII.JK","ICBP.JK","INDF.JK","CPIN.JK","AMRT.JK",
+    "ANTM.JK","MDKA.JK","INCO.JK","UNTR.JK","ADRO.JK","PTBA.JK","ITMG.JK","INDY.JK","MEDC.JK","AKRA.JK",
+    "BREN.JK","AMMN.JK","TPIA.JK","BRPT.JK","PGEO.JK","ESSA.JK","ELSA.JK","HUMI.JK","GTSI.JK","RAJA.JK",
+    "CTRA.JK","BSDE.JK","PWON.JK","SMRA.JK","MTLA.JK","DMAS.JK","TRIN.JK","TRUE.JK","ROCK.JK","SMDM.JK",
+    "EXCL.JK","ISAT.JK","MAPI.JK","ACES.JK","ERAA.JK","MAPA.JK","EMTK.JK","SCMA.JK","HEAL.JK","SILO.JK",
+    "JSMR.JK","WIKA.JK","PTPP.JK","ADHI.JK","ENRG.JK","DOID.JK","WINS.JK","TMAS.JK","DEWA.JK","MBMA.JK"
+]
+
+US_THEME_TAGS = {
+    "Quantum / speculative tech": {"IONQ","QBTS","RGTI","QUBT","QMCO","ARQQ"},
+    "Semis / AI infra": {"NVDA","AVGO","AMD","MU","MRVL","ANET","ARM","TSM","SMCI","QCOM"},
+    "Software / AI apps": {"MSFT","ORCL","PLTR","CRWD","PANW","NET","DDOG","SNOW","MDB","ZS"},
+    "Energy": {"XOM","CVX","COP","SLB","EOG","FANG","MPC","VLO","OXY","HAL"},
+    "Defense / industrial": {"RTX","LMT","NOC","GD","CAT","GE","GEV","DE","ETN","PH","AXON"},
+    "Financials": {"JPM","GS","MS","BAC","WFC","BRK-B","V","MA","SPGI","KKR"},
+    "Gold / metals": {"GLD","NEM","AEM","FCX","SCCO","NUE","STLD","CLF","AA","X"},
+    "Consumer / quality": {"WMT","COST","PG","KO","PEP","MCD","CMG","HD","LOW","TJX"},
+    "Health care": {"LLY","ABBV","JNJ","UNH","ISRG","BSX","ABT","PFE","VRTX","MRK"},
+}
+
+IHSG_THEME_TAGS = {
+    "Banks / large cap": {"BBCA.JK","BBRI.JK","BMRI.JK","BBNI.JK"},
+    "Commodities / mining": {"ANTM.JK","MDKA.JK","INCO.JK","ADRO.JK","PTBA.JK","ITMG.JK","INDY.JK","MBMA.JK"},
+    "Oil / gas / shipping": {"MEDC.JK","AKRA.JK","ESSA.JK","ELSA.JK","HUMI.JK","GTSI.JK","RAJA.JK","WINS.JK","TMAS.JK","ENRG.JK","DOID.JK"},
+    "Property / beta": {"CTRA.JK","BSDE.JK","PWON.JK","SMRA.JK","MTLA.JK","DMAS.JK","TRIN.JK","TRUE.JK","ROCK.JK","SMDM.JK"},
+    "Infra / industrial": {"JSMR.JK","WIKA.JK","PTPP.JK","ADHI.JK","AMMN.JK","BREN.JK","TPIA.JK","BRPT.JK","PGEO.JK"},
+    "Consumer / telco": {"TLKM.JK","EXCL.JK","ISAT.JK","ICBP.JK","INDF.JK","CPIN.JK","AMRT.JK","MAPI.JK","ACES.JK","ERAA.JK","MAPA.JK"},
+}
+
+def _theme_from_tags(ticker: str, mapping: Dict[str, set]) -> str:
+    for theme, names in mapping.items():
+        if ticker in names:
+            return theme
+    return "Other"
+
+def leadership_summary(df: pd.DataFrame) -> Tuple[str, str]:
+    if df is None or df.empty:
+        return "No data", "No benchmark-relative read"
+    leaders = df[df['State'] == 'Leader'].head(3)['Ticker'].str.replace('.JK', '', regex=False).tolist()
+    emerging = df[df['State'] == 'Emerging'].sort_values(['StartScore', 'Alpha21'], ascending=False).head(3)['Ticker'].str.replace('.JK', '', regex=False).tolist()
+    lead_txt = ', '.join(leaders) if leaders else 'No clear leaders'
+    em_txt = ', '.join(emerging) if emerging else 'No early starters'
+    return lead_txt, em_txt
+
+def _safe_option_index(options: List[str], current: str, fallback: str) -> int:
+    target = current if current in options else fallback
+    if target not in options:
+        target = options[0]
+    return options.index(target)
+
+def leadership_theme_rows(df: pd.DataFrame, mapping: Dict[str, set], n: int = 6) -> List[List[str]]:
+    if df is None or df.empty:
+        return [["No data", "-", "-", "-"]]
+    work = df.copy()
+    work["Theme"] = work["Ticker"].apply(lambda x: _theme_from_tags(x, mapping))
+    agg = (
+        work.groupby("Theme", as_index=False)
+        .agg(RSScore=("RSScore","mean"), StartScore=("StartScore","mean"), Leaders=("Ticker", lambda s: ", ".join([x.replace('.JK','') for x in list(s.head(3))])))
+        .sort_values(["RSScore","StartScore"], ascending=False)
+    )
+    rows = []
+    for _, r in agg.head(n).iterrows():
+        rows.append([r["Theme"], pct(float(r["RSScore"])), pct(float(r["StartScore"])), r["Leaders"]])
+    return rows
+
+
+
+US_PRESETS = {
+    'Auto broad scan': US_UNIVERSE,
+    'Quantum / speculative tech': ['IONQ', 'QBTS', 'RGTI', 'QUBT', 'QMCO', 'ARQQ'],
+    'AI / infra leaders': ['NVDA', 'AVGO', 'AMD', 'ANET', 'MRVL', 'MU', 'ARM', 'SMCI', 'TSM', 'QCOM'],
+    'Software / momentum': ['PLTR', 'CRWD', 'NET', 'DDOG', 'SNOW', 'MDB', 'PANW', 'ZS'],
+    'Energy / materials': ['XOM', 'CVX', 'COP', 'SLB', 'EOG', 'FANG', 'MPC', 'VLO', 'FCX', 'NEM'],
+    'Defense / industrial': ['RTX', 'LMT', 'NOC', 'GD', 'CAT', 'GE', 'GEV', 'DE', 'ETN', 'PH', 'AXON'],
+}
+
+IHSG_PRESETS = {
+    'Auto broad scan': IHSG_UNIVERSE,
+    'IHSG large caps': ['BBCA.JK', 'BBRI.JK', 'BMRI.JK', 'BBNI.JK', 'TLKM.JK', 'ASII.JK', 'ICBP.JK', 'AMMN.JK', 'BREN.JK', 'TPIA.JK'],
+    'IHSG resources': ['ADRO.JK', 'PTBA.JK', 'UNTR.JK', 'ANTM.JK', 'MDKA.JK', 'INCO.JK', 'MEDC.JK', 'HUMI.JK', 'GTSI.JK', 'RAJA.JK'],
+    'IHSG property / beta': ['CTRA.JK', 'BSDE.JK', 'PWON.JK', 'SMRA.JK', 'TRIN.JK', 'TRUE.JK', 'MTLA.JK', 'DMAS.JK'],
+    'IHSG telco / consumer': ['TLKM.JK', 'EXCL.JK', 'ISAT.JK', 'ICBP.JK', 'INDF.JK', 'CPIN.JK', 'AMRT.JK', 'MAPI.JK', 'ACES.JK', 'ERAA.JK'],
+}
+
 def compute_relative() -> List[Dict[str, str]]:
     spy = yahoo_close("SPY", "1y")
     eem = yahoo_close("EEM", "1y")
@@ -596,6 +1240,52 @@ def compute_size() -> List[Dict[str, str]]:
 
 relative_rows = compute_relative()
 size_rows = compute_size()
+
+def compute_leadership_panels() -> Tuple[pd.DataFrame, pd.DataFrame, str, str, str, str]:
+    us_preset = st.session_state.get('us_leader_preset', 'Auto broad scan')
+    ihsg_preset = st.session_state.get('ihsg_leader_preset', 'Auto broad scan')
+    us_custom_raw = st.session_state.get('us_custom_tickers', '')
+    ihsg_custom_raw = st.session_state.get('ihsg_custom_tickers', '')
+
+    us_tickers = list(US_PRESETS.get(us_preset, US_UNIVERSE)) + _clean_tickers(us_custom_raw)
+    ihsg_tickers = list(IHSG_PRESETS.get(ihsg_preset, IHSG_UNIVERSE)) + _clean_tickers(ihsg_custom_raw, '.JK')
+
+    us_seen, us_final = set(), []
+    for t in us_tickers:
+        if t not in us_seen:
+            us_seen.add(t)
+            us_final.append(t)
+    ih_seen, ih_final = set(), []
+    for t in ihsg_tickers:
+        if t not in ih_seen:
+            ih_seen.add(t)
+            ih_final.append(t)
+
+    us_df = rank_market_leaders(us_final, benchmark_ticker='SPY', period='1y', fallback_benchmark='QQQ')
+    if us_df.empty:
+        us_df = rank_market_leaders(us_final, benchmark_ticker='SPY', period='6mo', fallback_benchmark='QQQ')
+    if us_df.empty:
+        us_df = rank_market_leaders(us_final, benchmark_ticker='QQQ', period='3mo', fallback_benchmark='SPY')
+
+    ihsg_df = rank_market_leaders(ih_final, benchmark_ticker='^JKSE', period='1y', fallback_benchmark='EIDO')
+    if ihsg_df.empty:
+        ihsg_df = rank_market_leaders(ih_final, benchmark_ticker='EIDO', period='1y', fallback_benchmark='SPY')
+    if ihsg_df.empty:
+        ihsg_df = rank_market_leaders(ih_final, benchmark_ticker='EIDO', period='6mo', fallback_benchmark='SPY')
+    if ihsg_df.empty:
+        ihsg_df = rank_market_leaders(ih_final, benchmark_ticker='EIDO', period='3mo', fallback_benchmark='SPY')
+
+    if not us_df.empty:
+        us_df["Theme"] = us_df["Ticker"].apply(lambda x: _theme_from_tags(x, US_THEME_TAGS))
+    if not ihsg_df.empty:
+        ihsg_df["Theme"] = ihsg_df["Ticker"].apply(lambda x: _theme_from_tags(x, IHSG_THEME_TAGS))
+
+    us_lead, us_em = leadership_summary(us_df)
+    ih_lead, ih_em = leadership_summary(ihsg_df)
+    return us_df, ihsg_df, us_lead, us_em, ih_lead, ih_em
+
+us_leaders_df, ihsg_leaders_df, us_lead_text, us_em_text, ih_lead_text, ih_em_text = compute_leadership_panels()
+
 
 # --------------------
 # OVERLAYS
@@ -717,509 +1407,1033 @@ def current_vs_next_playbook() -> Tuple[Dict[str, List[str]], Dict[str, List[str
 play_cur, play_next, posture = current_vs_next_playbook()
 
 
+
 # --------------------
-# FINAL HYBRID HELPERS
+# DECISION-SUPPORT OVERLAYS
 # --------------------
-MEGACAP_PROXY_WEIGHTS = {
-    "AAPL": 6.8, "MSFT": 6.5, "NVDA": 6.0, "AMZN": 3.8,
-    "GOOGL": 3.4, "META": 2.5, "BRK-B": 1.7, "AVGO": 1.6,
-    "TSLA": 1.5, "LLY": 1.4,
+ASSET_SCORE_BY_QUAD = {
+    "US cyclicals": {"Q1": 0.55, "Q2": 0.85, "Q3": -0.55, "Q4": -0.45},
+    "US defensives": {"Q1": -0.25, "Q2": -0.45, "Q3": 0.70, "Q4": 0.75},
+    "US small caps": {"Q1": 0.50, "Q2": 0.95, "Q3": -0.75, "Q4": -0.65},
+    "EM equities": {"Q1": 0.45, "Q2": 0.75, "Q3": -0.40, "Q4": -0.25},
+    "IHSG cyclicals": {"Q1": 0.35, "Q2": 0.70, "Q3": -0.20, "Q4": -0.20},
+    "Gold / miners": {"Q1": -0.10, "Q2": 0.00, "Q3": 0.90, "Q4": 0.35},
+    "Oil / energy": {"Q1": 0.05, "Q2": 0.55, "Q3": 0.80, "Q4": -0.15},
+    "USD": {"Q1": -0.40, "Q2": 0.05, "Q3": 0.80, "Q4": 0.55},
+    "Duration / bonds": {"Q1": -0.30, "Q2": -0.85, "Q3": 0.10, "Q4": 0.90},
+    "BTC / crypto beta": {"Q1": 0.60, "Q2": 0.75, "Q3": -0.35, "Q4": -0.10},
 }
 
-PROXY_MAP = {
-    "gold": ["GLD", "GDX"],
-    "miners": ["GDX", "GDXJ"],
-    "energy": ["XLE", "OIH"],
-    "oil-gas": ["XLE", "OIH"],
-    "coal": ["AMR", "BTU"],
-    "metals": ["XME", "COPX"],
-    "shipping": ["BDRY", "BOAT"],
-    "usd": ["UUP"],
-    "duration": ["TLT", "IEF"],
-    "small caps": ["IWM"],
-    "cyclicals": ["XLI", "XLB"],
-    "defensives": ["XLU", "XLP"],
-    "em": ["EEM"],
-    "crypto": ["BTC-USD", "ETH-USD"],
-    "btc": ["BTC-USD"],
+CURRENCY_SCORE_BY_QUAD = {
+    "USD": {"Q1": -0.35, "Q2": 0.05, "Q3": 0.85, "Q4": 0.55},
+    "JPY": {"Q1": -0.15, "Q2": -0.45, "Q3": 0.55, "Q4": 0.70},
+    "CHF": {"Q1": -0.10, "Q2": -0.35, "Q3": 0.45, "Q4": 0.55},
+    "EUR": {"Q1": 0.10, "Q2": 0.20, "Q3": -0.05, "Q4": 0.00},
+    "GBP": {"Q1": 0.05, "Q2": 0.15, "Q3": -0.05, "Q4": -0.05},
+    "AUD": {"Q1": 0.35, "Q2": 0.75, "Q3": -0.60, "Q4": -0.35},
+    "NZD": {"Q1": 0.35, "Q2": 0.70, "Q3": -0.65, "Q4": -0.35},
+    "CAD": {"Q1": 0.10, "Q2": 0.45, "Q3": -0.10, "Q4": -0.10},
+    "EMFX / IDR": {"Q1": 0.30, "Q2": 0.65, "Q3": -0.55, "Q4": -0.30},
 }
 
-def _last_valid(s: pd.Series, default: float = np.nan) -> float:
-    s = s.dropna()
-    return float(s.iloc[-1]) if len(s) else float(default)
+STAGE_GUIDE = {
+    "Q1": {
+        "Early": ("quality growth, semis, consumer beta", "utilities / staples", "duration still helps; breadth should widen"),
+        "Mid": ("broad equities, software, discretionary", "bond proxies", "earnings upgrades and clean breadth"),
+        "Late": ("cyclicals still okay, but froth rises", "defensives still lag", "watch Q2 heat or false-dawn failure"),
+    },
+    "Q2": {
+        "Early": ("small caps, cyclicals, industrials, commodity FX", "duration, staples, utilities", "rates rise orderly and breadth broadens"),
+        "Mid": ("financials, materials, broad beta, reflation", "REITs / bond proxies", "credit stable; USD not too brutal"),
+        "Late": ("energy, value, nominal-growth trades", "long-duration beta if yields spike", "top risk rises; watch bad-Q2 / Q2→Q3 rollover"),
+    },
+    "Q3": {
+        "Early": ("gold, miners, energy, USD", "small caps, EMFX, weak cyclicals", "inflation re-accelerates before growth fully breaks"),
+        "Mid": ("gold, defensives, selective energy, quality", "broad beta, lower-quality cyclicals", "breadth stays narrow and USD/yields matter"),
+        "Late": ("gold + duration barbell, quality defensives", "crowded beta, fragile reflation longs", "branch point: good Q3→Q2 or hard slide into Q4"),
+    },
+    "Q4": {
+        "Early": ("duration, defensives, USD", "cyclicals, small caps, weak credit", "growth scare starts dominating"),
+        "Mid": ("duration, quality, defensives", "broad beta / lower quality", "bottoming is not confirmed yet"),
+        "Late": ("duration, selective gold, early cyclicals only if breadth repairs", "junky beta", "watch Q4→Q1 true bottom vs false dawn"),
+    },
+}
+
+TRANSITION_LIBRARY = [
+    {"Path": "Q3 → Q2", "Variant": "Good reflation", "When": "growth improves, USD calm/softer, yields rise orderly, breadth broadens", "Strong": "small caps, cyclicals, EM, IHSG cyclicals", "Weak": "defensives, duration, pure stagflation hedges"},
+    {"Path": "Q3 → Q2", "Variant": "Bad reflation", "When": "oil shock, USD too strong, yields spike, breadth stays narrow", "Strong": "energy, gold, narrow value", "Weak": "EM Asia, small caps, broad beta, weak FX"},
+    {"Path": "Q2", "Variant": "Healthy Q2", "When": "rates rise in an orderly way, credit okay, breadth wide", "Strong": "financials, industrials, materials, beta FX", "Weak": "REITs, bond proxies, staples"},
+    {"Path": "Q2", "Variant": "Crash-prone Q2", "When": "inflation sticky, policy repricing, liquidity / credit strain", "Strong": "cash, gold, selective quality / energy", "Weak": "small caps, long-duration beta, weak EM"},
+    {"Path": "Q2 → Q3", "Variant": "Overheating rollover", "When": "growth breadth rolls while inflation stays hot", "Strong": "gold, defensives, USD", "Weak": "beta cyclicals, small caps, weak FX"},
+    {"Path": "Q4 → Q1", "Variant": "True bottoming", "When": "growth stabilises while inflation cools and breadth repairs", "Strong": "quality growth, semis, consumer beta", "Weak": "deep defensives"},
+    {"Path": "Q4 → Q1", "Variant": "False dawn", "When": "equities bounce but breadth / credit do not confirm", "Strong": "duration, quality", "Weak": "lower-quality beta"},
+    {"Path": "Q4 → Q3", "Variant": "Inflation shock turn", "When": "growth still weak but inflation turns higher again", "Strong": "gold, energy, USD", "Weak": "duration, EM, rate-sensitive beta"},
+]
 
 
-def _rolling_pct_last(s: pd.Series, window: int = 756) -> float:
-    s = s.dropna()
-    if len(s) < 20:
-        return 0.5
-    hist = s.iloc[-min(window, len(s)):]
-    return float(hist.rank(pct=True).iloc[-1])
+def _bias_label(x: float) -> str:
+    if x >= 0.55:
+        return "Strong"
+    if x >= 0.18:
+        return "Above avg"
+    if x > -0.18:
+        return "Mixed"
+    if x > -0.55:
+        return "Below avg"
+    return "Weak"
 
 
-def _stress_hi_last(s: pd.Series, window: int = 756) -> float:
-    return clamp01(_rolling_pct_last(s, window) ** 1.5)
+def _bias_read(x: float) -> str:
+    if x >= 0.55:
+        return "Prefer long / overweight"
+    if x >= 0.18:
+        return "Leaning long"
+    if x > -0.18:
+        return "Neutral / tactical only"
+    if x > -0.55:
+        return "Leaning short / underweight"
+    return "Prefer short / avoid"
 
 
-def _stress_lo_last(s: pd.Series, window: int = 756) -> float:
-    return clamp01((1 - _rolling_pct_last(s, window)) ** 1.5)
+def _transition_variant(core: Dict[str, object]) -> str:
+    cur, nxt = core["current_q"], core["next_q"]
+    if cur == "Q3" and nxt == "Q2":
+        bad = core["stress_infl"] > 0.58 and core["stress_liq"] > 0.45 and core["top_score"] > 0.55
+        return "Bad reflation" if bad else "Good reflation"
+    if cur == "Q2":
+        return "Crash-prone Q2" if (core["top_score"] > 0.56 and core["stress_infl"] > 0.56 and core["fragility"] > 0.42) else "Healthy Q2"
+    if cur == "Q4" and nxt == "Q1":
+        return "False dawn" if core["agreement"] < 0.55 or core["breadth"] < 0.42 else "True bottoming"
+    if cur == "Q2" and nxt == "Q3":
+        return "Overheating rollover"
+    if cur == "Q4" and nxt == "Q3":
+        return "Inflation shock turn"
+    return "Base path"
 
 
-def _safe_series(name: str) -> pd.Series:
-    return SER.get(name, pd.Series(dtype=float)).dropna()
+def _scenario_adjust(asset: str, base: float) -> float:
+    variant = _transition_variant(core)
+    if variant == "Good reflation":
+        if asset in ["US small caps", "EM equities", "IHSG cyclicals", "BTC / crypto beta"]:
+            base += 0.18
+        if asset in ["USD", "Duration / bonds", "Gold / miners"]:
+            base -= 0.10
+    elif variant == "Bad reflation":
+        if asset in ["Oil / energy", "Gold / miners", "USD"]:
+            base += 0.18
+        if asset in ["US small caps", "EM equities", "IHSG cyclicals", "BTC / crypto beta", "Duration / bonds"]:
+            base -= 0.18
+    elif variant == "Crash-prone Q2":
+        if asset in ["US small caps", "BTC / crypto beta", "EM equities"]:
+            base -= 0.22
+        if asset in ["Gold / miners", "USD"]:
+            base += 0.12
+    elif variant == "Overheating rollover":
+        if asset in ["Gold / miners", "USD", "US defensives"]:
+            base += 0.12
+        if asset in ["US cyclicals", "US small caps", "BTC / crypto beta"]:
+            base -= 0.18
+    return float(max(-1.0, min(1.0, base)))
 
 
-def _yahoo_pair_ratio(a: str, b: str, period: str = "3y") -> pd.Series:
-    sa, sb = yahoo_close(a, period), yahoo_close(b, period)
-    if sa.empty or sb.empty:
-        return pd.Series(dtype=float)
-    df = pd.concat([sa.rename('a'), sb.rename('b')], axis=1).sort_index().ffill().dropna()
-    if df.empty:
-        return pd.Series(dtype=float)
-    return (df['a'] / df['b']).replace([np.inf, -np.inf], np.nan).dropna()
+def _score_book_for_name(name: str) -> Dict[str, float]:
+    if name in ASSET_SCORE_BY_QUAD:
+        return ASSET_SCORE_BY_QUAD[name]
+    if name in CURRENCY_SCORE_BY_QUAD:
+        return CURRENCY_SCORE_BY_QUAD[name]
+    raise KeyError(f"Unknown asset/currency score key: {name}")
 
 
-def compute_policy_liquidity() -> Dict[str, object]:
-    core_cpi = _safe_series("CORE_CPI")
-    core_yoy = core_cpi.pct_change(12)
-    core_3m = _annualized_n(core_cpi, 3)
-    breakeven = _safe_series("T10YIE")
-    dgs2 = _safe_series("DGS2")
-    dfii10 = _safe_series("DFII10")
-    dgs10 = _safe_series("DGS10")
-    curve = _safe_series("T10Y2Y")
-    if curve.empty and not dgs10.empty and not dgs2.empty:
-        curve = pd.concat([dgs10.rename('d10'), dgs2.rename('d2')], axis=1).dropna().eval('d10-d2')
-    walcl = _safe_series("WALCL")
-    m2 = _safe_series("M2")
-    hy = _safe_series("HY")
-    nfci = _safe_series("NFCI")
-    unrate = _safe_series("UNRATE")
-    claims = _safe_series("ICSA")
-    iorb = _safe_series("IORB")
-    dff = _safe_series("DFF")
-    sofr = _safe_series("SOFR")
-    tgcr = _safe_series("TGCR")
-    usd = _safe_series("USD")
-
-    vix = yahoo_close("^VIX", "3y")
-    vvix = yahoo_close("^VVIX", "3y")
-    hyg = yahoo_close("HYG", "3y")
-    lqd = yahoo_close("LQD", "3y")
-    hyg_lqd = _yahoo_pair_ratio("HYG", "LQD", "3y")
-
-    y2_shock = dgs2.diff(20).clip(lower=0) if not dgs2.empty else pd.Series(dtype=float)
-    real10_shock = dfii10.diff(20).clip(lower=0) if not dfii10.empty else pd.Series(dtype=float)
-    curve_inv = (-curve).clip(lower=0) if not curve.empty else pd.Series(dtype=float)
-    curve_resteepen = curve.diff(20).clip(lower=0) if not curve.empty else pd.Series(dtype=float)
-
-    IC = clamp01(
-        0.50 * _stress_hi_last((core_yoy - 0.02).clip(lower=0)) +
-        0.30 * _stress_hi_last((core_3m - 0.02).clip(lower=0)) +
-        0.20 * _stress_hi_last(breakeven)
-    )
-    GS = clamp01(0.55 * (core['blended'].get('Q3', 0.25) + core['blended'].get('Q4', 0.25)) + 0.45 * core['stress_growth'])
-    LS = clamp01(0.60 * _stress_hi_last(unrate) + 0.40 * _stress_hi_last(claims.rolling(4).mean()))
-    FS = clamp01(
-        0.35 * _stress_hi_last(hy) +
-        0.20 * _stress_hi_last(vix) +
-        0.15 * _stress_hi_last(vvix) +
-        0.15 * _stress_lo_last(hyg_lqd) +
-        0.15 * _stress_hi_last(nfci)
-    )
-    reserve_gap = pd.Series(dtype=float)
-    if not iorb.empty and not dff.empty:
-        reserve_gap = (iorb - dff).abs()
-    elif not iorb.empty and not sofr.empty:
-        reserve_gap = (sofr - iorb).abs()
-    elif not iorb.empty and not tgcr.empty:
-        reserve_gap = (tgcr - iorb).abs()
-    RS = clamp01(
-        0.45 * _stress_hi_last(reserve_gap) +
-        0.25 * _stress_hi_last(nfci) +
-        0.30 * clamp01(0.50 * _stress_lo_last(walcl.diff(13)) + 0.50 * _stress_lo_last(walcl))
-    )
-    LT = clamp01(
-        0.40 * _stress_lo_last(walcl.diff(13)) +
-        0.30 * _stress_lo_last(m2.pct_change(12)) +
-        0.30 * _stress_hi_last(usd)
-    )
-    MG = clamp01(0.55 * RS + 0.45 * FS)
-    YR = clamp01(
-        0.35 * _stress_hi_last(dgs2) +
-        0.30 * _stress_hi_last(dfii10) +
-        0.20 * _stress_hi_last(y2_shock) +
-        0.15 * _stress_hi_last(real10_shock)
-    )
-    CS = clamp01(0.55 * _stress_hi_last(curve_inv) + 0.45 * _stress_hi_last(curve_resteepen))
-
-    q = core['blended']
-    z_qe = (1.10*FS + 0.90*RS + 0.80*GS + 0.55*LS + 0.70*LT + 0.60*q['Q4'] + 0.20*q['Q3'] - 1.20*IC - 0.70*YR)
-    z_n  = (0.85*RS + 0.50*LT + 0.45*MG + 0.35*q['Q1'] + 0.20*q['Q2'] + 0.25*IC + 0.15*YR - 0.35*FS)
-    z_qt = (1.10*IC + 0.80*(1-GS) + 0.70*(1-LT) + 0.55*q['Q2'] + 0.25*q['Q1'] + 0.85*YR - 0.85*FS - 0.75*RS)
-
-    if (YR > 0.75 and IC > 0.60) and not (FS > 0.85 and RS > 0.85):
-        z_qe = min(z_qe, 0.10)
-    if (q['Q4'] > 0.45) and (IC < 0.40) and (YR < 0.45):
-        z_qe += 0.25
-    if (FS > 0.8 and RS > 0.8):
-        z_qt -= 0.35
-        z_n += 0.15
-        z_qe += 0.20
-
-    arr = np.array([z_qe, z_n, z_qt], dtype=float)
-    ex = np.exp(arr - arr.max())
-    probs = ex / ex.sum()
-    P_QE, P_N, P_QT = [float(x) for x in probs]
-
-    adj_crash = 10 * (0.60*P_QT + 0.20*P_N - 0.40*P_QE)
-    adj_riskoff = 15 * (0.55*P_QT + 0.15*P_N - 0.30*P_QE)
-    adj_riskon = 15 * (0.60*P_QE + 0.20*P_N - 0.50*P_QT)
-    return {
-        'IC': IC, 'GS': GS, 'LS': LS, 'FS': FS, 'RS': RS, 'LT': LT, 'MG': MG,
-        'YR': YR, 'CS': CS,
-        'P_QE': P_QE, 'P_NEUTRAL': P_N, 'P_QT': P_QT,
-        'adj_crash': adj_crash, 'adj_riskoff': adj_riskoff, 'adj_riskon': adj_riskon,
-        'y2': _last_valid(dgs2), 'y10': _last_valid(dgs10), 'real10': _last_valid(dfii10),
-        'curve': _last_valid(curve), 'y2_shock': _last_valid(y2_shock, 0.0), 'real10_shock': _last_valid(real10_shock, 0.0),
-    }
+def _current_next_asset_score(asset: str) -> tuple[float, float]:
+    score_book = _score_book_for_name(asset)
+    cur_q = core.get("current_q", "Q3")
+    nxt_q = core.get("next_q", "Q2")
+    cur = float(score_book.get(cur_q, 0.0))
+    nxt = float(score_book.get(nxt_q, cur))
+    if asset in ASSET_SCORE_BY_QUAD:
+        nxt = _scenario_adjust(asset, nxt)
+    blended = (1 - core["transition_conviction"] * 0.35) * cur + (core["transition_conviction"] * 0.35) * nxt
+    return blended, nxt
 
 
-def compute_leadership_quality() -> Dict[str, object]:
-    spy = yahoo_close('SPY', '1y'); rsp = yahoo_close('RSP', '1y'); iwm = yahoo_close('IWM', '1y')
-    panel = yahoo_panel(list(MEGACAP_PROXY_WEIGHTS.keys()), period='3mo')
-    ret1d = panel.pct_change().iloc[-1].dropna() if not panel.empty and len(panel) > 2 else pd.Series(dtype=float)
+def build_transition_beneficiary_rows() -> List[List[str]]:
     rows = []
-    raw = []
-    for t, w in MEGACAP_PROXY_WEIGHTS.items():
-        r = float(ret1d.get(t, 0.0))
-        impact = w * r
-        raw.append((t, w, r, impact))
-    total_abs = sum(abs(x[3]) for x in raw) or 1.0
-    concentration = sum(abs(x[3]) for x in sorted(raw, key=lambda z: abs(z[3]), reverse=True)[:5]) / total_abs
-    pos = [(t,w,r,imp) for t,w,r,imp in raw if imp > 0]
-    neg = [(t,w,r,imp) for t,w,r,imp in raw if imp < 0]
-    pos_total = sum(x[3] for x in pos) or 1.0
-    neg_total = sum(abs(x[3]) for x in neg) or 1.0
-    pos_rows = [[t, f"{w:.2f}%", pct(r), pct(imp/pos_total)] for t,w,r,imp in sorted(pos, key=lambda z: z[3], reverse=True)[:5]] or [["None","-","-","-"]]
-    neg_rows = [[t, f"{w:.2f}%", pct(r), pct(abs(imp)/neg_total)] for t,w,r,imp in sorted(neg, key=lambda z: z[3])[:5]] or [["None","-","-","-"]]
+    for asset in ASSET_SCORE_BY_QUAD:
+        now, nxt = _current_next_asset_score(asset)
+        delta = nxt - now
+        if delta > 0.18:
+            prep = "Gets better if next wins"
+        elif delta < -0.18:
+            prep = "Loses edge if next wins"
+        else:
+            prep = "Not hugely sensitive"
+        rows.append([asset, _bias_label(now), _bias_label(nxt), prep, _bias_read(now)])
+    order = sorted(rows, key=lambda r: ["Strong","Above avg","Mixed","Below avg","Weak"].index(r[1]))
+    return rows
 
-    eq_div = 0.0
-    russell_rel = 0.0
-    if not spy.empty and not rsp.empty:
-        eq_div = ret_n(spy,21) - ret_n(rsp,21)
-    if not spy.empty and not iwm.empty:
-        russell_rel = ret_n(iwm,21) - ret_n(spy,21)
-    breadth = core['breadth']
-    if breadth < 0.30 and russell_rel < -0.04 and concentration > 0.55:
-        label = 'Breaking'
-    elif breadth < 0.40 or russell_rel < -0.02 or concentration > 0.48:
-        label = 'Fragile'
-    elif breadth > 0.58 and russell_rel > 0.01 and concentration < 0.34 and eq_div < 0.02:
-        label = 'Broad'
+
+def build_transition_library_rows() -> List[List[str]]:
+    base_path = f"{core['current_q']} → {core['next_q']}"
+    variant = _transition_variant(core)
+    rows = []
+    for item in TRANSITION_LIBRARY:
+        priority = 0
+        if item["Path"] == base_path:
+            priority += 3
+        if item["Variant"] == variant:
+            priority += 2
+        if item["Path"].startswith(core["current_q"]):
+            priority += 1
+        rows.append((priority, [item["Path"], item["Variant"], item["When"], item["Strong"], item["Weak"]]))
+    rows.sort(key=lambda x: x[0], reverse=True)
+    return [r for _, r in rows[:6]]
+
+
+def build_stage_rows(quads: List[str]) -> Dict[str, List[List[str]]]:
+    out: Dict[str, List[List[str]]] = {}
+    for q in quads:
+        rows = []
+        for stage, vals in STAGE_GUIDE[q].items():
+            rows.append([stage, vals[0], vals[1], vals[2]])
+        out[q] = rows
+    return out
+
+def infer_cycle_stage(q: str) -> tuple[str, float]:
+    if q == "Q1":
+        maturity = 0.45 * core["phase_strength"] + 0.30 * core["top_score"] + 0.25 * core["transition_pressure"]
+    elif q == "Q2":
+        maturity = 0.42 * core["top_score"] + 0.28 * core["phase_strength"] + 0.20 * core["transition_pressure"] + 0.10 * core["fragility"]
+    elif q == "Q3":
+        maturity = 0.35 * core["top_score"] + 0.25 * core["phase_strength"] + 0.20 * core["transition_pressure"] + 0.20 * core["fragility"]
     else:
-        label = 'Narrow'
-    score = clamp01(0.35*(1-concentration) + 0.35*breadth + 0.15*clamp01((russell_rel+0.08)/0.16) + 0.15*clamp01((0.04-eq_div)/0.08))
-    summary_rows = [
-        ['Leadership quality', label, 'Healthy move = breadth confirms and top-5 concentration not too extreme.'],
-        ['Cap vs equal-weight', pct(eq_div), 'SPY outrunning RSP = index strength getting narrower.'],
-        ['Russell confirm', pct(russell_rel), 'IWM lagging SPY = small caps not validating broad risk-on.'],
-        ['Impact concentration', pct(concentration), 'Higher = move is increasingly dependent on fewer mega-caps.'],
-    ]
-    return {
-        'label': label, 'score': score, 'summary_rows': summary_rows,
-        'pos_rows': pos_rows, 'neg_rows': neg_rows,
-        'concentration': concentration, 'eq_div': eq_div, 'russell_rel': russell_rel,
-    }
+        maturity = 0.40 * core["bottom_score"] + 0.22 * core["transition_pressure"] + 0.18 * core["phase_strength"] + 0.20 * core["fragility"]
+    if maturity < 0.36:
+        return "Early", float(maturity)
+    if maturity < 0.67:
+        return "Mid", float(maturity)
+    return "Late", float(maturity)
 
 
-def compute_risk_meters(policy: Dict[str, object], lead: Dict[str, object], fg_score: int) -> Dict[str, object]:
-    vix = yahoo_close('^VIX', '3y')
-    vvix = yahoo_close('^VVIX', '3y')
-    skew = yahoo_close('^SKEW', '3y')
-    hyg_lqd = _yahoo_pair_ratio('HYG', 'LQD', '3y')
-    russell_block = 15 * clamp01(0.45 * clamp01((-lead['russell_rel'])/0.08) + 0.30 * _stress_lo_last(_yahoo_pair_ratio('IWM','SPY','3y')) + 0.25 * clamp01(abs(min(0.0, lead['russell_rel']))/0.10))
-    breadth_block = 20 * clamp01(0.55*(1-core['breadth']) + 0.25*lead['concentration'] + 0.20*core['fragility'])
-    vol_block = 20 * clamp01(0.35*_stress_hi_last(vix) + 0.25*_stress_hi_last(vvix) + 0.15*_stress_hi_last(skew) + 0.25*clamp01((_last_valid(vix)-16)/20))
-    credit_block = 15 * clamp01(0.45*_stress_hi_last(_safe_series('HY')) + 0.30*_stress_lo_last(hyg_lqd) + 0.25*_stress_hi_last(_safe_series('NFCI')))
-    trend_block = 10 * clamp01(0.50*core['fragility'] + 0.30*core['top_score'] + 0.20*clamp01((-ret_n(yahoo_close('SPY','1y'),21))/0.12))
-    rates_block = 10 * clamp01(0.35*policy['YR'] + 0.25*_stress_hi_last(_safe_series('DGS2').diff(20).clip(lower=0)) + 0.20*_stress_hi_last(_safe_series('DFII10').diff(20).clip(lower=0)) + 0.20*policy['CS'])
-    sentiment_block = 10 * clamp01(0.60*clamp01((55-fg_score)/55) + 0.40*_stress_hi_last(vix))
-    core_hits = sum([
-        russell_block >= 9.0,
-        breadth_block >= 12.0,
-        vol_block >= 12.0,
-        credit_block >= 9.0,
-    ])
-    crash = clamp01((russell_block+breadth_block+vol_block+credit_block+trend_block+rates_block+sentiment_block + policy['adj_crash']) / 100.0)
-    if core_hits < 3:
-        crash *= 0.82
-    riskoff = clamp01((
-        0.18*clamp01((55-fg_score)/55) +
-        0.16*clamp01((-lead['russell_rel'])/0.08) +
-        0.15*_stress_hi_last(vix) +
-        0.15*_stress_hi_last(_safe_series('USD')) +
-        0.14*(1-core['breadth']) +
-        0.12*core['fragility'] +
-        0.10*clamp01(policy['adj_riskoff']/15)
-    ))
-    riskon = clamp01((
-        0.22*core['breadth'] +
-        0.18*clamp01((lead['russell_rel']+0.08)/0.16) +
-        0.14*clamp01((0.45-lead['concentration'])/0.45) +
-        0.14*(1-_stress_hi_last(vix)) +
-        0.12*(1-_stress_hi_last(_safe_series('HY'))) +
-        0.10*(1-core['fragility']) +
-        0.10*clamp01((policy['adj_riskon']+7.5)/15)
-    ))
-    breakdown_rows = [
-        ['Russell / small caps', pct(russell_block/15), 'Core crash block'],
-        ['Breadth damage', pct(breadth_block/20), 'Core crash block'],
-        ['Vol complex', pct(vol_block/20), 'Core crash block'],
-        ['Credit / liquidity', pct(credit_block/15), 'Core crash block'],
-        ['Trend / structure', pct(trend_block/10), 'Overlap block'],
-        ['Rates / yields', pct(rates_block/10), 'Overlap block'],
-        ['Sentiment / Fear & Greed', pct(sentiment_block/10), 'Supporting block'],
-    ]
-    riskoff_rows = [
-        ['Sentiment', pct(clamp01((55-fg_score)/55)), 'Fear & Greed / early de-risking'],
-        ['Russell weakness', pct(clamp01((-lead['russell_rel'])/0.08)), 'Small caps stop confirming'],
-        ['Vol stress', pct(_stress_hi_last(vix)), 'Risk-off / hedge demand'],
-        ['Dollar pressure', pct(_stress_hi_last(_safe_series('USD'))), 'Tighter global conditions'],
-        ['Breadth narrowing', pct(1-core['breadth']), 'Internals worsen before index breaks'],
-    ]
-    return {
-        'riskon': riskon, 'riskoff': riskoff, 'crash': crash,
-        'breakdown_rows': breakdown_rows, 'riskoff_rows': riskoff_rows, 'core_hits': core_hits,
-        'riskon_label': bucket(riskon, (0.33,0.66), ('Weak','Building','Strong')),
-        'riskoff_label': bucket(riskoff, (0.33,0.66), ('Low','Elevated','High')),
-        'crash_label': bucket(crash, (0.40,0.70), ('Contained','High risk','Severe setup')),
-    }
+def build_stage_strip_rows(q: str, active_stage: str) -> List[List[str]]:
+    rows = []
+    for stage, vals in STAGE_GUIDE[q].items():
+        marker = "NOW" if stage == active_stage else ""
+        rows.append([marker, stage, vals[0], vals[1], vals[2]])
+    return rows
 
 
-def build_decision_snapshot_rows(policy: Dict[str, object]) -> List[List[str]]:
-    q2_type = 'Fragile early Q2' if policy['P_QT'] > policy['P_QE'] or variant_now in ['Bad reflation','Crash-prone Q2'] else 'Healthier early Q2'
+def current_stage_sentence() -> str:
+    stage, maturity = infer_cycle_stage(core["current_q"])
+    return f"{stage} {core['current_q']} · maturity {pct(maturity)} · {STAGE_GUIDE[core['current_q']][stage][2]}"
+
+
+def next_stage_sentence() -> str:
+    return f"If {core['next_q']} takes over, start with Early {core['next_q']} · {STAGE_GUIDE[core['next_q']]['Early'][2]}"
+
+
+def bucket_bridge_read(bucket_name: str) -> str:
+    variant = _transition_variant(core)
+    if bucket_name == "US Stocks":
+        return f"Now {infer_cycle_stage(core['current_q'])[0]} {core['current_q']}; if breadth widens, {core['next_q']} starts showing in leaders."
+    if bucket_name == "Futures / Commodities":
+        return "Oil / gold decide whether this is cleaner reflation or a more toxic inflation turn."
+    if bucket_name == "Forex":
+        return "Use full FX rank below: strong leg vs weak leg, not one pair only."
+    if bucket_name == "Crypto":
+        return "Crypto needs liquidity and breadth; in Q3 keep it tactical unless next-phase evidence improves."
+    if bucket_name == "IHSG":
+        return "IHSG improves when USD pressure cools and EM / commodity breadth confirms."
+    return variant_explainer(variant)
+
+
+def build_merged_playbook_rows() -> List[List[str]]:
+    rows = []
+    for bucket_name in ["US Stocks", "Futures / Commodities", "Forex", "Crypto", "IHSG"]:
+        rows.append([
+            bucket_name,
+            ", ".join(play_cur[bucket_name]) or "-",
+            ", ".join(play_next[bucket_name]) or "-",
+            bucket_bridge_read(bucket_name),
+        ])
+    return rows
+
+
+def build_cross_asset_stage_header_rows() -> List[List[str]]:
+    cur_stage, _ = infer_cycle_stage(core["current_q"])
     return [
-        ['Now', f"{cur_stage} {core['current_q']}", 'Current decision regime in use now.'],
-        ['If next wins', f"{core['next_q']} ({q2_type if core['next_q']=='Q2' else 'next path'})", 'Most likely path if transition keeps extending.'],
-        ['Variant now', variant_now, 'Clean/dirty branch matters more than quad label alone.'],
-        ['Global state now', 'Selective, not broad clean risk-on', 'Use this as posture, not as a guarantee of direction.'],
-        ['What confirms', 'Breadth repair + Russell confirm + USD/yields calm down', 'Those matter most for a cleaner Q3→Q2 handoff.'],
-        ['What invalidates', 'Breadth stays narrow, small caps fail, credit/vol worsen', 'That keeps the tape in fragile / bad reflation mode.'],
-        ['Next catalysts', ', '.join([r[0] for r in event_rows[:3]]), 'Use releases as timing checkpoints rather than prediction certainties.'],
+        ["Now", f"{cur_stage} {core['current_q']}", STAGE_GUIDE[core['current_q']][cur_stage][0], STAGE_GUIDE[core['current_q']][cur_stage][1]],
+        ["If next wins", f"Early {core['next_q']}", STAGE_GUIDE[core['next_q']]['Early'][0], STAGE_GUIDE[core['next_q']]['Early'][1]],
     ]
 
 
-def build_commodity_resource_rows() -> List[List[str]]:
-    def _state_for(bucket: str) -> str:
-        q = core['current_q']
-        if bucket == 'Oil-gas':
-            return 'Useful hedge / strong' if q == 'Q3' else 'Cyclical if breadth confirms'
-        if bucket == 'Coal':
-            return 'Inflation-linked / selective' if q == 'Q3' else 'Commodity beta if reflation cleans up'
-        if bucket == 'Metals':
-            return 'Needs China / growth confirmation' if q in ['Q3','Q4'] else 'Better if next reflation wins'
-        if bucket == 'Shipping':
-            return 'Depends on branch: tanker/LNG different from dry bulk' 
-        if bucket == 'Positive spillovers':
-            return 'Rail / logistics / suppliers can benefit after core energy/resources confirm'
-        return 'Fuel-sensitive / cost-sensitive groups stay under pressure if energy shock dominates'
+def build_cross_asset_focus_rows() -> List[List[str]]:
+    rows = []
+    stage_now, _ = infer_cycle_stage(core["current_q"])
+    for asset, now, nxt, read in asset_rank_rows:
+        action = read
+        if now in ["Strong", "Above avg"] and nxt in ["Strong", "Above avg"]:
+            prep = "Still fine if next wins"
+        elif now in ["Strong", "Above avg"] and nxt in ["Mixed", "Below avg", "Weak"]:
+            prep = "Good now, fades if next wins"
+        elif now in ["Mixed", "Below avg", "Weak"] and nxt in ["Strong", "Above avg"]:
+            prep = "Watchlist if next wins"
+        else:
+            prep = "Still secondary"
+        rows.append([asset, now, action, prep])
+    order = {"Strong": 0, "Above avg": 1, "Mixed": 2, "Below avg": 3, "Weak": 4}
+    rows.sort(key=lambda r: (order.get(r[1], 99), r[0]))
+    return rows
+
+
+def build_fx_rank_text(score_rows: List[Tuple[str, float]]) -> str:
+    if not score_rows:
+        return "No FX data"
+    return " > ".join([x[0] for x in score_rows])
+
+
+def build_fx_display_rows(score_rows: List[Tuple[str, float]]) -> List[List[str]]:
+    rows = []
+    for ccy, score in score_rows:
+        if score >= 0.45:
+            use = "Best long leg"
+        elif score >= 0.15:
+            use = "Lean long"
+        elif score <= -0.45:
+            use = "Best short / funding leg"
+        elif score <= -0.15:
+            use = "Lean short"
+        else:
+            use = "Neutral"
+        rows.append([ccy, _bias_label(score), use])
+    return rows
+
+
+def build_forex_board() -> tuple[List[List[str]], str, str, List[Tuple[str, float]]]:
+    variant = _transition_variant(core)
+    rows = []
+    score_rows = []
+    for ccy, mp in CURRENCY_SCORE_BY_QUAD.items():
+        cur = mp[core["current_q"]]
+        nxt = mp[core["next_q"]]
+        if variant == "Good reflation":
+            if ccy in ["AUD", "NZD", "CAD", "EMFX / IDR"]:
+                nxt += 0.18
+            if ccy in ["USD", "JPY", "CHF"]:
+                nxt -= 0.12
+        elif variant in ["Bad reflation", "Crash-prone Q2", "Overheating rollover"]:
+            if ccy in ["USD", "JPY", "CHF"]:
+                nxt += 0.15
+            if ccy in ["AUD", "NZD", "EMFX / IDR"]:
+                nxt -= 0.18
+        score = (1 - core["transition_conviction"] * 0.35) * cur + (core["transition_conviction"] * 0.35) * nxt
+        score = float(max(-1.0, min(1.0, score)))
+        if score >= 0.45:
+            expr = "Long vs weakest FX"
+        elif score >= 0.15:
+            expr = "Lean long vs weak FX"
+        elif score <= -0.45:
+            expr = "Better as funding / short leg"
+        elif score <= -0.15:
+            expr = "Lean short vs strong FX"
+        else:
+            expr = "Neutral / pair-selective"
+        rows.append([ccy, _bias_label(score), expr, f"{core['current_q']} now / {core['next_q']} if transition extends"])
+        score_rows.append((ccy, score))
+    score_rows.sort(key=lambda x: x[1], reverse=True)
+    strong = [x[0] for x in score_rows[:3]]
+    weak = [x[0] for x in score_rows[-3:]]
+    return rows, " > ".join(strong), " > ".join(weak[::-1]), score_rows
+
+
+def build_cross_asset_rank_rows() -> List[List[str]]:
+    rows = []
+    for asset in ASSET_SCORE_BY_QUAD:
+        now, nxt = _current_next_asset_score(asset)
+        rows.append([asset, _bias_label(now), _bias_label(nxt), _bias_read(now)])
+    rows.sort(key=lambda r: {"Strong":0,"Above avg":1,"Mixed":2,"Below avg":3,"Weak":4}[r[1]])
+    return rows
+
+
+
+
+def _dt_utc(y: int, m: int, d: int, hh: int, mm: int = 0) -> datetime:
+    return datetime(y, m, d, hh, mm, tzinfo=timezone.utc)
+
+
+def _first_business_day(y: int, m: int) -> date:
+    d = date(y, m, 1)
+    while d.weekday() >= 5:
+        d += timedelta(days=1)
+    return d
+
+
+def _nth_business_day(y: int, m: int, n: int) -> date:
+    d = date(y, m, 1)
+    count = 0
+    while True:
+        if d.weekday() < 5:
+            count += 1
+            if count == n:
+                return d
+        d += timedelta(days=1)
+
+
+def _human_countdown(target: datetime, now: datetime | None = None) -> str:
+    now = now or datetime.now(timezone.utc)
+    delta = target - now
+    secs = int(delta.total_seconds())
+    if secs <= 0:
+        return 'Released / live'
+    days, rem = divmod(secs, 86400)
+    hours, rem = divmod(rem, 3600)
+    mins, _ = divmod(rem, 60)
+    if days > 0:
+        return f"{days}d {hours}h"
+    if hours > 0:
+        return f"{hours}h {mins}m"
+    return f"{mins}m"
+
+
+def build_macro_catalyst_rows(limit: int = 8) -> List[List[str]]:
+    now = datetime.now(timezone.utc)
+    events: List[Tuple[datetime, str, str, str]] = [
+        (_dt_utc(2026, 4, 1, 12, 30), 'Retail Sales (Feb)', 'Growth / consumer breadth', 'Q now / next Q'),
+        (_dt_utc(2026, 4, 3, 12, 30), 'Payrolls (Mar)', 'Growth / labor trend', 'Q now'),
+        (_dt_utc(2026, 4, 9, 12, 30), 'PCE / Personal Outlays (Feb)', 'Inflation + demand', 'Q now / next Q'),
+        (_dt_utc(2026, 4, 10, 12, 30), 'CPI (Mar)', 'Inflation / policy repricing', 'Q now'),
+        (_dt_utc(2026, 4, 14, 12, 30), 'PPI (Mar)', 'Pipeline inflation', 'Next Q / good-vs-bad reflation'),
+        (_dt_utc(2026, 4, 21, 12, 30), 'Retail Sales (Mar)', 'Growth breadth / cyclicals', 'Next Q'),
+        (_dt_utc(2026, 4, 29, 18, 0), 'FOMC statement', 'Policy / yields / USD', 'Q now + next Q'),
+        (_dt_utc(2026, 4, 30, 12, 30), 'PCE / Personal Outlays (Mar)', 'Inflation + demand', 'Q now / next Q'),
+        (_dt_utc(2026, 5, 8, 12, 30), 'Payrolls (Apr)', 'Growth / labor trend', 'Q now'),
+        (_dt_utc(2026, 5, 12, 12, 30), 'CPI (Apr)', 'Inflation / policy repricing', 'Q now'),
+        (_dt_utc(2026, 5, 13, 12, 30), 'PPI (Apr)', 'Pipeline inflation', 'Next Q'),
+        (_dt_utc(2026, 5, 14, 12, 30), 'Retail Sales (Apr)', 'Growth breadth / cyclicals', 'Next Q'),
+        (_dt_utc(2026, 5, 20, 18, 0), 'FOMC minutes', 'Policy follow-through', 'Secondary'),
+        (_dt_utc(2026, 6, 17, 18, 0), 'FOMC statement + SEP', 'Policy / USD / yields', 'Q now + next Q'),
+    ]
+    months = [(2026, 4), (2026, 5), (2026, 6)]
+    for y, m in months:
+        mfg = _nth_business_day(y, m, 1)
+        svc = _nth_business_day(y, m, 3)
+        events.append((datetime(mfg.year, mfg.month, mfg.day, 14, 0, tzinfo=timezone.utc), f'ISM Manufacturing ({mfg.strftime("%b")})', 'Growth / goods cycle', 'Next Q'))
+        events.append((datetime(svc.year, svc.month, svc.day, 14, 0, tzinfo=timezone.utc), f'ISM Services ({svc.strftime("%b")})', 'Growth / services breadth', 'Next Q'))
+    events = sorted(events, key=lambda x: x[0])
+    future = [e for e in events if e[0] >= now][:limit]
+    rows: List[List[str]] = []
+    for dt, name, why, impact in future:
+        rows.append([name, dt.strftime('%d %b %H:%M UTC'), _human_countdown(dt, now), why, impact])
+    return rows
+
+
+def macro_catalyst_summary(limit: int = 3) -> str:
+    rows = build_macro_catalyst_rows(limit=limit)
+    if not rows:
+        return 'No upcoming catalyst loaded'
+    return ' · '.join([f"{r[0]} in {r[2]}" for r in rows[:limit]])
+
+
+def _bucket_priority_score(bucket_name: str) -> float:
+    proxy_map = {
+        'Futures / Commodities': ['Gold / miners', 'Oil / energy', 'Duration / bonds'],
+        'Cross-Asset / FX': ['USD', 'EMFX / IDR'],
+        'US Stocks': ['US defensives', 'US cyclicals', 'US small caps'],
+        'IHSG': ['IHSG cyclicals'],
+        'Crypto': ['BTC / crypto beta'],
+    }
+    vals = []
+    for asset in proxy_map.get(bucket_name, []):
+        now_score, _ = _current_next_asset_score(asset)
+        vals.append(abs(now_score))
+    if not vals:
+        return 0.0
+    return float(max(vals))
+
+
+def build_playbook_priority_rows() -> List[List[str]]:
+    display_order = [
+        ('Futures / Commodities', 'Futures / Commodities'),
+        ('Cross-Asset / FX', 'Forex'),
+        ('US Stocks', 'US Stocks'),
+        ('IHSG', 'IHSG'),
+        ('Crypto', 'Crypto'),
+    ]
+    rows = []
+    for display_name, play_key in display_order:
+        use_now = ', '.join(play_cur.get(play_key, [])) or '-'
+        watch_next = ', '.join(play_next.get(play_key, [])) or '-'
+        rows.append((
+            _bucket_priority_score(display_name),
+            display_name,
+            use_now,
+            watch_next,
+            bucket_bridge_read(play_key),
+        ))
+    rows.sort(key=lambda x: x[0], reverse=True)
+    labels = ['Highest', 'High', 'Medium', 'Lower', 'Low']
+    out = []
+    for i, (_, bucket_name, use_now, watch_next, confirm) in enumerate(rows):
+        out.append([labels[i] if i < len(labels) else 'Low', bucket_name, use_now, watch_next, confirm])
+    return out
+
+
+def build_playbook_summary_rows() -> List[List[str]]:
+    cur_stage, _ = infer_cycle_stage(core['current_q'])
+    return [
+        ['Now', f"{cur_stage} {core['current_q']}", STAGE_GUIDE[core['current_q']][cur_stage][2]],
+        ['If transition extends', f"Early {core['next_q']}", STAGE_GUIDE[core['next_q']]['Early'][2]],
+        ['Variant now', _transition_variant(core), variant_explainer(_transition_variant(core))],
+        ['Next macro catalysts', macro_catalyst_summary(3), 'Use these as timing checkpoints for Q / next-Q confirmation'],
+    ]
+
+def build_decision_key_rows() -> List[List[str]]:
+    cur_stage, _ = infer_cycle_stage(core['current_q'])
+    top_state_now = ladder_state(core['top_score'], 'top')
+    bottom_state_now = ladder_state(core['bottom_score'], 'bottom')
+    return [
+        ['Now', f"{cur_stage} {core['current_q']}", STAGE_GUIDE[core['current_q']][cur_stage][2]],
+        ['If transition extends', f"Early {core['next_q']}", STAGE_GUIDE[core['next_q']]['Early'][2]],
+        ['Variant now', _transition_variant(core), variant_explainer(_transition_variant(core))],
+        ['Top / bottom state', f"{top_state_now} / {bottom_state_now}", 'Top tinggi = jangan kejar atas. Bottom rendah = belum ada base / washout yang bersih.'],
+        ['Next macro catalysts', macro_catalyst_summary(3), 'Pakai ini sebagai timing checkpoint untuk konfirmasi Q sekarang atau next-Q.'],
+    ]
+
+
+def build_simple_relative_rows() -> List[List[str]]:
+    rows = []
+    for row in relative_rows:
+        now_fit, next_fit, prep = rel_phase_context(row['Lens'])
+        simple = interpret_relative(row['Direction'], row['State'], row['Quality'])
+        rows.append([row['Lens'], f"{row['Direction']} / {row['Strength']}", simple, prep])
+    return rows
+
+
+def build_simple_size_rows() -> List[List[str]]:
+    rows = []
+    for row in size_rows:
+        _, _, prep = rel_phase_context(row['Lens'])
+        if row['Direction'] == 'Stronger':
+            read = 'Participation helps confirm the move.' if row['State'] in ['Stable', 'Building'] else 'Strong but getting stretched.'
+        elif row['Direction'] == 'Balanced':
+            read = 'No clear participation edge yet.'
+        else:
+            read = 'Participation is weak / not confirming yet.'
+        rows.append([row['Lens'], f"{row['Direction']} / {row['Strength']}", read, prep])
+    return rows
+
+
+def build_asset_scenario_rows() -> List[List[str]]:
+    return [
+        ['Gold / miners', 'Bullish if USD and 10Y stop rising, oil stabilizes, and fear shifts from inflation to growth.', 'Still weak if oil shock keeps USD / yields climbing and Fed pricing stays hawkish.'],
+        ['EM / IHSG', 'Better if USD calms, breadth broadens, and commodities confirm cleanly.', 'Avoid if USD stays strong, yields stay hard, and breadth stays narrow.'],
+        ['US small caps', 'Need orderly rates plus broader participation to confirm early-Q2 style reflation.', 'Stay weak if rates rise for bad reasons or liquidity / credit tighten.'],
+        ['Duration / bonds', 'Better if growth scare outruns inflation fear.', 'Still weak if inflation shock dominates and nominal yields keep pushing higher.'],
+        ['Crypto beta', 'Needs liquidity + breadth, not just narrative.', 'Avoid if USD is strong and funding / liquidity get tighter.'],
+    ]
+
+
+def build_cross_asset_stage_table() -> List[List[str]]:
+    cur_stage, _ = infer_cycle_stage(core['current_q'])
+    rows = []
+    for stage, vals in STAGE_GUIDE[core['current_q']].items():
+        marker = 'NOW' if stage == cur_stage else ''
+        rows.append([marker, stage, vals[0], vals[1], vals[2]])
+    return rows
+
+
+def build_fx_expressions_table(score_rows: List[Tuple[str, float]]) -> List[List[str]]:
+    best_pairs = build_best_fx_pairs(score_rows)
+    rows = []
+    for pair, edge, read in best_pairs[:3]:
+        rows.append([pair, edge, read])
+    return rows or [['No pair', '-', 'No read']]
+
+def explain_turn_risks() -> tuple[str, str]:
+    top_txt = f"Top risk = odds the market is late in the up-leg / stretched enough that upside gets thinner and pullback risk rises. State now: {ladder_state(core['top_score'], 'top')}. This is not an exact price top call."
+    bottom_txt = f"Bottom risk = odds that washout / capitulation / base-building conditions are developing. State now: {ladder_state(core['bottom_score'], 'bottom')}. This is not an exact price bottom call."
+    return top_txt, bottom_txt
+
+
+def current_crash_probability() -> float:
+    base = {'Q1': 0.22, 'Q2': 0.42, 'Q3': 0.61, 'Q4': 0.74}.get(core['current_q'], 0.50)
+    variant = _transition_variant(core)
+    adj = 0.0
+    if variant in ['Bad reflation', 'Crash-prone Q2', 'Overheating rollover', 'Inflation shock turn']:
+        adj += 0.08
+    elif variant in ['Good reflation', 'Healthy Q2', 'True bottoming']:
+        adj -= 0.06
+    elif variant in ['False dawn']:
+        adj += 0.04
+    stress_mix = (
+        0.24 * core['stress_liq'] +
+        0.20 * core['stress_infl'] +
+        0.16 * (1 - core['breadth']) +
+        0.16 * core['top_score'] +
+        0.12 * core['transition_pressure'] +
+        0.12 * core['fragility']
+    )
+    score = base + (stress_mix - 0.50) * 0.55 + adj
+    return clamp01(score)
+
+
+def crash_meter_label(score: float) -> str:
+    if score >= 0.80:
+        return 'Very high'
+    if score >= 0.65:
+        return 'High'
+    if score >= 0.45:
+        return 'Elevated'
+    if score >= 0.25:
+        return 'Watch'
+    return 'Low'
+
+
+def leaders_status_text() -> str:
+    us_valid = 0 if us_leaders_df is None or us_leaders_df.empty else int(us_leaders_df['Ticker'].nunique())
+    ih_valid = 0 if ihsg_leaders_df is None or ihsg_leaders_df.empty else int(ihsg_leaders_df['Ticker'].nunique())
+    if us_valid == 0 and ih_valid == 0:
+        return 'Hidden for now (coverage valid still zero)'
+    return f'Usable ({us_valid} US / {ih_valid} IHSG valid names)'
+
+
+def crash_watch_window() -> str:
+    crash_now = current_crash_probability()
+    rows = build_macro_catalyst_rows(limit=3)
+    if not rows:
+        return 'No catalyst loaded'
+    names = ' · '.join([f"{r[0]} in {r[2]}" for r in rows[:2]])
+    if crash_now >= 0.65:
+        prefix = 'Elevated into next catalyst window'
+    elif crash_now >= 0.45:
+        prefix = 'Needs respect into next catalyst window'
+    else:
+        prefix = 'Use next catalyst as confirmation window'
+    return f'{prefix}: {names}'
+
+
+def risk_relative_summary() -> str:
+    crash_now = current_crash_probability()
+    cur_stage, _ = infer_cycle_stage(core['current_q'])
+    variant = _transition_variant(core)
+    rel_read = relative_rows[0]['Read'] if relative_rows else 'No relative read'
+    return (
+        f"Base case masih {cur_stage} {core['current_q']} dengan varian {variant}. "
+        f"Crash meter sekarang {pct(crash_now)} ({crash_meter_label(crash_now)}), jadi fokus utamanya bukan nebak exact crash date, tapi hormati window risiko di sekitar catalyst berikutnya. "
+        f"Relative read masih {rel_read.lower()}, jadi pakai bias yang paling sinkron dulu dan jangan maksa broad-beta call kalau breadth belum ikut confirm."
+    )
+
+
+def build_unified_relative_rows() -> List[List[str]]:
+    rows: List[List[str]] = []
+    for row in build_simple_relative_rows():
+        rows.append(['Relative', row[0], row[1], row[2], row[3]])
+    for row in build_simple_size_rows():
+        rows.append(['Participation', row[0], row[1], row[2], row[3]])
+    return rows
+
+
+def build_crash_compact_rows(crash_now: float) -> List[List[str]]:
+    return [
+        ['Crash meter now', pct(crash_now), 'Higher = accident / drawdown risk rises; use next catalyst window as timing check, not exact date.'],
+        ['Top state', pct(core['top_score']), 'Higher = upside gets thinner; avoid chasing stretched moves.'],
+        ['Bottom state', pct(core['bottom_score']), 'Higher = washout / base-building has more chance to form.'],
+        ['Liquidity stress', pct(core['stress_liq']), 'If this rises fast, crash branch gets more dangerous.'],
+        ['Breadth failure', pct(1 - core['breadth']), 'If indices hold but participation narrows, accident risk rises.'],
+        ['Transition pressure', pct(core['transition_pressure']), 'Higher = current regime more likely to fracture into next / worse branch.'],
+    ]
+
+
+def build_crash_timing_rows(crash_now: float) -> List[List[str]]:
+    return [
+        ['Crash meter now', f"{pct(crash_now)} ({crash_meter_label(crash_now)})", 'Respect risk window; not exact crash timing.'],
+        ['Top state', ladder_state(core['top_score'], 'top'), 'If extended, do not chase stretched upside.'],
+        ['Bottom state', ladder_state(core['bottom_score'], 'bottom'), 'If low, do not force bottom-fishing yet.'],
+        ['Next catalyst window', macro_catalyst_summary(2), 'Nearest macro events most likely to move Q / next-Q.'],
+        ['Base crash branch', _transition_variant(core), 'Dirty / toxic variants raise accident probability.'],
+    ]
+
+
+def build_relative_compact_rows() -> List[List[str]]:
+    rows = []
+    for group, lens, bias, read, nxt in build_unified_relative_rows():
+        rows.append([f"{group}: {lens}", bias, read, nxt])
+    return rows
+
+
+def build_quad_scenario_matrix() -> List[List[str]]:
     rows = [
-        ['Global','Oil-gas',_state_for('Oil-gas'),'Use as direct energy expression / hedge now','Still fine if next wins, but less unique edge'],
-        ['Global','Coal',_state_for('Coal'),'Use selectively as consumable-fuels / inflation-linked expression','Can rotate into cyclical commodity beta if next Q2 cleans up'],
-        ['Global','Metals',_state_for('Metals'),'Needs cleaner breadth or China-demand confirmation','Improves if growth breadth broadens'],
-        ['Global','Shipping',_state_for('Shipping'),'Tanker/LNG can differ from bulk — treat as sub-branch','More cyclical if next wins and trade breadth improves'],
-        ['Global','Positive spillovers',_state_for('Positive spillovers'),'Think rail / logistics / heavy suppliers','Better after core commodity leaders confirm'],
-        ['Global','Pressured losers',_state_for('Pressured losers'),'Airlines / fuel-sensitive users can get squeezed','Pressure eases if energy shock fades'],
-        ['IHSG','Oil-gas','Resource leadership / hedge','Useful when commodity tape is firm and IDR pressure manageable','Can stay fine if next wins'],
-        ['IHSG','Coal','Direct resource leadership','Use when consumable-fuels theme still leading','Can broaden into local beta only if breadth confirms'],
-        ['IHSG','Metals','Needs global demand / China help','Treat as watchlist if metals breadth improves','Cleaner if next wins with better EM backdrop'],
-        ['IHSG','Shipping','Selective / branch-driven','More tied to freight branch and local flows','Improves if trade / commodity breadth broadens'],
+        ['Q1', 'Clean growth-disinflation', 'US equities, quality growth, credit, improving small caps', 'Rates spike / valuation accident', pct(0.22)],
+        ['Q2', 'Good reflation', 'Cyclicals, industrials, financials, oil, small caps if rates orderly', 'Dirty / overheating Q2', pct(0.42)],
+        ['Q3', 'Shock-stagflation', 'Oil / energy, selective gold, selective defensives', 'USD + yields + growth shock branch', pct(0.61)],
+        ['Q4', 'Slowdown / disinflation', 'Bonds, USD, gold, defensives, quality', 'Funding / liquidity crash branch', pct(0.74)],
+    ]
+    out = []
+    for quad, base, best, crash_branch, risk in rows:
+        marker = 'NOW' if quad == core['current_q'] else ('NEXT' if quad == core['next_q'] else '')
+        out.append([marker, quad, base, best, crash_branch, risk])
+    return out
+
+
+def _asset_now_score(asset: str) -> float:
+    cur, _ = _current_next_asset_score(asset)
+    return cur
+
+def scenario_state_now(name: str) -> str:
+    variant = _transition_variant(core)
+    q = core['current_q']
+    stage, _ = infer_cycle_stage(q)
+    if name == 'Gold in Q3':
+        if q == 'Q3' and variant == 'Bad reflation':
+            return 'Backdrop bullish, tape still pressured'
+        if q == 'Q3' and _asset_now_score('Gold / miners') > 0.45:
+            return 'Constructive / selective long'
+        return 'Tactical only'
+    if name == 'EM / IHSG':
+        if _asset_now_score('EM equities') < -0.18 or _asset_now_score('IHSG cyclicals') < -0.05:
+            return 'Still pressured / not clean'
+        if q == 'Q2' or (q == 'Q3' and variant == 'Good reflation'):
+            return 'Improving if USD calms'
+        return 'Mixed / selective'
+    if name == 'US small caps':
+        if q == 'Q2' and stage in ['Early','Mid'] and _asset_now_score('US small caps') > 0.25:
+            return 'Cleanly usable'
+        if core['next_q'] == 'Q2':
+            return 'Watch for confirmation'
+        return 'Not confirmed yet'
+    if name == 'Bonds / duration':
+        if _asset_now_score('Duration / bonds') > 0.35:
+            return 'Constructive / hedge-friendly'
+        if q == 'Q3':
+            return 'Mixed / tactical only'
+        return 'Needs better disinflation signal'
+    if name == 'Crypto beta':
+        if _asset_now_score('BTC / crypto beta') > 0.35:
+            return 'Strong but watch stretch'
+        if q == 'Q3':
+            return 'Selective only / BTC bias'
+        return 'Tactical only'
+    return 'Contextual'
+
+def build_current_scenario_checks() -> List[List[str]]:
+    rows = [
+        ('Gold in Q3', 'Use selectively; better on pullback or when USD / yields stop acting as headwind.', 'Need DXY / yields to stop squeezing and fear to rotate from inflation to growth.', 'Invalid if oil shock keeps USD / yields climbing and Fed pricing stays hawkish.'),
+        ('EM / IHSG', 'Use only if USD calms and local / commodity breadth confirms.', 'Need softer USD, better breadth, and cleaner commodity confirmation.', 'Invalid if USD stays strong, yields stay hard, and flows keep leaking out.'),
+        ('US small caps', 'Treat as confirmation asset, not blind long.', 'Need orderly rates plus broader participation to confirm healthy reflation.', 'Invalid if rates rise for bad reasons or liquidity tightens.'),
+        ('Bonds / duration', 'Mostly tactical / hedge until growth fear clearly outruns inflation fear.', 'Need nominal yields to stop rising and growth scare to dominate.', 'Invalid if inflation shock keeps nominal yields pushing higher.'),
+        ('Crypto beta', 'Prefer only when liquidity + breadth improve; otherwise stay selective.', 'Need liquidity, breadth, and weaker USD — not just narrative.', 'Invalid if USD is strong and funding / liquidity tighten.'),
+    ]
+    out = []
+    for scen, use_now, improve, invalid in rows:
+        out.append([scen, scenario_state_now(scen), use_now, improve, invalid])
+    return out
+
+
+def hero_simple_help() -> Dict[str, str]:
+    return {
+        "top": "Top risk tinggi = jangan kejar atas. Lebih cocok tunggu pullback / konfirmasi ulang.",
+        "bottom": "Bottom risk rendah = belum ada tanda washout / bottom yang bersih.",
+        "relative": "Relative lemah = edge antar aset belum bersih. Jangan maksa opini besar.",
+        "shocks": "Shocks = skenario yang bisa ngerusak base case, bukan arah utama sendirian.",
+    }
+
+
+def variant_explainer(variant: str) -> str:
+    mapping = {
+        "Good reflation": "Growth membaik, breadth melebar, USD/yields tidak terlalu brutal. Siklikal, small caps, EM biasanya ikut confirm.",
+        "Bad reflation": "Nominal growth kelihatan naik, tapi pendorongnya lebih beracun: oil shock, USD kuat, yields keras, breadth sempit.",
+        "Healthy Q2": "Q2 yang sehat: rates naik tertib, breadth luas, kredit oke. Siklikal dan small caps biasanya bisa ikut jalan.",
+        "Crash-prone Q2": "Q2 yang mulai bahaya: inflation/policy repricing, likuiditas mengetat, breadth rusak, market gampang kecelakaan.",
+        "Overheating rollover": "Q2 mulai kepanjangan lalu rollover ke Q3. Defensives / USD / gold mulai lebih penting daripada beta.",
+        "True bottoming": "Q4 ke Q1 yang sehat: growth membaik, breadth melebar, risk appetite pulih secara bersih.",
+        "False dawn": "Kelihatan membaik, tapi konfirmasinya tipis. Risk-on bisa cuma relief rally, belum cycle turn yang sehat.",
+        "Inflation shock turn": "Growth belum pulih, tapi inflasi naik lagi. Ini buruk buat aset sensitif duration dan broad beta.",
+        "Base path": "Belum ada varian spesifik yang dominan. Pakai playbook dasar sambil tunggu konfirmasi tambahan.",
+    }
+    return mapping.get(variant, "Base path masih dominan. Tunggu konfirmasi lebih lanjut.")
+
+
+def compact_regime_rows() -> List[List[str]]:
+    base_path = f"{core['current_q']} → {core['next_q']}"
+    variant = _transition_variant(core)
+    rows = []
+    for item in TRANSITION_LIBRARY:
+        if item["Path"] == base_path or item["Path"].startswith(core["current_q"]):
+            rows.append([item["Path"], item["Variant"], item["When"]])
+    seen = set()
+    out = []
+    for r in rows:
+        key = tuple(r)
+        if key not in seen:
+            seen.add(key)
+            out.append(r)
+    out.sort(key=lambda r: (r[0] != base_path, r[1] != variant))
+    return out[:5]
+
+
+def build_best_fx_pairs(score_rows: List[Tuple[str, float]]) -> List[List[str]]:
+    if not score_rows:
+        return [["No pair", "No read", "No data"]]
+    ordered = [x for x in score_rows if x[0] not in ["EUR", "GBP"]]
+    strong = ordered[:3]
+    weak = list(reversed(ordered[-3:]))
+    pairs = []
+    used = set()
+    for s_name, s_score in strong:
+        for w_name, w_score in weak:
+            if s_name == w_name:
+                continue
+            pair = f"Long {s_name} / Short {w_name}"
+            if pair in used:
+                continue
+            used.add(pair)
+            edge = s_score - w_score
+            if edge >= 0.7:
+                read = "Best expression now"
+            elif edge >= 0.45:
+                read = "Good expression"
+            else:
+                read = "Okay / tactical"
+            pairs.append([pair, pct(max(0.0, min(1.0, (edge + 1.0) / 2.0))), read])
+            if len(pairs) >= 4:
+                return pairs
+    return pairs[:4] if pairs else [["No pair", "No read", "No data"]]
+
+
+def build_cross_asset_compact_rows() -> List[List[str]]:
+    rows = []
+    for asset, now, nxt, read in asset_rank_rows:
+        if now in ["Strong", "Above avg"]:
+            bias = "Prefer long / overweight"
+        elif now == "Mixed":
+            bias = "Neutral / tactical"
+        else:
+            bias = "Lean short / underweight"
+        rows.append([asset, now, bias])
+    return rows[:8]
+
+
+def build_stage_handoff_rows() -> List[List[str]]:
+    current_stage = STAGE_GUIDE[core['current_q']]
+    next_stage = STAGE_GUIDE[core['next_q']]
+    return [
+        ["Now", core['current_q'], ', '.join(play_cur['US Stocks'][:2]), current_stage['Early'][2]],
+        ["If next wins", core['next_q'], ', '.join(play_next['US Stocks'][:2]), next_stage['Early'][2]],
+        ["Risk check", _transition_variant(core), "Do not chase if top risk high", variant_explainer(_transition_variant(core))],
+    ]
+
+
+def build_q2_crash_watch_rows() -> List[List[str]]:
+    rows = [
+        ["Inflation / policy repricing", pct(max(core['stress_infl'], core['top_score'])), "danger if inflation stays sticky and rates reprice harder"],
+        ["Liquidity / credit strain", pct(core['stress_liq']), "danger if funding stress tightens fast"],
+        ["Breadth failure", pct(1 - core['breadth']), "danger if index holds up but participation narrows"],
+        ["Late-cycle extension", pct(core['top_score']), "danger if Q2 keeps running but gets stretched / crowded"],
+        ["Transition accident", pct(core['transition_pressure']), "danger if Q2 morphs into Q3/Q4 instead of staying healthy"],
     ]
     return rows
 
 
-def build_proxy_ticker_rows() -> List[List[str]]:
-    current_map = {
-        'Q3': ['GLD / GDX', 'XLE / OIH', 'UUP / quality defensives'],
-        'Q2': ['XLI / XLB', 'IWM', 'commodity FX proxies'],
-        'Q4': ['TLT / IEF', 'XLU / XLP', 'cash-like quality'],
-        'Q1': ['QQQ / SOXX', 'XLY', 'quality growth'],
+def rel_phase_context(lens: str) -> tuple[str, str, str]:
+    map_now = {
+        "US/EM": {"Q1":"EM-friendly if USD soft", "Q2":"EM-friendly if USD calm", "Q3":"US over EM", "Q4":"US / defensives over EM"},
+        "IHSG/US": {"Q1":"IHSG okay if global improves", "Q2":"IHSG can catch up", "Q3":"US safer", "Q4":"US safer / IHSG mixed"},
+        "IHSG/EM": {"Q1":"IHSG mixed", "Q2":"IHSG can lead via commodities", "Q3":"Mixed / conditional", "Q4":"Mixed"},
+        "Crypto/Liq": {"Q1":"Crypto-friendly", "Q2":"Crypto-friendly if liquidity okay", "Q3":"Need selectivity / BTC bias", "Q4":"Liquidity matters more than beta"},
+        "US Small/Big": {"Q1":"Small improving", "Q2":"Small should lead", "Q3":"Big / quality over small", "Q4":"Big over small"},
+        "US Small/Broad": {"Q1":"Small improving", "Q2":"Small should confirm", "Q3":"Broad / big safer", "Q4":"Broad safer"},
+        "Alt Basket/BTC": {"Q1":"Alts can lead", "Q2":"Alts can broaden", "Q3":"BTC over alts", "Q4":"BTC / cash-like preference"},
     }
-    next_map = {
-        'Q2': ['XLI / XLB', 'IWM', 'EEM / cyclicals'],
-        'Q3': ['GLD / GDX', 'UUP', 'defensives'],
-        'Q4': ['TLT / IEF', 'quality defensives', 'cash-like'],
-        'Q1': ['QQQ / SOXX', 'quality growth', 'consumer beta'],
-    }
-    avoid_map = {
-        'Q3': 'Lower-quality beta / weak EMFX / broad chase longs',
-        'Q2': 'Long duration proxies / bond-like defensives',
-        'Q4': 'Junky beta / lower-quality cyclicals',
-        'Q1': 'Deep defensives / panic hedges',
-    }
-    return [
-        ['Proxy longs now', ', '.join(current_map.get(core['current_q'], [])), 'Use proxies first; stock-level timing still needs structure and risk ranges.'],
-        ['Watch if next wins', ', '.join(next_map.get(core['next_q'], [])), 'Only activate if confirms actually show up.'],
-        ['Avoid / underweight', avoid_map.get(core['current_q'], 'Contextual'), 'This is posture, not a guaranteed price path.'],
-    ]
+    now_fit = map_now.get(lens, {}).get(core['current_q'], 'Contextual')
+    next_fit = map_now.get(lens, {}).get(core['next_q'], 'Contextual')
+    if now_fit == next_fit:
+        prep = 'No big role change if next wins'
+    else:
+        prep = f'If {core["next_q"]} wins: {next_fit}'
+    return now_fit, next_fit, prep
 
 
-def build_policy_rows(policy: Dict[str, object], meters: Dict[str, object]) -> List[List[str]]:
-    return [
-        ['Risk-On', f"{pct(meters['riskon'])} ({meters['riskon_label']})", 'Cleaner broadening / healthier beta environment.'],
-        ['Risk-Off', f"{pct(meters['riskoff'])} ({meters['riskoff_label']})", 'Correction / de-risking / vol-spike environment.'],
-        ['Big Crash', f"{pct(meters['crash'])} ({meters['crash_label']})", f"Needs {meters['core_hits']}/4 core crash blocks to really confirm."],
-        ['P(QE)', pct(policy['P_QE']), 'Supportive liquidity regime probability.'],
-        ['P(Neutral)', pct(policy['P_NEUTRAL']), 'Reserve-management / non-crisis support probability.'],
-        ['P(QT)', pct(policy['P_QT']), 'Restrictive liquidity backdrop probability.'],
-        ['Yield pressure', pct(policy['YR']), '2Y + real 10Y + shock component.'],
-        ['Curve stress', pct(policy['CS']), 'Inversion depth + re-steepening stress.'],
-    ]
+def leadership_health_rows(df: pd.DataFrame, label: str) -> List[List[str]]:
+    if df is None or df.empty:
+        return [[label, '0 valid names', 'No benchmark-relative output', 'Use theme proxy / smaller preset']]
+    bench = ', '.join(df['Benchmark'].astype(str).value_counts().head(2).index.tolist())
+    states = ', '.join([f"{k}:{v}" for k, v in df['State'].value_counts().to_dict().items()])
+    return [[label, f"{len(df)} valid names", bench, states]]
 
 
-def build_rates_detail_rows(policy: Dict[str, object]) -> List[List[str]]:
-    return [
-        ['2Y Treasury', f"{policy['y2']:.2f}" if np.isfinite(policy['y2']) else 'n/a', 'Front-end policy repricing proxy'],
-        ['10Y Treasury', f"{policy['y10']:.2f}" if np.isfinite(policy['y10']) else 'n/a', 'Long nominal rate context'],
-        ['10Y real yield', f"{policy['real10']:.2f}" if np.isfinite(policy['real10']) else 'n/a', 'Valuation / real-rate pressure'],
-        ['2s10s slope', f"{policy['curve']:.2f}" if np.isfinite(policy['curve']) else 'n/a', 'Growth scare vs policy-tightening context'],
-        ['2Y shock 20d', f"{policy['y2_shock']:.2f}" if np.isfinite(policy['y2_shock']) else 'n/a', 'Restrictive repricing shock'],
-        ['10Y real shock 20d', f"{policy['real10_shock']:.2f}" if np.isfinite(policy['real10_shock']) else 'n/a', 'Real-rate spike risk'],
-    ]
+@st.cache_data(ttl=60*60*4, show_spinner=False)
+def proxy_theme_strength_rows(mapping: Dict[str, set], benchmark_ticker: str, period: str = '6mo', fallback_benchmark: str | None = None, n: int = 6) -> List[List[str]]:
+    bench = yahoo_close(benchmark_ticker, period)
+    if bench.empty and fallback_benchmark:
+        bench = yahoo_close(fallback_benchmark, period)
+    if bench.empty:
+        return [["No proxy data", '-', '-', '-']]
+    rows = []
+    for theme, tickers in mapping.items():
+        valid = []
+        alpha_names = []
+        for t in list(tickers)[:8]:
+            s = yahoo_close(t, period)
+            if s.empty or len(s.dropna()) < 25:
+                continue
+            valid.append((t, s.dropna()))
+        if len(valid) < 2:
+            continue
+        normed = []
+        for t, s in valid:
+            normed.append((s / s.iloc[0]).rename(t))
+        basket = pd.concat(normed, axis=1).dropna(how='all').mean(axis=1).dropna()
+        df = pd.concat([basket.rename('asset'), bench.rename('bench')], axis=1).sort_index().ffill().dropna()
+        if len(df) < 25:
+            continue
+        a21 = ret_n(df['asset'], 21) - ret_n(df['bench'], 21)
+        a63 = ret_n(df['asset'], 63) - ret_n(df['bench'], 63)
+        rs = clamp01(0.60 * _norm_tanh(a21, 0.08) + 0.40 * _norm_tanh(a63, 0.15))
+        start = clamp01(_norm_tanh(a21 - 0.45 * a63, 0.08))
+        reps = []
+        for t, s in valid:
+            d = pd.concat([s.rename('asset'), bench.rename('bench')], axis=1).sort_index().ffill().dropna()
+            if len(d) < 25:
+                continue
+            reps.append((t.replace('.JK',''), ret_n(d['asset'], 21) - ret_n(d['bench'], 21)))
+        reps = ', '.join([x[0] for x in sorted(reps, key=lambda z: z[1], reverse=True)[:3]])
+        rows.append([theme, pct(rs), pct(start), reps or 'proxy basket'])
+    if not rows:
+        return [["No proxy data", '-', '-', '-']]
+    rows.sort(key=lambda r: float(r[1].strip('%')) if r[1] not in ['-'] else -1, reverse=True)
+    return rows[:n]
+
+
+top_risk_text, bottom_risk_text = explain_turn_risks()
+transition_rows = build_transition_library_rows()
+beneficiary_rows = build_transition_beneficiary_rows()
+fx_rows, fx_strong_txt, fx_weak_txt, fx_score_rows = build_forex_board()
+asset_rank_rows = build_cross_asset_rank_rows()
+stage_rows = build_stage_rows([core['current_q'], core['next_q']] if core['next_q'] != core['current_q'] else [core['current_q']])
+q2_crash_rows = build_q2_crash_watch_rows()
 
 # --------------------
 # EVENTS
 # --------------------
 today = date.today()
-events = [("NFP", today + timedelta(days=11)), ("CPI", today + timedelta(days=21)), ("PPI", today + timedelta(days=22))]
-event_rows = [[name, dt.isoformat(), f"{(dt - today).days}d"] for name, dt in events]
+event_rows = [["Macro release timing", "dynamic", "Use actual calendar; avoid fake offsets"], ["Released-only cutoff", core["official_date"], "common macro date used in official state"]]
 
 # --------------------
 
 # RENDER
-policy = compute_policy_liquidity()
-lead = compute_leadership_quality()
-fg_score, fg_vibe = fear_greed_value()
-meters = compute_risk_meters(policy, lead, fg_score)
-cur_stage = 'Early' if core['phase_strength'] < 0.33 else ('Mid' if core['phase_strength'] < 0.66 else 'Late')
-variant_now = core['sub_phase']
-leadership_label = lead['label']
-
-st.title(APP_NAME)
-st.markdown("<div class='small-muted'>Core alpha engine: Hedgeye_LiveQuad_Core_v2_5 • Visual shell: attachment-2 merge • Decision regime anchored to Q3 while raw model remains visible in Details.</div>", unsafe_allow_html=True)
+st.title("QuantFinalV4_Max")
+st.markdown("<div class='small-muted'>Core alpha engine: Hedgeye_LiveQuad_Core_v2_5 • Q3-anchored decision support shell • Live backbone: FRED + optional Yahoo</div>", unsafe_allow_html=True)
 st.write("")
 
-hero_cols = st.columns(7)
+# ---- attachment-2 style summary ----
+cur_stage, _ = infer_cycle_stage(core['current_q'])
+variant_now = _transition_variant(core)
+crash_now = current_crash_probability()
+top_state_now = ladder_state(core['top_score'], 'top')
+bottom_state_now = ladder_state(core['bottom_score'], 'bottom')
+
+if core['current_q'] == 'Q3':
+    action_bias = 'Selective'
+    action_sub = 'Defensive / preserve capital; tunggu breadth confirm sebelum broad beta.'
+elif core['current_q'] == 'Q2':
+    action_bias = 'Risk-on selective'
+    action_sub = 'Prefer cyclicals / small caps if breadth confirm.'
+elif core['current_q'] == 'Q4':
+    action_bias = 'Defensive'
+    action_sub = 'Jangan buru-buru base call kalau washout belum bersih.'
+else:
+    action_bias = 'Balanced'
+    action_sub = 'Tactical only sampai confirmation membaik.'
+
+next_read = f"{core['next_q']}"
+if core['current_q'] == 'Q3' and core['next_q'] == 'Q2':
+    next_sub = 'Early Q2 if breadth + small caps + USD cooling confirm'
+elif core['next_q'] == core['current_q']:
+    next_sub = f"Stay in {core['current_q']} / pressure persists"
+else:
+    next_sub = f"Most likely path from {core['current_q']}"
+
+hero_cols = st.columns(6)
 hero_items = [
-    ("Current", core['current_q'], pill_html(f"{cur_stage} {core['current_q']}")),
-    ("Next", core['next_q'], pill_html("Fragile early Q2" if core['next_q']=='Q2' else f"Path to {core['next_q']}")),
-    ("Variant", variant_now, pill_html('Bad reflation', red=('bad' in variant_now.lower())) if 'reflation' in variant_now.lower() else pill_html(variant_now)),
-    ("Risk-On", pct(meters['riskon']), pill_html(meters['riskon_label'])),
-    ("Risk-Off", pct(meters['riskoff']), pill_html(meters['riskoff_label'], red=meters['riskoff']>0.66)),
-    ("Big Crash", pct(meters['crash']), pill_html(meters['crash_label'], red=meters['crash']>0.55)),
-    ("Leadership Quality", leadership_label, pill_html(f"Concentration {pct(lead['concentration'])}" if np.isfinite(lead['concentration']) else 'Proxy unavailable', red=leadership_label in ['Fragile','Breaking'])),
+    ("Decision Regime", core['current_q'], pill_html(f"{cur_stage} {core['current_q']}") if cur_stage else pill_html(core['current_q'])),
+    ("Confidence", pct(core['confidence']), pill_html(f"Agreement {pct(core['agreement'])}")),
+    ("Variant Now", variant_now, pill_html(core['sub_phase'])),
+    ("Next Most Likely", next_read, pill_html(next_sub)),
+    ("Crash Meter", pct(crash_now), pill_html(crash_meter_label(crash_now))),
+    ("Action Bias", action_bias, pill_html(action_sub)),
 ]
 for col, (title, value, sub_html) in zip(hero_cols, hero_items):
     with col:
         st.markdown(f"""
         <div class='hero-card'>
           <div class='metric-title'>{title}</div>
-          <div style='font-size:1.15rem;font-weight:800'>{value}</div>
+          <div style='font-size:1.2rem;font-weight:800'>{value}</div>
           <div class='metric-sub'>{sub_html}</div>
         </div>
         """, unsafe_allow_html=True)
 
 quick_read = (
-    f"Quick read: sekarang {cur_stage} {core['current_q']} / {variant_now}. "
-    f"Next paling mungkin {core['next_q']}. Leadership quality {leadership_label.lower()} — jadi jangan cuma lihat headline indeks. "
-    f"Risk-On {pct(meters['riskon'])}, Risk-Off {pct(meters['riskoff'])}, Big Crash {pct(meters['crash'])}."
+    f"Quick read: Sekarang {cur_stage} {core['current_q']} / {variant_now}. "
+    f"Base case masih {core['current_q']}, tapi kalau transition lanjut jalur paling mungkin adalah {core['next_q']}. "
+    f"Action bias sekarang: {action_bias}; {action_sub}"
 )
 st.markdown(f"<div class='note-box'><b>{quick_read}</b></div>", unsafe_allow_html=True)
 
-# Approved final structure
+# tabs like attachment-2
 t_decision, t_cross, t_risk, t_details = st.tabs(["Decision", "Cross-Asset", "Risk / Relative", "Details"])
 
 with t_decision:
     st.markdown("<div class='card'><div class='section-title'>DECISION SNAPSHOT</div>", unsafe_allow_html=True)
     st.markdown("<div class='mini-caption'>Satu panel inti: sekarang di mana, kalau next menang bakal seperti apa, apa yang harus dikonfirmasi, dan event apa yang paling bisa mengubah bacaannya.</div>", unsafe_allow_html=True)
-    st.markdown(table_html(["Focus", "Read", "Why it matters"], build_decision_snapshot_rows(policy)), unsafe_allow_html=True)
+    st.markdown(table_html(["Focus", "Read", "Why it matters"], build_decision_key_rows()), unsafe_allow_html=True)
     st.write("")
-    play_rows = []
-    for bucket_name in ["US Stocks", "Futures / Commodities", "Forex", "Crypto", "IHSG"]:
-        play_rows.append([bucket_name, ", ".join(play_cur[bucket_name]), ", ".join(play_next[bucket_name]), 'Use only if confirms match the handoff'])
-    st.markdown(table_html(["Bucket", "Now", "If next wins", "Confirm first"], play_rows), unsafe_allow_html=True)
-    st.write("")
-    st.markdown(f"**Global state now ➜** Selective / not broad clean risk-on")
-    st.markdown(f"**Next catalysts ➜** {', '.join([f'{r[0]} ({r[2]})' for r in event_rows[:3]])}")
+    st.markdown(table_html(["Priority", "Area", "Use now", "If next wins", "Confirm first"], build_playbook_priority_rows()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_cross:
     st.markdown("<div class='card'><div class='section-title'>CROSS-ASSET DIRECTIONAL BIAS</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Panel operasional utama: strongest vs weakest, stage sekarang, FX, commodity-resource leadership, dan proxy ticker layer.</div>", unsafe_allow_html=True)
-    # keep current simplified current/next playbook as directional bias
-    rows = []
-    for bucket_name in ["US Stocks", "Futures / Commodities", "Forex", "Crypto", "IHSG"]:
-        rows.append([bucket_name, ", ".join(play_cur[bucket_name]), ", ".join(play_next[bucket_name]), 'Rotate only if breadth / Russell confirm'])
-    st.markdown(table_html(["Area", "Bias now", "If next wins", "Read"], rows), unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Panel operasional utama: stage sekarang, strongest vs weakest cross-asset, dan ekspresi FX yang paling simpel.</div>", unsafe_allow_html=True)
+    st.markdown(f"**Current cycle stage ➜ {cur_stage} {core['current_q']}**")
+    st.markdown(f"<div class='small-muted'>{STAGE_GUIDE[core['current_q']][cur_stage][2]}</div>", unsafe_allow_html=True)
+    st.markdown(table_html(["", "Stage", "Usually strong", "Usually weak", "What confirms"], build_cross_asset_stage_table()), unsafe_allow_html=True)
     st.write("")
-    commodity_rows = build_commodity_resource_rows()
-    st.markdown("**Commodity & Resource Leadership Map**")
-    st.markdown(table_html(["Scope", "Bucket", "State now", "How to use now", "If next wins"], commodity_rows), unsafe_allow_html=True)
+    focus_rows = build_cross_asset_focus_rows()
+    strong_now = ", ".join([r[0] for r in focus_rows[:4]])
+    weak_now = ", ".join([r[0] for r in focus_rows[-4:]])
+    st.markdown(f"**Strongest now ➜ {strong_now}**")
+    st.markdown(f"**Weakest now ➜ {weak_now}**")
+    st.markdown(table_html(["Area", "Bias now", "Use now", "If next wins"], focus_rows), unsafe_allow_html=True)
     st.write("")
-    st.markdown("**Ticker / proxy layer**")
-    st.markdown("<div class='mini-caption'>Proxy first, not guaranteed winners. Use together with regime, structure, and risk ranges — not as standalone buy/sell certainty.</div>", unsafe_allow_html=True)
-    st.markdown(table_html(["Layer", "Read", "How to use"], build_proxy_ticker_rows()), unsafe_allow_html=True)
+    st.markdown(f"**FX rank strong → weak ➜ {build_fx_rank_text(fx_score_rows)}**")
+    st.markdown(table_html(["FX", "Bias", "Best use"], build_fx_display_rows(fx_score_rows)), unsafe_allow_html=True)
+    st.write("")
+    st.markdown(table_html(["Best simple FX expression", "Edge", "Read"], build_fx_expressions_table(fx_score_rows)), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_risk:
     st.markdown("<div class='card'><div class='section-title'>RISK / RELATIVE SNAPSHOT</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Semua yang berkorelasi gue merge di sini: liquidity / rates / stress engine, leadership quality / index internals, dan scenario state-now.</div>", unsafe_allow_html=True)
-    st.markdown("**Liquidity / Rates / Stress Engine**")
-    st.markdown(table_html(["Item", "Score / Read", "Why"], build_policy_rows(policy, meters)), unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Relative, participation, shock overlay, crash meter, dan scenario state-now gue kumpulin di sini biar nggak kebanyakan panel kecil.</div>", unsafe_allow_html=True)
+    st.markdown(f"**Current mode ➜ Base case / watch only**")
+    st.markdown(f"**Top risk ➜ {top_state_now}**")
+    st.markdown(f"**Bottom risk ➜ {bottom_state_now}**")
+    st.markdown(f"**Crash meter now ➜ {pct(crash_now)} ({crash_meter_label(crash_now)})**")
+    st.markdown(f"**Watch window ➜ {crash_watch_window()}**")
     st.write("")
-    st.markdown(table_html(["Rates block", "Value", "Why it matters"], build_rates_detail_rows(policy)), unsafe_allow_html=True)
+    st.markdown(table_html(["Lens", "Bias now", "Simple read", "If next wins"], build_relative_compact_rows()), unsafe_allow_html=True)
     st.write("")
-    st.markdown(table_html(["Crash architecture", "Contribution", "Type"], meters['breakdown_rows']), unsafe_allow_html=True)
+    st.markdown(table_html(["Risk item", "Now", "How to use"], build_crash_timing_rows(crash_now)), unsafe_allow_html=True)
     st.write("")
-    st.markdown("**Leadership Quality / Index Internals**")
-    st.markdown(table_html(["Item", "Read", "Meaning"], lead['summary_rows']), unsafe_allow_html=True)
-    st.write("")
-    with st.expander("Show Index Impact Board", expanded=False):
-        st.markdown("<div class='mini-caption'>Gunanya buat bilang apakah indeks kelihatan kuat karena broad market sehat, atau cuma diselamatkan sedikit mega-cap. Ini overlay leadership / concentration, bukan mesin utama buy-sell.</div>", unsafe_allow_html=True)
-        st.markdown(table_html(["Top positive contributors", "Weight", "1D return", "Positive impact share"], lead['pos_rows']), unsafe_allow_html=True)
-        st.write("")
-        st.markdown(table_html(["Top negative detractors", "Weight", "1D return", "Negative impact share"], lead['neg_rows']), unsafe_allow_html=True)
-        st.write("")
-        impact_read = 'Index strength looks broad and healthy.' if leadership_label=='Broad' else ('Index strength is narrow / concentrated.' if leadership_label=='Narrow' else ('Internals look fragile; headline index can mislead.' if leadership_label=='Fragile' else 'Internals are breaking; treat index strength/weakness as potentially systemic.'))
-        st.markdown(f"**Interpretation ➜ {impact_read}**")
-    st.write("")
-    st.markdown("**Scenario state-now**")
-    scen_rows = [
-        ['Gold in Q3', 'Selective long only' if core['current_q']=='Q3' else 'Contextual', 'Better if USD / yields stop squeezing.', 'Still bad if oil shock keeps USD / yields rising.'],
-        ['EM / IHSG', 'Conditional only', 'Needs softer USD and better commodity breadth.', 'Still bad if USD / yields stay hard.'],
-        ['US small caps', 'Confirmation asset', 'Need breadth + orderly rates.', 'Still bad if rates rise for bad reasons.'],
-        ['Bonds / duration', 'Mostly tactical / hedge', 'Need growth fear to outrun inflation fear.', 'Still bad if nominal and real yields keep rising.'],
-        ['Crypto beta', 'Selective only', 'Needs liquidity + breadth.', 'Still bad if USD is strong and funding tightens.'],
-    ]
-    st.markdown(table_html(["Scenario", "State now", "What must improve", "Still bad when"], scen_rows), unsafe_allow_html=True)
+    st.markdown(table_html(["Scenario", "State now", "How to use now", "What must improve", "What invalidates"], build_current_scenario_checks()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_details:
-    st.markdown("<div class='card'><div class='section-title'>DETAILS / DATA / VALIDATION</div>", unsafe_allow_html=True)
-    st.markdown(table_html(["Scenario family", "Read", "Why"], [list(x) for x in WHAT_IF]), unsafe_allow_html=True)
+    st.markdown("<div class='card'><div class='section-title'>DETAILS</div>", unsafe_allow_html=True)
+    st.markdown(table_html(["", "Quad", "Base read", "Usually works", "Main crash branch", "Base crash risk"], build_quad_scenario_matrix()), unsafe_allow_html=True)
     st.write("")
-    st.markdown(table_html(["Transmission", "Strength", "Why"], [list(x) for x in CORR]), unsafe_allow_html=True)
+    st.markdown(table_html(["Event", "When", "In", "Why it matters", "Likely impact"], build_macro_catalyst_rows()), unsafe_allow_html=True)
+    if leaders_status_text() != 'Hidden for now (coverage valid still zero)':
+        st.write("")
+        st.markdown(f"**Leaders status ➜ {leaders_status_text()}**")
     st.write("")
-    st.markdown(table_html(["Crash type", "Read"], [list(x) for x in CRASH]), unsafe_allow_html=True)
-    st.write("")
-    st.markdown(table_html(["Event", "Date", "In"], event_rows), unsafe_allow_html=True)
-    st.write("")
-    st.markdown("**Fear & Greed / tape context**")
-    st.markdown(f"Fear & Greed ➜ {fg_score} ({fg_vibe})")
-    st.markdown(f"IWM overlay ➜ {iwm_overlay}")
-    st.write("")
-    st.markdown(f"<div class='small-muted'><b>Core model:</b> {CORE_NAME} • <b>Decision regime:</b> {core['current_q']} • <b>Anchor:</b> {'Q3 on' if Q3_CONSENSUS_ANCHOR else 'off'} • <b>Raw model current:</b> {core.get('model_current_q', core['current_q'])}</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='small-muted'><b>Core model:</b> {CORE_NAME} • <b>Policy:</b> {core.get('anchor_reason','Model-only')} • <b>Raw model:</b> {core.get('model_current_q', core['current_q'])}</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
-
-st.caption("Approved final structure loaded: Hero → Decision Snapshot → Cross-Asset → Risk/Relative → Details. If the screen shape changes materially, the wrong file/version is running.")
+# refreshed runtime fix
