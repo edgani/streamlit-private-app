@@ -27,129 +27,103 @@ Q3_CONSENSUS_FORCE_TOP = True
 st.markdown("""
 <style>
 :root {
-  --bg:#020b17;
-  --bg-soft:#05111f;
-  --card:#0a1528;
-  --card-2:#0e1b33;
-  --line:#243750;
-  --line-soft:#1a2a42;
-  --muted:#9fb4d1;
-  --text:#f4f8ff;
-  --text-soft:#dbe8ff;
-  --blue:#6ea6ff;
-  --blue-2:#8ab8ff;
-  --blue-deep:#0e2d52;
-  --red:#ff5f6d;
-  --shadow:0 14px 36px rgba(0,0,0,.22);
+  --bg:#07101f;
+  --card:#0c1526;
+  --line:#263246;
+  --muted:#9fb0c8;
+  --text:#f3f6fb;
+  --red:#ff4d4d;
 }
-html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
-  background:
-    radial-gradient(circle at top left, rgba(18,39,72,.22), transparent 36%),
-    linear-gradient(180deg, #020b17 0%, #031024 100%);
+html, body, [data-testid="stAppViewContainer"] {
+  background: var(--bg);
   color: var(--text);
 }
-[data-testid="stAppViewContainer"] > .main {
-  background: transparent;
-}
-.block-container {
-  padding-top: 1rem;
-  padding-bottom: 2.2rem;
-  max-width: 1510px;
-}
-h1,h2,h3,h4,h5,h6,p,span,div,label {
-  color: var(--text);
-}
-h1 {
-  font-size: 3.25rem !important;
-  font-weight: 800 !important;
-  line-height: 1.04 !important;
-  letter-spacing: -0.03em;
-  margin: 0 0 .45rem 0 !important;
-}
-h3 {
-  font-size: 2rem !important;
-  font-weight: 800 !important;
-  line-height: 1.1 !important;
-  margin-top: .5rem !important;
-  margin-bottom: 1rem !important;
-  letter-spacing: -0.02em;
-}
+.block-container {padding-top: 1.6rem; padding-bottom: 2.0rem; max-width: 1650px;}
+h1,h2,h3,h4,h5,h6,p,span,div,label {color: var(--text);}
 .card {
-  background: linear-gradient(180deg, rgba(13,24,45,.98), rgba(7,16,31,.98));
+  background: linear-gradient(180deg, rgba(16,24,41,0.98), rgba(10,17,30,0.98));
   border: 1px solid var(--line);
-  border-radius: 20px;
-  padding: 18px 18px 16px;
-  box-shadow: var(--shadow);
+  border-radius: 18px;
+  padding: 14px 16px;
   height: 100%;
 }
 .hero-card {
-  background: linear-gradient(180deg, rgba(15,29,53,1), rgba(10,20,37,1));
-  border: 1px solid rgba(50,76,112,.95);
-  border-radius: 18px;
-  padding: 14px 15px 12px;
-  min-height: 116px;
-  display:flex;
-  flex-direction:column;
-  justify-content:space-between;
-  box-shadow: var(--shadow);
+  background: linear-gradient(180deg, rgba(19,29,50,1), rgba(12,20,35,1));
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 12px 14px;
+  min-height: 96px;
 }
 .section-title {
   font-weight: 800;
-  letter-spacing: .01em;
-  margin-bottom: 12px;
-  font-size: 1.12rem;
+  letter-spacing: .02em;
+  margin-bottom: 10px;
+  font-size: 1.0rem;
 }
 .metric-title {
   font-size: .76rem;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: .08em;
-  margin-bottom: 8px;
+  letter-spacing: .05em;
 }
 .metric-value {
-  font-size: 2.05rem;
+  font-size: 1.85rem;
   font-weight: 800;
-  line-height: 1.03;
-  letter-spacing: -0.03em;
+  line-height: 1.1;
 }
 .metric-sub {
-  font-size: .9rem;
-  color: var(--text-soft);
-  margin-top: 10px;
+  font-size: .88rem;
+  color:#c4d2e6;
+  margin-top:4px;
 }
 .pill {
   display:inline-block;
-  border:1px solid #36527a;
+  border:1px solid #33435d;
   border-radius:999px;
-  padding:5px 12px;
-  font-size:.84rem;
-  color:#e4efff;
-  background: linear-gradient(180deg, rgba(29,47,78,.92), rgba(20,35,61,.92));
+  padding:3px 10px;
+  font-size:.82rem;
+  color:#dbe7ff;
+  background: rgba(30,42,63,.82);
   margin-right:6px;
   margin-top:4px;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.03);
 }
 .pill-red {
   display:inline-block;
-  border:1px solid var(--red);
+  border:1px solid #ff4d4d;
   border-radius:999px;
-  padding:5px 12px;
-  font-size:.84rem;
-  color:#ffdcdc;
-  background: linear-gradient(180deg, rgba(113,27,35,.30), rgba(64,13,20,.26));
+  padding:3px 10px;
+  font-size:.82rem;
+  color:#ffd7d7;
+  background: rgba(120,20,20,.22);
   margin-right:6px;
   margin-top:4px;
 }
-.small-muted {
-  color: var(--muted);
-  font-size: .96rem;
+.small-muted {color: var(--muted); font-size: .92rem;}
+.tight-table table {
+  width:100%;
+  border-collapse: collapse;
+  table-layout: fixed;
 }
+.tight-table th, .tight-table td {
+  border:1px solid #243147;
+  padding:8px 9px;
+  font-size:.84rem;
+  text-align:left;
+  vertical-align:top;
+  word-break: break-word;
+}
+.tight-table th {
+  color:#9fb0c8;
+  font-weight:700;
+  background: rgba(20,29,44,.85);
+}
+.tight-table td {color:#f5f8fd;}
+.col-compact {white-space: nowrap;}
 .note-box {
-  border:1px solid #295182;
-  background: linear-gradient(180deg, rgba(14,42,76,.78), rgba(9,29,55,.88));
-  border-radius:14px;
-  padding:14px 15px;
-  box-shadow: var(--shadow);
+  border:1px solid #27476e;
+  background: rgba(18,46,79,.65);
+  border-radius:12px;
+  padding:12px 14px;
 }
 .mini-caption {
   color: var(--muted);
@@ -157,111 +131,8 @@ h3 {
   margin-top: 2px;
   margin-bottom: 8px;
 }
-.tight-table table {
-  width:100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  overflow:hidden;
-}
-.tight-table th, .tight-table td {
-  border:1px solid #22344d;
-  padding:9px 10px;
-  font-size:.84rem;
-  text-align:left;
-  vertical-align:top;
-  word-break: break-word;
-}
-.tight-table th {
-  color:#a9bdd8;
-  font-weight:700;
-  background: rgba(18,31,51,.95);
-}
-.tight-table td {
-  color:#f5f8fd;
-  background: rgba(4,14,28,.24);
-}
-.col-compact {white-space: nowrap;}
-
-/* Streamlit containers */
-[data-testid="stExpander"] {
-  border:1px solid var(--line);
-  border-radius:12px;
-  background: rgba(6,16,31,.68);
-  box-shadow: var(--shadow);
-  overflow:hidden;
-}
-[data-testid="stExpander"] details {
-  border:none;
-  background: transparent;
-}
-[data-testid="stExpander"] summary {
-  background: rgba(7,17,32,.32);
-}
-[data-testid="stExpander"] summary p {
-  color: var(--text);
-  font-size: 1.02rem;
-  font-weight: 700;
-}
-[data-testid="stExpanderDetails"] {
-  background: transparent;
-}
-
-/* Inputs / widgets */
-[data-baseweb="input"] > div,
-[data-baseweb="select"] > div,
-[data-baseweb="base-input"] {
-  background: #081325;
-  border-color: #22344f;
-}
-input, textarea {
-  color: var(--text) !important;
-}
-[data-baseweb="select"] * {
-  color: var(--text) !important;
-}
-[data-testid="stNumberInput"] input,
-[data-testid="stTextInput"] input,
-[data-testid="stTextArea"] textarea {
-  background: #081325 !important;
-}
-
-/* Tabs */
-div[data-baseweb="tab-list"] {
-  gap: 1rem;
-  border-bottom: 1px solid #22344d;
-  padding-bottom: .1rem;
-}
-button[data-baseweb="tab"] {
-  position: relative;
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  color: #b8cbe4;
-  padding: 0.2rem 0.1rem 0.9rem;
-}
-button[data-baseweb="tab"]:hover {
-  color: var(--text);
-}
-button[data-baseweb="tab"][aria-selected="true"] {
-  background: transparent;
-  color: var(--text);
-  border: none;
-}
-button[data-baseweb="tab"][aria-selected="true"]::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 3px;
-  border-radius: 999px;
-  background: var(--red);
-}
-
-/* Horizontal rule / spacing helpers */
-hr {
-  border-color:#20314a;
-}
+div[data-baseweb="tab-list"] {gap: 0.45rem;}
+button[data-baseweb="tab"] {padding-left:0.15rem; padding-right:0.15rem;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -369,162 +240,83 @@ def fred_series(series_id: str) -> pd.Series:
     except Exception:
         return pd.Series(dtype=float, name=series_id)
 
-def _chart_params_from_period(period: str) -> Tuple[str, str]:
-    p = str(period).lower().strip()
-    mapping = {
-        '5d': ('5d', '1d'),
-        '1mo': ('1mo', '1d'),
-        '3mo': ('3mo', '1d'),
-        '6mo': ('6mo', '1d'),
-        '1y': ('1y', '1d'),
-        '2y': ('2y', '1d'),
-        '5y': ('5y', '1wk'),
-        '10y': ('10y', '1mo'),
-        'max': ('max', '1mo'),
-    }
-    return mapping.get(p, ('1y', '1d'))
-
-
-def _parse_yahoo_chart_to_series(payload: dict, ticker: str) -> pd.Series:
+@st.cache_data(ttl=60*60*4, show_spinner=False)
+def yahoo_close(ticker: str, period: str = "1y") -> pd.Series:
+    if yf is None:
+        return pd.Series(dtype=float, name=ticker)
     try:
-        result = (payload or {}).get('chart', {}).get('result', [])
-        if not result:
+        data = yf.download(
+            ticker,
+            period=period,
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+            threads=False,
+        )
+        if data is None or len(data) == 0:
             return pd.Series(dtype=float, name=ticker)
-        res0 = result[0]
-        ts = res0.get('timestamp') or []
-        quote = ((res0.get('indicators') or {}).get('quote') or [{}])[0]
-        adj = ((res0.get('indicators') or {}).get('adjclose') or [{}])[0].get('adjclose')
-        close = adj if adj is not None else quote.get('close')
-        if not ts or close is None:
-            return pd.Series(dtype=float, name=ticker)
-        idx = pd.to_datetime(ts, unit='s', utc=True).tz_convert(None)
-        s = pd.Series(close, index=idx, name=ticker)
-        s = pd.to_numeric(s, errors='coerce').dropna()
-        s = s[~s.index.duplicated(keep='last')]
+        if isinstance(data.columns, pd.MultiIndex):
+            if ("Close", ticker) in data.columns:
+                s = data[("Close", ticker)]
+            elif "Close" in data.columns.get_level_values(0):
+                s = data["Close"].iloc[:, 0]
+            else:
+                s = data.iloc[:, 0]
+        else:
+            s = data["Close"] if "Close" in data.columns else data.iloc[:, 0]
+        s = pd.to_numeric(s, errors="coerce").dropna()
+        s.name = ticker
         return s
     except Exception:
         return pd.Series(dtype=float, name=ticker)
 
-
-@st.cache_data(ttl=60*60*2, show_spinner=False)
-def yahoo_chart_close(ticker: str, period: str = "1y") -> pd.Series:
-    rng, interval = _chart_params_from_period(period)
-    urls = [
-        f'https://query1.finance.yahoo.com/v8/finance/chart/{ticker}',
-        f'https://query2.finance.yahoo.com/v8/finance/chart/{ticker}',
-    ]
-    params = {
-        'range': rng,
-        'interval': interval,
-        'includePrePost': 'false',
-        'events': 'div,splits',
-    }
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    for url in urls:
-        try:
-            r = requests.get(url, params=params, headers=headers, timeout=12)
-            if not r.ok:
-                continue
-            s = _parse_yahoo_chart_to_series(r.json(), ticker)
-            if not s.empty:
-                return s
-        except Exception:
-            continue
-    return pd.Series(dtype=float, name=ticker)
-
-
-@st.cache_data(ttl=60*60*4, show_spinner=False)
-def yahoo_close(ticker: str, period: str = "1y") -> pd.Series:
-    if yf is not None:
-        try:
-            data = yf.download(
-                ticker,
-                period=period,
-                interval="1d",
-                auto_adjust=True,
-                progress=False,
-                threads=False,
-            )
-            if data is not None and len(data) > 0:
-                if isinstance(data.columns, pd.MultiIndex):
-                    if ("Close", ticker) in data.columns:
-                        s = data[("Close", ticker)]
-                    elif "Close" in data.columns.get_level_values(0):
-                        s = data["Close"].iloc[:, 0]
-                    else:
-                        s = data.iloc[:, 0]
-                else:
-                    s = data["Close"] if "Close" in data.columns else data.iloc[:, 0]
-                s = pd.to_numeric(s, errors="coerce").dropna()
-                if not s.empty:
-                    s.name = ticker
-                    return s
-        except Exception:
-            pass
-    return yahoo_chart_close(ticker, period)
-
-
 @st.cache_data(ttl=60*60*4, show_spinner=False)
 def yahoo_close_batch(tickers: List[str], period: str = "1y") -> pd.DataFrame:
     tickers = [t for t in tickers if t]
-    if not tickers:
+    if yf is None or not tickers:
         return pd.DataFrame()
-
-    frames = []
-    seen = set()
-    if yf is not None:
-        for chunk_size in (max(1, min(40, len(tickers))), 15, 8, 1):
-            frames = []
-            ok = True
-            for i in range(0, len(tickers), chunk_size):
-                chunk = tickers[i:i+chunk_size]
-                try:
-                    data = yf.download(
-                        chunk,
-                        period=period,
-                        interval="1d",
-                        auto_adjust=True,
-                        progress=False,
-                        threads=False,
-                    )
-                except Exception:
-                    ok = False
-                    break
-                if data is None or len(data) == 0:
-                    continue
-                try:
-                    if isinstance(data.columns, pd.MultiIndex):
-                        if "Close" in data.columns.get_level_values(0):
-                            close = data["Close"].copy()
-                        else:
-                            close = data.iloc[:, :len(chunk)].copy()
-                            close.columns = chunk[:close.shape[1]]
-                    else:
-                        col = "Close" if "Close" in data.columns else data.columns[0]
-                        close = data[[col]].copy()
-                        close.columns = [chunk[0]]
-                    close = close.apply(pd.to_numeric, errors="coerce")
-                    if not close.empty:
-                        frames.append(close)
-                        seen.update([c for c in close.columns if c in tickers])
-                except Exception:
-                    ok = False
-                    break
-            if ok and frames:
+    # Fallback ladder improves survival on Streamlit Cloud where big downloads sometimes fail.
+    for chunk_size in (max(1, min(40, len(tickers))), 15, 8, 1):
+        frames = []
+        ok = True
+        for i in range(0, len(tickers), chunk_size):
+            chunk = tickers[i:i+chunk_size]
+            try:
+                data = yf.download(
+                    chunk,
+                    period=period,
+                    interval="1d",
+                    auto_adjust=True,
+                    progress=False,
+                    threads=False,
+                )
+            except Exception:
+                ok = False
                 break
-
-    missing = [t for t in tickers if t not in seen]
-    for t in missing:
-        s = yahoo_chart_close(t, period)
-        if not s.empty:
-            frames.append(s.rename(t).to_frame())
-
-    if not frames:
-        return pd.DataFrame()
-    merged = pd.concat(frames, axis=1)
-    merged = merged.loc[:, ~merged.columns.duplicated()].sort_index()
-    return merged
-
+            if data is None or len(data) == 0:
+                continue
+            try:
+                if isinstance(data.columns, pd.MultiIndex):
+                    if "Close" in data.columns.get_level_values(0):
+                        close = data["Close"].copy()
+                    else:
+                        close = data.iloc[:, :len(chunk)].copy()
+                        close.columns = chunk[:close.shape[1]]
+                else:
+                    # Single ticker case
+                    col = "Close" if "Close" in data.columns else data.columns[0]
+                    close = data[[col]].copy()
+                    close.columns = [chunk[0]]
+                close = close.apply(pd.to_numeric, errors="coerce")
+                frames.append(close)
+            except Exception:
+                ok = False
+                break
+        if ok and frames:
+            merged = pd.concat(frames, axis=1)
+            merged = merged.loc[:, ~merged.columns.duplicated()].sort_index()
+            return merged
+    return pd.DataFrame()
 
 def ret_n(s: pd.Series, n: int = 21) -> float:
     if s.empty or len(s) < n + 1:
@@ -852,33 +644,6 @@ def compute_core() -> Dict[str, object]:
     ranked = sorted(decision_blend.items(), key=lambda x: x[1], reverse=True)
     current_q, current_p = ranked[0]
     next_q, next_p = ranked[1]
-    alt_next_q, alt_next_p = next_q, next_p
-
-    # Broad participation summary used by transition logic and later risk/read blocks.
-    breadth = 0.34 * growth_pos_breadth + 0.26 * infl_off_pos_breadth + 0.20 * cross_growth_pos_breadth + 0.20 * cross_infl_pos_breadth
-
-    # Stabilize the displayed "next" path so it does not flip too easily on noisy live inputs.
-    # We keep the raw model runner-up in model_next_q/model_next_p above, but use a structure-aware
-    # next leg for downstream playbooks and dashboard text.
-    if current_q == "Q3":
-        q1_struct = decision_blend.get("Q1", 0.0)
-        q2_struct = decision_blend.get("Q2", 0.0)
-        q4_struct = decision_blend.get("Q4", 0.0)
-        q1_struct += 0.05 * max(0.0, -i_live) + 0.04 * max(0.0, g_live) + 0.03 * breadth + 0.02 * (1 - max(0.0, s_m))
-        q2_struct += 0.05 * max(0.0, i_live) + 0.04 * max(0.0, g_live) + 0.03 * cross_growth_pos_breadth + 0.02 * float(not q2_veto)
-        q4_struct += 0.04 * max(0.0, -g_live) + 0.03 * max(0.0, s_m)
-        q3_next_rank = sorted([("Q1", q1_struct), ("Q2", q2_struct), ("Q4", q4_struct)], key=lambda x: x[1], reverse=True)
-        stable_next_q, stable_next_score = q3_next_rank[0]
-        stable_alt_q, stable_alt_score = q3_next_rank[1]
-        if abs(stable_next_score - stable_alt_score) <= 0.05:
-            if stable_next_q == "Q1" and stable_alt_q == "Q2" and (i_live > 0.08 or q3_live_pressure > 0.56):
-                stable_next_q, stable_alt_q = "Q2", "Q1"
-            elif stable_next_q == "Q2" and stable_alt_q == "Q1" and (i_live < 0.02 and breadth > 0.52 and s_m < 0.15):
-                stable_next_q, stable_alt_q = "Q1", "Q2"
-        alt_next_q = stable_alt_q
-        alt_next_p = decision_blend.get(stable_alt_q, stable_alt_score)
-        next_q = stable_next_q
-        next_p = decision_blend.get(stable_next_q, stable_next_score)
 
     dist_od = sum(abs(official_probs[k] - directional_probs[k]) for k in official_probs)
     dist_ol = sum(abs(official_probs[k] - live_probs[k]) for k in official_probs)
@@ -887,6 +652,7 @@ def compute_core() -> Dict[str, object]:
     confidence = clamp01(0.52 * current_p + 0.22 * agreement + 0.26 * max(live_p, directional_p))
 
     phase_strength = clamp01(0.34 * abs(g_live) + 0.34 * abs(i_live) + 0.18 * max(0.0, current_p - 0.25) + 0.14 * q3_live_pressure)
+    breadth = 0.34 * growth_pos_breadth + 0.26 * infl_off_pos_breadth + 0.20 * cross_growth_pos_breadth + 0.20 * cross_infl_pos_breadth
     regime_divergence = abs(g_live - g_off) + abs(i_live - i_off)
     fragility = clamp01(
         0.34 * (1 - current_p)
@@ -950,8 +716,6 @@ def compute_core() -> Dict[str, object]:
         "current_p": current_p,
         "next_q": next_q,
         "next_p": next_p,
-        "alt_next_q": alt_next_q,
-        "alt_next_p": alt_next_p,
         "model_current_q": model_current_q,
         "model_current_p": model_current_p,
         "model_next_q": model_next_q,
@@ -2516,39 +2280,6 @@ def build_cross_asset_compact_rows() -> List[List[str]]:
     return rows[:8]
 
 
-def _merge_groups_from_playbook_text(text: str) -> str:
-    t = (text or '').lower()
-    groups: List[str] = []
-
-    def add(name: str):
-        if name not in groups:
-            groups.append(name)
-
-    if any(k in t for k in ['gold', 'miner', 'oil', 'energy', 'commodity', 'hard-asset', 'precious', 'shipping']):
-        add('Inflation hedge')
-    if any(k in t for k in ['defensive', 'duration', 'bond', 'usd', 'quality', 'staple', 'utility']):
-        add('Defensives / duration')
-    if any(k in t for k in ['cyclical', 'small cap', 'small caps', 'industrial', 'broad beta', 'beta', 'lower-quality', 'commodity fx']):
-        add('Reflation beta')
-    if any(k in t for k in ['em ', 'emfx', 'ihsg', 'europe', 'euro', 'aud', 'nzd', 'cad']):
-        add('Cross-asset beta')
-    if any(k in t for k in ['crypto', 'btc', 'alt']):
-        add('Crypto beta')
-
-    return ', '.join(groups) if groups else '-'
-
-
-def quad_matrix_rows(engine: Dict[str, object], cur_stage: str) -> List[List[str]]:
-    cur_q = str(engine.get('current_q', 'Q3'))
-    nxt_q = str(engine.get('next_q', cur_q))
-    now_strong, now_weak = STAGE_GUIDE[cur_q][cur_stage][0], STAGE_GUIDE[cur_q][cur_stage][1]
-    nxt_strong, nxt_weak = STAGE_GUIDE[nxt_q]['Early'][0], STAGE_GUIDE[nxt_q]['Early'][1]
-    return [
-        ['Current', f'{cur_stage} {cur_q}', now_strong, now_weak, _merge_groups_from_playbook_text(now_strong), _merge_groups_from_playbook_text(now_weak)],
-        ['Next if transition wins', f'Early {nxt_q}', nxt_strong, nxt_weak, _merge_groups_from_playbook_text(nxt_strong), _merge_groups_from_playbook_text(nxt_weak)],
-    ]
-
-
 def build_stage_handoff_rows() -> List[List[str]]:
     current_stage = STAGE_GUIDE[core['current_q']]
     next_stage = STAGE_GUIDE[core['next_q']]
@@ -2656,985 +2387,130 @@ event_rows = [["Macro release timing", "dynamic", "Use actual calendar; avoid fa
 
 # --------------------
 
-
-
-# --------------------
-# DASHBOARD OVERLAYS / CONTROLS / SCORING
-# --------------------
-def num1(x: float) -> str:
-    try:
-        if x is None or not np.isfinite(float(x)):
-            return '-'
-        return f"{float(x):.1f}"
-    except Exception:
-        return '-'
-
-
-def bar_html(val: float) -> str:
-    width = max(0.0, min(1.0, float(val))) * 100.0
-    min_px = 2 if width > 0 else 0
-    return f"""
-    <div style='width:100%; height:18px; border:1px solid #2a3f5d; border-radius:999px; overflow:hidden; background: linear-gradient(180deg, rgba(11,22,40,.97), rgba(8,18,34,.97)); box-shadow: inset 0 1px 0 rgba(255,255,255,.03);'>
-      <div style='width:{width:.1f}%; min-width:{min_px}px; height:100%; background: linear-gradient(90deg, rgba(98,145,255,.92), rgba(128,181,255,.98)); border-right:1px solid rgba(219,234,255,.28);'></div>
-    </div>
-    """
-
-
-def _dedupe_keep(seq: List[str]) -> List[str]:
-    seen = set()
-    out = []
-    for x in seq:
-        if not x or x in seen:
-            continue
-        seen.add(x)
-        out.append(x)
-    return out
-
-
-FX_UNIVERSE = [
-    'UUP','FXY','FXF','FXE','FXB','FXA','FXC','CEW','CYB',
-    'EURUSD=X','GBPUSD=X','AUDUSD=X','NZDUSD=X','USDJPY=X','USDCHF=X','USDCAD=X','IDR=X'
-]
-COMMOD_UNIVERSE = ['GLD','GDX','SLV','CPER','USO','UNG','DBA','DBB','SOYB','CORN','WEAT','DBC']
-CRYPTO_UNIVERSE = ['BTC-USD','ETH-USD','SOL-USD','XRP-USD','ADA-USD','AVAX-USD','LTC-USD','LINK-USD','DOGE-USD','BNB-USD']
-
-FX_THEME_TAGS = {
-    'USD / safety': {'UUP','USDJPY=X','USDCHF=X','IDR=X'},
-    'Funding defensives': {'FXY','FXF'},
-    'Europe majors': {'FXE','FXB','EURUSD=X','GBPUSD=X'},
-    'Commodity FX': {'FXA','FXC','AUDUSD=X','NZDUSD=X','USDCAD=X'},
-    'EM / diversified FX': {'CEW','CYB'},
-}
-COMMOD_THEME_TAGS = {
-    'Gold / miners': {'GLD','GDX'},
-    'Precious / silver': {'SLV'},
-    'Oil / energy': {'USO','UNG'},
-    'Base metals': {'CPER','DBB'},
-    'Agri basket': {'DBA','SOYB','CORN','WEAT'},
-    'Broad commodities': {'DBC'},
-}
-CRYPTO_THEME_TAGS = {
-    'BTC / majors': {'BTC-USD','ETH-USD','LTC-USD','BNB-USD'},
-    'Alt beta': {'SOL-USD','XRP-USD','ADA-USD','AVAX-USD','LINK-USD','DOGE-USD'},
-}
-
-BAG7 = ['AAPL','MSFT','NVDA','AMZN','META','GOOGL','TSLA']
-OLD_WALL = ['JPM','GS','MS','BAC','WFC','BRK-B','XOM','CVX','UNH','LLY']
-
-
-def _theme_from_market(ticker: str, market: str) -> str:
-    if market == 'US':
-        return _theme_from_tags(ticker, US_THEME_TAGS)
-    if market == 'IHSG':
-        return _theme_from_tags(ticker, IHSG_THEME_TAGS)
-    if market == 'Forex':
-        return _theme_from_tags(ticker, FX_THEME_TAGS)
-    if market == 'Commodities':
-        return _theme_from_tags(ticker, COMMOD_THEME_TAGS)
-    if market == 'Crypto':
-        return _theme_from_tags(ticker, CRYPTO_THEME_TAGS)
-    return 'Other'
-
-
-def _macro_bucket_for_ticker(ticker: str, market: str, theme: str) -> str:
-    if market == 'US':
-        if theme in ['Energy']:
-            return 'Oil / energy'
-        if theme in ['Gold / metals']:
-            return 'Gold / miners'
-        if theme in ['Defense / industrial']:
-            return 'US cyclicals'
-        if theme in ['Financials']:
-            return 'US cyclicals'
-        if theme in ['Consumer / quality', 'Health care']:
-            return 'US defensives'
-        if theme in ['Quantum / speculative tech']:
-            return 'US small caps'
-        return 'US cyclicals'
-    if market == 'IHSG':
-        if theme in ['Banks / large cap']:
-            return 'EM equities'
-        if theme in ['Commodities / mining']:
-            return 'Gold / miners'
-        if theme in ['Oil / gas / shipping']:
-            return 'Oil / energy'
-        if theme in ['Property / beta', 'Infra / industrial']:
-            return 'IHSG cyclicals'
-        return 'EM equities'
-    if market == 'Forex':
-        if any(x in ticker for x in ['JPY','CHF']) or ticker in ['FXY','FXF']:
-            return 'JPY'
-        if any(x in ticker for x in ['AUD','NZD','CAD']) or ticker in ['FXA','FXC']:
-            return 'AUD'
-        if ticker in ['CEW','CYB','IDR=X']:
-            return 'EMFX / IDR'
-        if ticker in ['FXE','FXB','EURUSD=X','GBPUSD=X']:
-            return 'EUR'
-        return 'USD'
-    if market == 'Commodities':
-        if theme in ['Gold / miners','Precious / silver']:
-            return 'Gold / miners'
-        if theme in ['Oil / energy']:
-            return 'Oil / energy'
-        if theme in ['Base metals','Agri basket','Broad commodities']:
-            return 'US cyclicals'
-        return 'Gold / miners'
-    if market == 'Crypto':
-        return 'BTC / crypto beta'
-    return 'US cyclicals'
-
-
-def _cluster_from_bucket(bucket: str, market: str) -> str:
-    if bucket in ['Gold / miners', 'Oil / energy']:
-        return 'Inflation hedge'
-    if bucket in ['USD', 'JPY', 'CHF', 'Duration / bonds']:
-        return 'Defensives / duration'
-    if bucket in ['US cyclicals', 'US small caps', 'IHSG cyclicals']:
-        return 'Reflation beta'
-    if bucket in ['EM equities', 'EMFX / IDR', 'EUR', 'AUD']:
-        return 'Cross-asset beta'
-    if bucket == 'BTC / crypto beta':
-        return 'Crypto beta'
-    return market
-
-
-def _quad_fit_score(bucket_name: str, engine: Dict[str, object]) -> float:
-    cur_q = str(engine.get('current_q', 'Q3'))
-    nxt_q = str(engine.get('next_q', cur_q))
-    cur_w = float(engine.get('blend', {}).get(cur_q, 0.55))
-    nxt_w = float(engine.get('blend', {}).get(nxt_q, 0.25))
-    if bucket_name in ASSET_SCORE_BY_QUAD:
-        cur = ASSET_SCORE_BY_QUAD[bucket_name].get(cur_q, 0.0)
-        nxt = ASSET_SCORE_BY_QUAD[bucket_name].get(nxt_q, cur)
-        return float(0.72 * cur + 0.28 * nxt * max(0.35, min(1.0, nxt_w / max(cur_w, 1e-6))))
-    if bucket_name in CURRENCY_SCORE_BY_QUAD:
-        cur = CURRENCY_SCORE_BY_QUAD[bucket_name].get(cur_q, 0.0)
-        nxt = CURRENCY_SCORE_BY_QUAD[bucket_name].get(nxt_q, cur)
-        return float(0.72 * cur + 0.28 * nxt * max(0.35, min(1.0, nxt_w / max(cur_w, 1e-6))))
-    return 0.0
-
-
-def score_ticker_table(df: pd.DataFrame, market: str, engine: Dict[str, object]) -> pd.DataFrame:
-    if df is None or df.empty:
-        return pd.DataFrame()
-    work = df.copy()
-    work['Theme'] = work['Ticker'].astype(str).apply(lambda x: _theme_from_market(x, market))
-    work['MacroBucket'] = work.apply(lambda r: _macro_bucket_for_ticker(str(r['Ticker']), market, str(r['Theme'])), axis=1)
-    work['ThemeCluster'] = work['MacroBucket'].apply(lambda x: _cluster_from_bucket(str(x), market))
-    work['MacroFitRaw'] = work['MacroBucket'].apply(lambda x: _quad_fit_score(str(x), engine))
-    work['MacroFit'] = work['MacroFitRaw'].apply(lambda x: clamp01(0.5 + 0.5 * float(x)))
-    work['Weakness'] = work['Alpha21'].apply(lambda x: clamp01(0.5 + 0.5 * math.tanh((-float(x)) / 0.08)))
-    work['RSInv'] = 1.0 - work['RSScore'].astype(float)
-    work['TrendInv'] = 1.0 - work['Trend'].astype(float)
-    work['LongScore'] = 100.0 * (
-        0.34 * work['RSScore'].astype(float)
-        + 0.18 * work['StartScore'].astype(float)
-        + 0.18 * work['Trend'].astype(float)
-        + 0.30 * work['MacroFit'].astype(float)
-    )
-    work['ShortScore'] = 100.0 * (
-        0.34 * work['Weakness'].astype(float)
-        + 0.18 * work['RSInv'].astype(float)
-        + 0.18 * work['TrendInv'].astype(float)
-        + 0.30 * (1.0 - work['MacroFit'].astype(float))
-    )
-    def _bias(r):
-        if float(r['LongScore']) >= float(r['ShortScore']) + 9:
-            return 'Long bias'
-        if float(r['ShortScore']) >= float(r['LongScore']) + 9:
-            return 'Short bias'
-        return 'Mixed'
-    def _comment(r):
-        state = str(r['State'])
-        base = str(r['Comment'])
-        if r['Bias'] == 'Long bias':
-            return f"{base}; macro fits {r['MacroBucket'].lower()}"
-        if r['Bias'] == 'Short bias':
-            return f"{base}; macro hostile for {r['MacroBucket'].lower()}"
-        return f"{base}; wait for cleaner confirmation"
-    work['Bias'] = work.apply(_bias, axis=1)
-    work['Comment'] = work.apply(_comment, axis=1)
-    return work.sort_values(['LongScore','ShortScore','RSScore'], ascending=[False, False, False]).reset_index(drop=True)
-
-
-@st.cache_data(ttl=60*60*6, show_spinner=False)
-def yahoo_market_caps(tickers: Tuple[str, ...]) -> Dict[str, float]:
-    names = [t for t in tickers if t]
-    out: Dict[str, float] = {}
-    if not names:
-        return out
-    if yf is not None:
-        for t in names:
-            try:
-                tk = yf.Ticker(t)
-                cap = None
-                fi = getattr(tk, 'fast_info', None)
-                if fi is not None:
-                    cap = fi.get('market_cap') or fi.get('marketCap')
-                if not cap:
-                    info = getattr(tk, 'info', {}) or {}
-                    cap = info.get('marketCap') or info.get('enterpriseValue')
-                if cap and np.isfinite(float(cap)) and float(cap) > 0:
-                    out[t] = float(cap)
-            except Exception:
-                pass
-    missing = [t for t in names if t not in out]
-    for i in range(0, len(missing), 25):
-        chunk = missing[i:i+25]
-        try:
-            url = 'https://query1.finance.yahoo.com/v7/finance/quote'
-            r = requests.get(url, params={'symbols': ','.join(chunk)}, timeout=10)
-            data = r.json().get('quoteResponse', {}).get('result', []) if r.ok else []
-            for row in data:
-                sym = row.get('symbol')
-                cap = row.get('marketCap') or row.get('enterpriseValue')
-                if sym and cap and np.isfinite(float(cap)) and float(cap) > 0:
-                    out[sym] = float(cap)
-        except Exception:
-            pass
-    return out
-
-
-def impact_proxy_from_macro(universe: List[str], market: str = 'US') -> pd.DataFrame:
-    scored = score_ticker_table(macro_only_rank(universe, market, core), market, core)
-    if scored is None or scored.empty:
-        return pd.DataFrame()
-    work = scored.head(20).copy()
-    total = float((work['LongScore'].abs() + work['ShortScore'].abs()).sum())
-    if total <= 0:
-        total = float(len(work))
-    rows = []
-    for _, r in work.iterrows():
-        edge = float(r['LongScore']) - float(r['ShortScore'])
-        wt = abs(edge) / total if total > 0 else 1.0 / max(1, len(work))
-        impact_val = 100.0 * wt * (edge / 100.0)
-        rows.append({
-            'Ticker': r['Ticker'],
-            'DailyRet': edge / 100.0,
-            'ImpactVal': impact_val,
-            'Weight': wt,
-            'IndexContributionPct': impact_val,
-            'MarketCap': np.nan,
-            'ImpactMode': 'macro_proxy',
-            'ImpactLabel': 'Proxy score',
-            'ImpactUnit': '%',
-        })
-    return pd.DataFrame(rows).sort_values('ImpactVal', ascending=False).reset_index(drop=True)
-
-
-def compute_impact_table(tickers: List[str], period: str = '5d') -> pd.DataFrame:
-    tickers = _dedupe_keep([t for t in tickers if t])
-    if not tickers:
-        return pd.DataFrame()
-    prices = yahoo_close_batch(tickers, period)
-    if prices.empty:
-        frames = []
-        for t in tickers:
-            s = yahoo_close(t, period)
-            if not s.empty:
-                frames.append(s.rename(t))
-        prices = pd.concat(frames, axis=1).sort_index() if frames else pd.DataFrame()
-    if prices.empty:
-        return impact_proxy_from_macro(tickers, 'US')
-
-    caps = yahoo_market_caps(tuple(tickers))
-    cap_cov = len(caps) / max(1, len(tickers))
-    use_cap = len(caps) >= max(5, int(0.35 * len(tickers))) and cap_cov >= 0.35
-    impact_mode = 'market_cap' if use_cap else 'proxy_equal_weight'
-    impact_label = 'Δ MCap' if use_cap else 'EqW contrib'
-    impact_unit = 'B' if use_cap else '%'
-
-    valid = []
-    for t in tickers:
-        if t not in prices.columns:
-            continue
-        s = pd.to_numeric(prices[t], errors='coerce').dropna()
-        if len(s) < 2:
-            continue
-        prev = float(s.iloc[-2]); last = float(s.iloc[-1])
-        if prev > 0:
-            valid.append((t, last / prev - 1.0))
-    if not valid:
-        return impact_proxy_from_macro(tickers, 'US')
-
-    if use_cap:
-        usable_caps = {t: float(caps[t]) for t, _ in valid if t in caps and np.isfinite(float(caps[t])) and float(caps[t]) > 0}
-        if len(usable_caps) < max(5, int(0.35 * len(valid))):
-            use_cap = False
-            impact_mode = 'proxy_equal_weight'
-            impact_label = 'EqW contrib'
-            impact_unit = '%'
-
-    rows = []
-    if use_cap:
-        total_cap = float(sum(usable_caps.values()))
-        for t, ret in valid:
-            if t not in usable_caps:
-                continue
-            wt = usable_caps[t] / total_cap if total_cap > 0 else np.nan
-            impact_val = usable_caps[t] * ret / 1e9
-            rows.append({
-                'Ticker': t,
-                'DailyRet': ret,
-                'ImpactVal': impact_val,
-                'Weight': wt,
-                'IndexContributionPct': 100.0 * wt * ret if np.isfinite(wt) else np.nan,
-                'MarketCap': usable_caps[t],
-                'ImpactMode': impact_mode,
-                'ImpactLabel': impact_label,
-                'ImpactUnit': impact_unit,
-            })
-    else:
-        n = len(valid)
-        for t, ret in valid:
-            wt = 1.0 / max(1, n)
-            impact_val = 100.0 * wt * ret
-            rows.append({
-                'Ticker': t,
-                'DailyRet': ret,
-                'ImpactVal': impact_val,
-                'Weight': wt,
-                'IndexContributionPct': 100.0 * wt * ret,
-                'MarketCap': np.nan,
-                'ImpactMode': impact_mode,
-                'ImpactLabel': impact_label,
-                'ImpactUnit': impact_unit,
-            })
-    if not rows:
-        return impact_proxy_from_macro(tickers, 'US')
-    return pd.DataFrame(rows).sort_values('ImpactVal', ascending=False).reset_index(drop=True)
-
-
-def impact_summary_from_df(df: pd.DataFrame) -> Dict[str, float]:
-    if df is None or df.empty:
-        return {}
-    total_abs = float(df['ImpactVal'].abs().sum())
-    concentration = float(df['ImpactVal'].abs().nlargest(3).sum() / total_abs) if total_abs > 0 else 0.0
-    mode = str(df['ImpactMode'].iloc[0]) if 'ImpactMode' in df.columns and len(df) else 'market_cap'
-    return {
-        'mode': mode,
-        'impact_label': str(df['ImpactLabel'].iloc[0]) if 'ImpactLabel' in df.columns and len(df) else ('Δ MCap' if mode == 'market_cap' else 'EqW contrib'),
-        'advancers': float((df['DailyRet'] > 0).mean()),
-        'equal_weight_return': float(df['DailyRet'].mean()),
-        'cap_weight_return': float(100.0 * (df['DailyRet'] * df['Weight']).sum()),
-        'concentration': concentration,
-        'bag7_impact': float(df[df['Ticker'].isin(BAG7)]['ImpactVal'].sum()),
-        'old_wall_impact': float(df[df['Ticker'].isin(OLD_WALL)]['ImpactVal'].sum()),
-    }
-
-
-def basket_showdown_rows(df: pd.DataFrame) -> List[List[str]]:
-    if df is None or df.empty:
-        return [['No data','-','-','-','-','-']]
-    unit = str(df['ImpactUnit'].iloc[0]) if 'ImpactUnit' in df.columns and len(df) else 'B'
-    universe = set(df['Ticker'])
-    baskets = [
-        ('Bag7', [t for t in BAG7 if t in universe]),
-        ('ex-Bag7', [t for t in df['Ticker'] if t not in set(BAG7)]),
-        ('Old Wall', [t for t in OLD_WALL if t in universe]),
-        ('ex-Old Wall', [t for t in df['Ticker'] if t not in set(OLD_WALL)]),
-    ]
-    rows = []
-    for name, members in baskets:
-        sub = df[df['Ticker'].isin(members)]
-        if sub.empty:
-            continue
-        impact_text = f"{sub['ImpactVal'].sum():+.2f}%" if unit == '%' else f"{sub['ImpactVal'].sum():+.1f}B"
-        rows.append([
-            name,
-            str(int(len(sub))),
-            impact_text,
-            f"{sub['IndexContributionPct'].sum():+.2f}%",
-            f"{100*sub['DailyRet'].mean():+.2f}%",
-            pct(float(sub['Weight'].sum())) if sub['Weight'].notna().any() else '-',
-        ])
-    return rows or [['No overlap','-','-','-','-','-']]
-
-
-def theme_impact_rows(df: pd.DataFrame, mapping: Dict[str, set]) -> List[List[str]]:
-    if df is None or df.empty:
-        return [['No data','-','-','-','-']]
-    unit = str(df['ImpactUnit'].iloc[0]) if 'ImpactUnit' in df.columns and len(df) else 'B'
-    work = df.copy()
-    work['ThemeCluster'] = work['Ticker'].apply(lambda x: _cluster_from_bucket(_macro_bucket_for_ticker(str(x), 'US', _theme_from_tags(str(x), mapping)), 'US'))
-    agg = (
-        work.groupby('ThemeCluster', as_index=False)
-        .agg(Names=('Ticker', 'count'), ImpactVal=('ImpactVal', 'sum'), AvgRet=('DailyRet', 'mean'), Weight=('Weight','sum'))
-        .sort_values('ImpactVal', ascending=False)
-    )
-    rows = []
-    for _, r in agg.iterrows():
-        impact_text = f"{r['ImpactVal']:+.2f}%" if unit == '%' else f"{r['ImpactVal']:+.1f}B"
-        rows.append([r['ThemeCluster'], str(int(r['Names'])), impact_text, f"{100*r['AvgRet']:+.2f}%", pct(float(r['Weight']))])
-    return rows or [['No data','-','-','-','-']]
-
-
-def fallback_rank_from_prices(tickers: List[str], benchmark_ticker: str, period: str = "6mo", fallback_benchmark: str | None = None) -> pd.DataFrame:
-    tickers = [t for t in tickers if t]
-    if not tickers:
-        return pd.DataFrame()
-    fetch = _dedupe_keep([benchmark_ticker] + tickers + ([fallback_benchmark] if fallback_benchmark else []))
-    prices = yahoo_close_batch(fetch, period)
-    if prices.empty:
-        frames = []
-        for ticker in fetch:
-            s = yahoo_close(ticker, period)
-            if not s.empty:
-                frames.append(s.rename(ticker))
-        prices = pd.concat(frames, axis=1).sort_index() if frames else pd.DataFrame()
-    if prices.empty:
-        return pd.DataFrame()
-    prices = prices.sort_index().ffill().dropna(how='all')
-
-    bench = pd.Series(dtype=float)
-    for name in [benchmark_ticker, fallback_benchmark]:
-        if name and name in prices.columns:
-            s = pd.to_numeric(prices[name], errors='coerce').dropna()
-            if len(s) >= 15:
-                bench = s
-                break
-    if bench.empty:
-        cols = [c for c in tickers if c in prices.columns]
-        basket_parts = []
-        for c in cols:
-            s = pd.to_numeric(prices[c], errors='coerce').dropna()
-            if len(s) >= 15:
-                basket_parts.append((s / s.iloc[0]).rename(c))
-        if basket_parts:
-            bench = pd.concat(basket_parts, axis=1).dropna(how='all').mean(axis=1).dropna()
-    if bench.empty:
-        return pd.DataFrame()
-
-    rows = []
-    for ticker in tickers:
-        if ticker not in prices.columns:
-            continue
-        s = pd.to_numeric(prices[ticker], errors='coerce').dropna()
-        df = pd.concat([s.rename('asset'), bench.rename('bench')], axis=1).sort_index().ffill().dropna()
-        if len(df) < 15:
-            continue
-        asset = df['asset']; bm = df['bench']
-        r21, r63, r126 = ret_n(asset, 21), ret_n(asset, min(63, max(21, len(asset)-1))), ret_n(asset, min(126, max(21, len(asset)-1)))
-        b21, b63, b126 = ret_n(bm, 21), ret_n(bm, min(63, max(21, len(bm)-1))), ret_n(bm, min(126, max(21, len(bm)-1)))
-        alpha21, alpha63, alpha126 = r21 - b21, r63 - b63, r126 - b126
-        trend = _trend_score(asset)
-        accel = alpha21 - 0.45 * alpha63
-        rs_score = clamp01(0.40 * _norm_tanh(alpha21, 0.08) + 0.35 * _norm_tanh(alpha63, 0.15) + 0.25 * max(trend, 0.30))
-        start_score = clamp01(0.40 * _norm_tanh(accel, 0.08) + 0.30 * _norm_tanh(r21, 0.12) + 0.30 * max(trend, 0.25))
-        state = _lead_state(alpha21, alpha63, alpha126, max(trend, 0.25))
-        comment = _lead_comment(state, alpha21, alpha63, max(trend, 0.25))
-        rows.append({
-            'Ticker': ticker, 'Benchmark': 'FALLBACK', 'State': state, 'RSScore': rs_score, 'StartScore': start_score,
-            'Alpha21': alpha21, 'Alpha63': alpha63, 'Alpha126': alpha126, 'Ret21': r21, 'Ret63': r63,
-            'Trend': max(trend, 0.25), 'Comment': comment, 'Bars': len(df)
-        })
-    return pd.DataFrame(rows).sort_values(['RSScore','StartScore','Alpha21'], ascending=False).reset_index(drop=True) if rows else pd.DataFrame()
-
-
-def macro_only_rank(tickers: List[str], market: str, engine: Dict[str, object]) -> pd.DataFrame:
-    tickers = [t for t in tickers if t]
-    if not tickers:
-        return pd.DataFrame()
-    rows = []
-    for t in tickers:
-        theme = _theme_from_market(str(t), market)
-        bucket = _macro_bucket_for_ticker(str(t), market, str(theme))
-        fit = _quad_fit_score(str(bucket), engine)
-        jitter = ((sum(ord(ch) for ch in str(t)) % 17) - 8) / 200.0
-        trend = clamp01(0.50 + 0.22 * fit + jitter)
-        rs = clamp01(0.52 + 0.26 * fit + jitter)
-        start = clamp01(0.50 + 0.18 * fit - jitter)
-        alpha21 = 0.10 * fit + jitter / 2
-        alpha63 = 0.14 * fit + jitter / 3
-        alpha126 = 0.18 * fit + jitter / 4
-        if fit >= 0.28:
-            state = 'Leader'
-        elif fit >= 0.08:
-            state = 'Emerging'
-        elif fit <= -0.28:
-            state = 'Weak'
-        elif fit <= -0.08:
-            state = 'Fading'
-        else:
-            state = 'Neutral'
-        comment = f'macro-only fallback; {bucket.lower()} fit'
-        rows.append({
-            'Ticker': t,
-            'Benchmark': 'MACRO_ONLY',
-            'State': state,
-            'RSScore': rs,
-            'StartScore': start,
-            'Alpha21': alpha21,
-            'Alpha63': alpha63,
-            'Alpha126': alpha126,
-            'Ret21': alpha21,
-            'Ret63': alpha63,
-            'Trend': trend,
-            'Comment': comment,
-            'Bars': 0,
-        })
-    if not rows:
-        return pd.DataFrame()
-    return pd.DataFrame(rows).sort_values(['RSScore','StartScore','Alpha21'], ascending=False).reset_index(drop=True)
-
-
-def market_score_payload(market: str, universe: List[str], watchlist: List[str], benchmark: str, fallback: str | None = None, suffix: str = '') -> Tuple[pd.DataFrame, pd.DataFrame]:
-    rank_df = rank_market_leaders(universe, benchmark_ticker=benchmark, period='1y', fallback_benchmark=fallback)
-    if rank_df.empty:
-        rank_df = rank_market_leaders(universe, benchmark_ticker=benchmark, period='6mo', fallback_benchmark=fallback)
-    if rank_df.empty and fallback:
-        rank_df = rank_market_leaders(universe, benchmark_ticker=fallback, period='6mo', fallback_benchmark=benchmark)
-    if rank_df.empty:
-        rank_df = fallback_rank_from_prices(universe, benchmark_ticker=benchmark, period='6mo', fallback_benchmark=fallback)
-    if rank_df.empty:
-        rank_df = macro_only_rank(universe, market, core)
-    score_df = score_ticker_table(rank_df, market, core) if not rank_df.empty else pd.DataFrame()
-    watch = _dedupe_keep(watchlist)
-    if watch:
-        w_rank = rank_market_leaders(watch, benchmark_ticker=benchmark, period='1y', fallback_benchmark=fallback)
-        if w_rank.empty:
-            w_rank = rank_market_leaders(watch, benchmark_ticker=benchmark, period='6mo', fallback_benchmark=fallback)
-        if w_rank.empty and fallback:
-            w_rank = rank_market_leaders(watch, benchmark_ticker=fallback, period='6mo', fallback_benchmark=benchmark)
-        if w_rank.empty:
-            w_rank = fallback_rank_from_prices(watch, benchmark_ticker=benchmark, period='6mo', fallback_benchmark=fallback)
-        if w_rank.empty:
-            w_rank = macro_only_rank(watch, market, core)
-        w_score = score_ticker_table(w_rank, market, core) if not w_rank.empty else pd.DataFrame()
-    else:
-        w_score = pd.DataFrame()
-    return score_df, w_score
-
-
-def score_rows_for_display(df: pd.DataFrame, mode: str, n: int = 8) -> List[List[str]]:
-    if df is None or df.empty:
-        return [['No data','-','-','-','-','-']]
-    work = df.copy()
-    if mode == 'long':
-        work = work.sort_values(['LongScore','RSScore','StartScore'], ascending=False)
-    else:
-        work = work.sort_values(['ShortScore','Alpha21','Trend'], ascending=[False, True, True])
-    rows = []
-    for _, r in work.head(n).iterrows():
-        rows.append([
-            str(r['Ticker']).replace('.JK',''),
-            str(r['Bias']),
-            f"{float(r['LongScore']):.0f}",
-            f"{float(r['ShortScore']):.0f}",
-            str(r.get('ThemeCluster', r.get('Theme', 'Other'))),
-            str(r['Comment']),
-        ])
-    return rows
-
-
-def exact_rows_for_display(df: pd.DataFrame, watchlist: List[str], n: int = 12) -> List[List[str]]:
-    if not watchlist:
-        return [['No watchlist','-','-','-','-','-','-']]
-    if df is None or df.empty:
-        return [[t.replace('.JK',''),'No data','-','-','Missing','-','No price / benchmark data'] for t in watchlist[:n]]
-    work = df.set_index('Ticker', drop=False)
-    rows = []
-    for t in watchlist[:n]:
-        if t in work.index:
-            r = work.loc[t]
-            rows.append([
-                t.replace('.JK',''), str(r['Bias']), f"{float(r['LongScore']):.0f}", f"{float(r['ShortScore']):.0f}",
-                str(r.get('State','-')), str(r.get('ThemeCluster', r.get('Theme','Other'))), str(r['Comment'])
-            ])
-        else:
-            rows.append([t.replace('.JK',''),'No data','-','-','Missing','-','Ticker not scored / bad coverage'])
-    return rows
-
-
-def leadership_mode_rows(df: pd.DataFrame, mode: str, n: int = 8) -> List[List[str]]:
-    if df is None or df.empty:
-        return [['No data','-','-','-','-']]
-    work = df.copy()
-    if mode == 'leaders':
-        work = work[work['State'].isin(['Leader'])].sort_values(['LongScore','RSScore'], ascending=False)
-    elif mode == 'emerging':
-        work = work[work['State'].isin(['Emerging'])].sort_values(['StartScore','Alpha21'], ascending=False)
-    else:
-        work = work[work['State'].isin(['Weak','Fading'])].sort_values(['ShortScore','Alpha21'], ascending=[False, True])
-    if work.empty:
-        return [['None','-','-','-','No clean names']]
-    rows = []
-    for _, r in work.head(n).iterrows():
-        rows.append([str(r['Ticker']).replace('.JK',''), str(r['State']), f"{float(r['LongScore']):.0f}", f"{float(r['ShortScore']):.0f}", str(r['Comment'])])
-    return rows
-
-
-def cluster_summary_rows(df: pd.DataFrame, n: int = 6) -> List[List[str]]:
-    if df is None or df.empty:
-        return [['No data','-','-','-','-']]
-    key = 'ThemeCluster' if 'ThemeCluster' in df.columns else 'Theme'
-    agg = (
-        df.groupby(key, as_index=False)
-        .agg(Members=('Ticker','count'), AvgLong=('LongScore','mean'), AvgShort=('ShortScore','mean'), Examples=('Ticker', lambda s: ', '.join([x.replace('.JK','') for x in list(s.head(3))])))
-        .sort_values(['AvgLong','Members'], ascending=[False, False])
-    )
-    rows = []
-    for _, r in agg.head(n).iterrows():
-        rows.append([str(r[key]), str(int(r['Members'])), f"{float(r['AvgLong']):.0f}", f"{float(r['AvgShort']):.0f}", str(r['Examples'])])
-    return rows or [['No data','-','-','-','-']]
-
-
-def coverage_rows(universe: List[str], scored: pd.DataFrame, n: int = 6) -> List[List[str]]:
-    seen = set() if scored is None or scored.empty else set(scored['Ticker'].astype(str))
-    missing = [t.replace('.JK','') for t in universe if t not in seen][:n]
-    return [[f"{len(seen)}/{len(universe)}", ', '.join(missing) if missing else 'OK']]
-
 # RENDER
-st.markdown("<h1>Quad • Impact • Signal • Ticker Score</h1>", unsafe_allow_html=True)
-st.markdown("<div class='small-muted'>Decision-support dashboard: regime first, impact second, execution third. Engine internals yang paling penting tetap ada, tapi yang saling berkorelasi sudah di-merge.</div>", unsafe_allow_html=True)
+st.title("QuantFinalV4_Max")
+st.markdown("<div class='small-muted'>Core alpha engine: Hedgeye_LiveQuad_Core_v2_5 • Q3-anchored decision support shell • Live backbone: FRED + optional Yahoo</div>", unsafe_allow_html=True)
+st.write("")
 
-with st.expander('Dashboard controls', expanded=False):
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        region_mode = st.selectbox('Ticker score market', ['All markets','US','IHSG','Forex','Commodities','Crypto'], index=0)
-        show_count = int(st.slider('Rows per table', 5, 12, 8, 1))
-        us_preset = st.selectbox('US preset', list(US_PRESETS.keys()), index=0)
-        ihsg_preset = st.selectbox('IHSG preset', list(IHSG_PRESETS.keys()), index=0)
-    with c2:
-        us_custom_raw = st.text_input('Extra US tickers', value='')
-        ihsg_custom_raw = st.text_input('Extra IHSG tickers', value='')
-        fx_custom_raw = st.text_input('Extra forex tickers / ETFs', value='')
-        impact_mode = st.selectbox('Impact universe', ['US preset','Custom US list'], index=0)
-    with c3:
-        commod_custom_raw = st.text_input('Extra commodities tickers', value='')
-        crypto_custom_raw = st.text_input('Extra crypto tickers', value='')
-        impact_custom_raw = st.text_input('Custom impact tickers', value='')
-
-    w1, w2 = st.columns(2)
-    with w1:
-        watchlist_us_raw = st.text_input('Exact watchlist • US', value='')
-        watchlist_ihsg_raw = st.text_input('Exact watchlist • IHSG', value='')
-        watchlist_fx_raw = st.text_input('Exact watchlist • Forex', value='')
-    with w2:
-        watchlist_commod_raw = st.text_input('Exact watchlist • Commodities', value='')
-        watchlist_crypto_raw = st.text_input('Exact watchlist • Crypto', value='')
-
-us_universe = _dedupe_keep(list(US_PRESETS[us_preset]) + _clean_tickers(us_custom_raw))
-ihsg_universe = _dedupe_keep(list(IHSG_PRESETS[ihsg_preset]) + _clean_tickers(ihsg_custom_raw, '.JK'))
-fx_universe = _dedupe_keep(FX_UNIVERSE + _clean_tickers(fx_custom_raw))
-commod_universe = _dedupe_keep(COMMOD_UNIVERSE + _clean_tickers(commod_custom_raw))
-crypto_universe = _dedupe_keep(CRYPTO_UNIVERSE + _clean_tickers(crypto_custom_raw))
-
-watchlist_us = _dedupe_keep(_clean_tickers(watchlist_us_raw) + _clean_tickers(us_custom_raw))[:20]
-watchlist_ihsg = _dedupe_keep(_clean_tickers(watchlist_ihsg_raw, '.JK') + _clean_tickers(ihsg_custom_raw, '.JK'))[:20]
-watchlist_fx = _dedupe_keep(_clean_tickers(watchlist_fx_raw) + _clean_tickers(fx_custom_raw))[:20]
-watchlist_commod = _dedupe_keep(_clean_tickers(watchlist_commod_raw) + _clean_tickers(commod_custom_raw))[:20]
-watchlist_crypto = _dedupe_keep(_clean_tickers(watchlist_crypto_raw) + _clean_tickers(crypto_custom_raw))[:20]
-
-us_score_df, watch_us_score_df = market_score_payload('US', us_universe, watchlist_us, benchmark='SPY', fallback='QQQ')
-ihsg_score_df, watch_ihsg_score_df = market_score_payload('IHSG', ihsg_universe, watchlist_ihsg, benchmark='^JKSE', fallback='EIDO')
-fx_score_df, watch_fx_score_df = market_score_payload('Forex', fx_universe, watchlist_fx, benchmark='UUP', fallback='CEW')
-commod_score_df, watch_commod_score_df = market_score_payload('Commodities', commod_universe, watchlist_commod, benchmark='DBC', fallback='GLD')
-crypto_score_df, watch_crypto_score_df = market_score_payload('Crypto', crypto_universe, watchlist_crypto, benchmark='BTC-USD', fallback='ETH-USD')
-
-impact_universe = us_universe if impact_mode == 'US preset' else _dedupe_keep(_clean_tickers(impact_custom_raw) or us_universe[:25])
-impact_df = compute_impact_table(impact_universe)
-impact_summary = impact_summary_from_df(impact_df)
-
-cur_stage, cur_maturity = infer_cycle_stage(core['current_q'])
+# ---- attachment-2 style summary ----
+cur_stage, _ = infer_cycle_stage(core['current_q'])
 variant_now = _transition_variant(core)
+crash_now = current_crash_probability()
 risk_pack = compute_risk_meters()
-risk_total = max(1e-9, risk_pack['risk_on'] + risk_pack['risk_off'])
-risk_on_share = risk_pack['risk_on'] / risk_total
-risk_off_share = risk_pack['risk_off'] / risk_total
-action_bias = 'Selective' if core['current_q'] in ['Q3','Q4'] else ('Risk-on selective' if core['current_q'] == 'Q2' else 'Balanced')
-next_sub = (f"alt {core.get('alt_next_q','-')} close" if abs(float(core.get('next_p',0.0)) - float(core.get('alt_next_p',0.0))) <= 0.06 else f"transition {pct(core['transition_prob'])}")
-hero_cols = st.columns(7)
+top_state_now = ladder_state(core['top_score'], 'top')
+bottom_state_now = ladder_state(core['bottom_score'], 'bottom')
+
+if core['current_q'] == 'Q3':
+    action_bias = 'Selective'
+    action_sub = 'Defensive / preserve capital; tunggu breadth confirm sebelum broad beta.'
+elif core['current_q'] == 'Q2':
+    action_bias = 'Risk-on selective'
+    action_sub = 'Prefer cyclicals / small caps if breadth confirm.'
+elif core['current_q'] == 'Q4':
+    action_bias = 'Defensive'
+    action_sub = 'Jangan buru-buru base call kalau washout belum bersih.'
+else:
+    action_bias = 'Balanced'
+    action_sub = 'Tactical only sampai confirmation membaik.'
+
+next_read = f"{core['next_q']}"
+if core['current_q'] == 'Q3' and core['next_q'] == 'Q2':
+    next_sub = 'Early Q2 if breadth + small caps + USD cooling confirm'
+elif core['next_q'] == core['current_q']:
+    next_sub = f"Stay in {core['current_q']} / pressure persists"
+else:
+    next_sub = f"Most likely path from {core['current_q']}"
+
+hero_cols = st.columns(8)
 hero_items = [
-    ('Current Quad', core['current_q'], pill_html(f"{cur_stage} • {core['sub_phase']}")),
-    ('Next Likely', core['next_q'], pill_html(next_sub)),
-    ('Confidence', pct(core['confidence']), pill_html(f"agreement {pct(core['agreement'])}")),
-    ('Risk-On Share', pct(risk_on_share), pill_html(meter_label(risk_pack['risk_on']))),
-    ('Risk-Off Share', pct(risk_off_share), pill_html(meter_label(risk_pack['risk_off']))),
-    ('Big Crash', pct(risk_pack['big_crash']), pill_html(crash_meter_label(risk_pack['big_crash']))),
-    ('Action Bias', action_bias, pill_html(variant_now)),
+    ("Decision Regime", core['current_q'], pill_html(f"{cur_stage} {core['current_q']}") if cur_stage else pill_html(core['current_q'])),
+    ("Confidence", pct(core['confidence']), pill_html(f"Agreement {pct(core['agreement'])}")),
+    ("Variant Now", variant_now, pill_html(core['sub_phase'])),
+    ("Next Most Likely", next_read, pill_html(next_sub)),
+    ("Risk-On", pct(risk_pack['risk_on']), pill_html(meter_label(risk_pack['risk_on']))),
+    ("Risk-Off", pct(risk_pack['risk_off']), pill_html(meter_label(risk_pack['risk_off']))),
+    ("Big Crash", pct(risk_pack['big_crash']), pill_html(crash_meter_label(risk_pack['big_crash']))),
+    ("Action Bias", action_bias, pill_html(action_sub)),
 ]
 for col, (title, value, sub_html) in zip(hero_cols, hero_items):
     with col:
         st.markdown(f"""
         <div class='hero-card'>
           <div class='metric-title'>{title}</div>
-          <div style='font-size:1.95rem;font-weight:800;line-height:1.1'>{value}</div>
+          <div style='font-size:1.2rem;font-weight:800'>{value}</div>
           <div class='metric-sub'>{sub_html}</div>
         </div>
         """, unsafe_allow_html=True)
 
 quick_read = (
-    f"Quick read: now {cur_stage} {core['current_q']} with {variant_now.lower()}. Base case favors {', '.join(play_cur['US Stocks'])}; "
-    f"if {core['next_q']} takes over, watch for {', '.join(play_next['US Stocks'])}; alt path {core.get('alt_next_q','-')} still alive. Breadth {pct(core['breadth'])}, "
-    f"fragility {pct(core['fragility'])}, top risk state: {ladder_state(core['top_score'], 'top')}."
+    f"Quick read: Sekarang {cur_stage} {core['current_q']} / {variant_now}. "
+    f"Base case masih {core['current_q']}, tapi kalau transition lanjut jalur paling mungkin adalah {core['next_q']}. "
+    f"Action bias sekarang: {action_bias}; {action_sub} Risk-On {pct(risk_pack['risk_on'])}, Risk-Off {pct(risk_pack['risk_off'])}, Big Crash {pct(risk_pack['big_crash'])}"
 )
 st.markdown(f"<div class='note-box'><b>{quick_read}</b></div>", unsafe_allow_html=True)
 
-# QUAD BOARD
-st.markdown('### Quad Board')
-q_left, q_mid, q_right = st.columns([1.2, 1.1, 1.3])
-with q_left:
-    st.markdown("<div class='card'><div class='section-title'>Current vs Next</div>", unsafe_allow_html=True)
-    current_rows = [
-        ['Now', f"{cur_stage} {core['current_q']}", STAGE_GUIDE[core['current_q']][cur_stage][0], STAGE_GUIDE[core['current_q']][cur_stage][1]],
-        ['If next wins', f"Early {core['next_q']}", STAGE_GUIDE[core['next_q']]['Early'][0], STAGE_GUIDE[core['next_q']]['Early'][1]],
-    ]
-    st.markdown(table_html(['Window', 'Quad', 'Usually strong', 'Usually weak'], current_rows), unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-with q_mid:
-    st.markdown("<div class='card'><div class='section-title'>Quad Probabilities</div>", unsafe_allow_html=True)
-    for quad in ['Q1','Q2','Q3','Q4']:
-        val = float(core['blend'].get(quad, 0.0))
-        st.markdown(f"<div class='small-muted'><b>{quad}</b> {pct(val)}</div>", unsafe_allow_html=True)
-        st.markdown(bar_html(val), unsafe_allow_html=True)
-        st.write('')
-    st.markdown('</div>', unsafe_allow_html=True)
-with q_right:
-    st.markdown("<div class='card'><div class='section-title'>Regime Read</div>", unsafe_allow_html=True)
-    regime_rows = [
-        ['Variant', variant_now],
-        ['Path now', f"{core['current_q']} → {core['next_q']}"],
-        ['Alt path', f"{core['current_q']} → {core.get('alt_next_q','-')}"],
-        ['Signal quality', core['signal_quality']],
-        ['Maturity', pct(cur_maturity)],
-        ['Official macro cutoff', core['official_date']],
-        ['Growth live', num1(core['g_live'])],
-        ['Inflation live', num1(core['i_live'])],
-    ]
-    st.markdown(table_html(['Field', 'Read'], regime_rows), unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+# tabs like attachment-2
+t_decision, t_cross, t_risk, t_details = st.tabs(["Decision", "Cross-Asset", "Risk / Relative", "Details"])
 
-st.markdown("<div class='card'><div class='section-title'>Current / Next Winners-Losers Matrix</div>", unsafe_allow_html=True)
-st.markdown(table_html(['Window', 'Quad', 'Usually strong', 'Usually weak', 'Merged strong groups', 'Merged weak groups'], quad_matrix_rows(core, cur_stage)), unsafe_allow_html=True)
-st.markdown('</div>', unsafe_allow_html=True)
+with t_decision:
+    st.markdown("<div class='card'><div class='section-title'>DECISION SNAPSHOT</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Satu panel inti: sekarang di mana, kalau next menang bakal seperti apa, apa yang harus dikonfirmasi, dan event apa yang paling bisa mengubah bacaannya.</div>", unsafe_allow_html=True)
+    st.markdown(table_html(["Focus", "Read", "Why it matters"], build_decision_key_rows()), unsafe_allow_html=True)
+    st.write("")
+    st.markdown(table_html(["Priority", "Area", "Use now", "If next wins", "Confirm first"], build_playbook_priority_rows()), unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# IMPACT BOARD (display-only layer; core engine and calculations stay unchanged)
-st.markdown('### Impact Board')
-impact_metric_label = impact_summary.get('impact_label', 'Δ MCap') if impact_summary else 'Δ MCap'
-if impact_summary and impact_summary.get('mode') == 'proxy_equal_weight':
-    impact_metric_label = 'EqW contrib'
-impact_mode_text = 'Real market-cap attribution' if impact_summary.get('mode') == 'market_cap' else ('Proxy mode: equal-weight contribution fallback' if impact_summary.get('mode') == 'proxy_equal_weight' else 'Macro proxy fallback: score-weighted impact')
-i_left, i_mid, i_right = st.columns([1.15, 1.15, 1.1])
-with i_left:
-    st.markdown("<div class='card'><div class='section-title'>Largest Positive Impact</div>", unsafe_allow_html=True)
-    if impact_df.empty:
-        st.info('No impact data available.')
-    else:
-        pos = impact_df.sort_values('ImpactVal', ascending=False).head(show_count)
-        def _impact_fmt(v):
-            return f"{v:+.2f}%" if impact_summary.get('mode') != 'market_cap' else f"{v:+.1f}B"
-        rows = [[r['Ticker'], f"{100*r['DailyRet']:+.2f}%", _impact_fmt(float(r['ImpactVal'])), pct(float(r['Weight']))] for _, r in pos.iterrows()]
-        st.markdown(table_html(['Ticker', '1D', impact_metric_label, 'Weight'], rows), unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-with i_mid:
-    st.markdown("<div class='card'><div class='section-title'>Largest Negative Impact</div>", unsafe_allow_html=True)
-    if impact_df.empty:
-        st.info('No impact data available.')
-    else:
-        neg = impact_df.sort_values('ImpactVal', ascending=True).head(show_count)
-        def _impact_fmt(v):
-            return f"{v:+.2f}%" if impact_summary.get('mode') != 'market_cap' else f"{v:+.1f}B"
-        rows = [[r['Ticker'], f"{100*r['DailyRet']:+.2f}%", _impact_fmt(float(r['ImpactVal'])), pct(float(r['Weight']))] for _, r in neg.iterrows()]
-        st.markdown(table_html(['Ticker', '1D', impact_metric_label, 'Weight'], rows), unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-with i_right:
-    st.markdown("<div class='card'><div class='section-title'>Breadth & Basket Read</div>", unsafe_allow_html=True)
-    if not impact_summary:
-        st.info('No summary available.')
-    else:
-        bag7_text = f"{impact_summary['bag7_impact']:+.2f}%" if impact_summary.get('mode') != 'market_cap' else f"{impact_summary['bag7_impact']:+.1f}B"
-        old_wall_text = f"{impact_summary['old_wall_impact']:+.2f}%" if impact_summary.get('mode') != 'market_cap' else f"{impact_summary['old_wall_impact']:+.1f}B"
-        summary_rows = [
-            ['Impact mode', impact_mode_text],
-            ['Advancers', pct(impact_summary['advancers'])],
-            ['Equal-weight return', f"{100*impact_summary['equal_weight_return']:+.2f}%"],
-            ['Weighted return', f"{impact_summary['cap_weight_return']:+.2f}%"],
-            ['Top-3 impact concentration', pct(impact_summary['concentration'])],
-            ['Bag7 impact', bag7_text],
-            ['Old Wall impact', old_wall_text],
-        ]
-        st.markdown(table_html(['Metric', 'Read'], summary_rows), unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+with t_cross:
+    st.markdown("<div class='card'><div class='section-title'>CROSS-ASSET DIRECTIONAL BIAS</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Panel operasional utama: stage sekarang, strongest vs weakest cross-asset, dan ekspresi FX yang paling simpel.</div>", unsafe_allow_html=True)
+    st.markdown(f"**Current cycle stage ➜ {cur_stage} {core['current_q']}**")
+    st.markdown(f"<div class='small-muted'>{STAGE_GUIDE[core['current_q']][cur_stage][2]}</div>", unsafe_allow_html=True)
+    st.markdown(table_html(["", "Stage", "Usually strong", "Usually weak", "What confirms"], build_cross_asset_stage_table()), unsafe_allow_html=True)
+    st.write("")
+    focus_rows = build_cross_asset_focus_rows()
+    strong_now = ", ".join([r[0] for r in focus_rows[:4]])
+    weak_now = ", ".join([r[0] for r in focus_rows[-4:]])
+    st.markdown(f"**Strongest now ➜ {strong_now}**")
+    st.markdown(f"**Weakest now ➜ {weak_now}**")
+    st.markdown(table_html(["Area", "Bias now", "Use now", "If next wins"], focus_rows), unsafe_allow_html=True)
+    st.write("")
+    st.markdown(f"**FX rank strong → weak ➜ {build_fx_rank_text(fx_score_rows)}**")
+    st.markdown(table_html(["FX", "Bias", "Best use"], build_fx_display_rows(fx_score_rows)), unsafe_allow_html=True)
+    st.write("")
+    st.markdown(table_html(["Best simple FX expression", "Edge", "Read"], build_fx_expressions_table(fx_score_rows)), unsafe_allow_html=True)
+    st.write("")
+    st.markdown(f"<div class='note-box'>{commodity_resource_intro(core)}</div>", unsafe_allow_html=True)
+    st.write("")
+    st.markdown(table_html(["Scope", "Bucket", "What sits here", "State now", "How to use now", "If next wins"], build_commodity_resource_map_rows(core)), unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-if not impact_df.empty:
-    impact_extra_cols = st.columns([1.1, 1.1])
-    with impact_extra_cols[0]:
-        st.markdown("<div class='card'><div class='section-title'>Basket Showdown</div>", unsafe_allow_html=True)
-        st.markdown(table_html(['Basket', 'Names', impact_metric_label, 'Idx contrib', 'Avg 1D', 'Weight'], basket_showdown_rows(impact_df)), unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-    with impact_extra_cols[1]:
-        st.markdown("<div class='card'><div class='section-title'>Merged Correlated Impact</div>", unsafe_allow_html=True)
-        st.markdown(table_html(['Cluster', 'Names', impact_metric_label, 'Avg 1D', 'Weight'], theme_impact_rows(impact_df, US_THEME_TAGS)), unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+with t_risk:
+    st.markdown("<div class='card'><div class='section-title'>RISK / RELATIVE SNAPSHOT</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Relative, participation, risk-on/off, big crash, dan scenario state-now gue kumpulin di sini biar nggak kebanyakan panel kecil.</div>", unsafe_allow_html=True)
+    st.markdown(f"**Current mode ➜ Base case / watch only**")
+    st.markdown(f"**Top risk ➜ {top_state_now}**")
+    st.markdown(f"**Bottom risk ➜ {bottom_state_now}**")
+    st.markdown(f"**Watch window ➜ {crash_watch_window()}**")
+    st.write("")
+    st.markdown(table_html(["Meter", "Now", "How to read"], build_risk_meter_rows(risk_pack)), unsafe_allow_html=True)
+    st.write("")
+    st.markdown(table_html(["Crash architecture", "Placement", "Why it matters"], build_crash_core_rows()), unsafe_allow_html=True)
+    st.write("")
+    st.markdown(table_html(["Lens", "Bias now", "Simple read", "If next wins"], build_relative_compact_rows()), unsafe_allow_html=True)
+    st.write("")
+    st.markdown(table_html(["Risk item", "Now", "How to use"], build_crash_timing_rows(risk_pack['big_crash'])), unsafe_allow_html=True)
+    st.write("")
+    st.markdown(table_html(["Scenario", "State now", "How to use now", "What must improve", "What invalidates"], build_current_scenario_checks()), unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# SIGNAL BOARD
-st.markdown('### Signal Board')
-s_left, s_mid, s_right = st.columns([1.0, 1.0, 1.2])
-with s_left:
-    st.markdown("<div class='card'><div class='section-title'>Risk Meters</div>", unsafe_allow_html=True)
-    risk_rows = [
-        ['Risk-On share', pct(risk_on_share), meter_label(risk_pack['risk_on'])],
-        ['Risk-Off share', pct(risk_off_share), meter_label(risk_pack['risk_off'])],
-        ['Big Crash', pct(risk_pack['big_crash']), crash_meter_label(risk_pack['big_crash'])],
-    ]
-    st.markdown(table_html(['Meter', 'Now', 'State'], risk_rows), unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-with s_mid:
-    st.markdown("<div class='card'><div class='section-title'>Turn Risk</div>", unsafe_allow_html=True)
-    turn_rows = [
-        ['Top risk', ladder_state(core['top_score'], 'top')],
-        ['Bottom risk', ladder_state(core['bottom_score'], 'bottom')],
-        ['Transition pressure', pct(core['transition_pressure'])],
-        ['Fragility', pct(core['fragility'])],
-        ['Breadth', pct(core['breadth'])],
-        ['Stag pressure', pct(core['stag_pressure'])],
-    ]
-    st.markdown(table_html(['Field', 'Read'], turn_rows), unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-with s_right:
-    st.markdown("<div class='card'><div class='section-title'>Execution Posture</div>", unsafe_allow_html=True)
-    posture_rows = [
-        ['Base stance', 'Keep longs selective' if core['current_q'] in ['Q3', 'Q4'] else 'Can press leaders selectively'],
-        ['What confirms', 'breadth improvement, stronger leaders, lower fragility'],
-        ['What invalidates', 'narrow breadth, rising crash meter, weak leader retention'],
-        ['Use impact board for', 'who is actually moving the tape and whether it is broad or narrow'],
-        ['Use ticker score for', 'candidate ranking, not certainty'],
-    ]
-    st.markdown(table_html(['Focus', 'Read'], posture_rows), unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# MERGED TABLES THAT STILL MATTER
-st.markdown('### Merged Playbook + Risk Map')
-m1, m2 = st.columns([1.1, 1.1])
-with m1:
-    st.markdown("<div class='card'><div class='section-title'>Merged Cross-Asset Playbook</div>", unsafe_allow_html=True)
-    def _best_names(df: pd.DataFrame, mode: str) -> str:
-        rows = score_rows_for_display(df, mode, 3)
-        names = [r[0] for r in rows if r and r[0] not in ['No data', 'None']]
-        return ', '.join(names[:3]) if names else '-'
-
-    playbook_rows = [
-        ['US stocks', ', '.join(play_cur['US Stocks']) or '-', ', '.join(play_next['US Stocks']) or '-', _best_names(us_score_df, 'long'), _best_names(us_score_df, 'short')],
-        ['IHSG', ', '.join(play_cur['IHSG']) or '-', ', '.join(play_next['IHSG']) or '-', _best_names(ihsg_score_df, 'long'), _best_names(ihsg_score_df, 'short')],
-        ['Forex', ', '.join(play_cur['Forex']) or '-', ', '.join(play_next['Forex']) or '-', _best_names(fx_score_df, 'long'), _best_names(fx_score_df, 'short')],
-        ['Commodities', ', '.join(play_cur['Futures / Commodities']) or '-', ', '.join(play_next['Futures / Commodities']) or '-', _best_names(commod_score_df, 'long'), _best_names(commod_score_df, 'short')],
-        ['Crypto', ', '.join(play_cur['Crypto']) or '-', ', '.join(play_next['Crypto']) or '-', _best_names(crypto_score_df, 'long'), _best_names(crypto_score_df, 'short')],
-    ]
-    st.markdown(table_html(['Area','Bias now','If next wins','Best ranked now','Avoid now'], playbook_rows), unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-with m2:
-    st.markdown("<div class='card'><div class='section-title'>Merged Risk + Catalyst Map</div>", unsafe_allow_html=True)
-    left_rows = [
-        ['Base stance', 'Stay selective', 'Use ticker score for ranking; jangan treat as certainty'],
-        ['Crash watch', crash_meter_label(risk_pack['big_crash']), 'Watch breadth, leader retention, credit / liquidity proxies'],
-        ['Top / bottom risk', f"{ladder_state(core['top_score'],'top')} / {ladder_state(core['bottom_score'],'bottom')}", 'Separates stretched tape from true washout'],
-        ['Transition pressure', pct(core['transition_pressure']), 'Higher means current quad is less stable'],
-        ['Confirmation', 'breadth improvement + stronger leaders + lower fragility', 'Needed before pressing broad beta'],
-        ['Invalidation', 'narrow breadth + rising crash meter + weak leader retention', 'Means keep sizing smaller and avoid chasing'],
-    ]
-    st.markdown(table_html(['Lens','Read now','How to use'], left_rows), unsafe_allow_html=True)
-    st.write('')
-    st.markdown(table_html(['Bucket','Watch','Why it matters'], [[r[0], r[1], r[3]] for r in build_macro_catalyst_rows(limit=5)]), unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# LONG / SHORT TICKER SCORE (display-only layer; uses existing score outputs)
-st.markdown('### Long / Short Ticker Score')
-market_payloads = [
-    ('US', us_score_df, watch_us_score_df, watchlist_us, us_universe),
-    ('IHSG', ihsg_score_df, watch_ihsg_score_df, watchlist_ihsg, ihsg_universe),
-    ('Forex', fx_score_df, watch_fx_score_df, watchlist_fx, fx_universe),
-    ('Commodities', commod_score_df, watch_commod_score_df, watchlist_commod, commod_universe),
-    ('Crypto', crypto_score_df, watch_crypto_score_df, watchlist_crypto, crypto_universe),
-]
-
-def render_market_panels(label: str, df: pd.DataFrame, watch_score_df: pd.DataFrame, watchlist: List[str]):
-    cols = st.columns(2)
-    with cols[0]:
-        st.markdown(f"<div class='card'><div class='section-title'>Top Long Candidates • {label}</div>", unsafe_allow_html=True)
-        st.markdown(table_html(['Ticker','Bias','Long','Short','Cluster','Comment'], score_rows_for_display(df, 'long', show_count)), unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-    with cols[1]:
-        st.markdown(f"<div class='card'><div class='section-title'>Top Short Candidates • {label}</div>", unsafe_allow_html=True)
-        st.markdown(table_html(['Ticker','Bias','Long','Short','Cluster','Comment'], score_rows_for_display(df, 'short', show_count)), unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-if region_mode == 'All markets':
-    tabs = st.tabs([x[0] for x in market_payloads])
-    for tab, payload in zip(tabs, market_payloads):
-        with tab:
-            render_market_panels(payload[0], payload[1], payload[2], payload[3])
-else:
-    lookup = {x[0]: x for x in market_payloads}
-    payload = lookup[region_mode]
-    render_market_panels(payload[0], payload[1], payload[2], payload[3])
-
-with st.expander('Show supporting tables that still matter', expanded=False):
-    support_tabs = st.tabs([x[0] for x in market_payloads])
-    for tab, (label, df, _watch_score, _watchlist, universe) in zip(support_tabs, market_payloads):
-        with tab:
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown(f"<div class='card'><div class='section-title'>{label} Leadership Diagnostics</div>", unsafe_allow_html=True)
-                st.markdown(table_html(['Ticker','State','Long','Short','Comment'], leadership_mode_rows(df, 'leaders', show_count)), unsafe_allow_html=True)
-                st.write('')
-                st.markdown(table_html(['Ticker','State','Long','Short','Comment'], leadership_mode_rows(df, 'emerging', show_count)), unsafe_allow_html=True)
-                st.write('')
-                st.markdown(table_html(['Ticker','State','Long','Short','Comment'], leadership_mode_rows(df, 'fading', show_count)), unsafe_allow_html=True)
-                st.markdown('</div>', unsafe_allow_html=True)
-            with c2:
-                st.markdown(f"<div class='card'><div class='section-title'>{label} Cluster Summary</div>", unsafe_allow_html=True)
-                st.markdown(table_html(['Cluster','Names','AvgLong','AvgShort','Examples'], cluster_summary_rows(df, show_count)), unsafe_allow_html=True)
-                st.write('')
-                st.markdown(f"<div class='section-title'>Coverage / diagnostics</div>", unsafe_allow_html=True)
-                st.markdown(table_html(['Coverage','Missing examples'], coverage_rows(universe, df)), unsafe_allow_html=True)
-                st.write('')
-                st.markdown(f"<div class='section-title'>Exact Watchlist</div>", unsafe_allow_html=True)
-                st.markdown(table_html(['Ticker','Bias','Long','Short','State','Cluster','Comment'], exact_rows_for_display(_watch_score, _watchlist, max(show_count, len(_watchlist) if _watchlist else show_count))), unsafe_allow_html=True)
-                st.markdown('</div>', unsafe_allow_html=True)
-
-with st.expander('Show merged engine details that still matter', expanded=False):
-    st.markdown("<div class='small-muted'>Read order: 1) Decision snapshot → 2) Cross-asset bias → 3) Risk / relative → 4) Details.</div>", unsafe_allow_html=True)
-    detail_tabs = st.tabs(['1) Decision snapshot','2) Cross-asset bias','3) Risk / relative','4) Details'])
-    with detail_tabs[0]:
-        st.markdown("<div class='card'><div class='section-title'>Decision Snapshot</div>", unsafe_allow_html=True)
-        st.markdown(table_html(['Focus','Read','Why it matters'], build_decision_key_rows()), unsafe_allow_html=True)
-        st.write('')
-        st.markdown(table_html(['Priority','Area','Use now','If next wins','Confirm first'], build_playbook_priority_rows()), unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-    with detail_tabs[1]:
-        st.markdown("<div class='card'><div class='section-title'>Cross-Asset Directional Bias</div>", unsafe_allow_html=True)
-        st.markdown(table_html(['','Stage','Usually strong','Usually weak','What confirms'], build_cross_asset_stage_table()), unsafe_allow_html=True)
-        st.write('')
-        st.markdown(table_html(['Area','Bias now','Use now','If next wins'], build_cross_asset_focus_rows()), unsafe_allow_html=True)
-        st.write('')
-        st.markdown(table_html(['FX','Bias','Best use'], build_fx_display_rows(fx_score_rows)), unsafe_allow_html=True)
-        st.write('')
-        st.markdown(table_html(['Best simple FX expression','Edge','Read'], build_fx_expressions_table(fx_score_rows)), unsafe_allow_html=True)
-        st.write('')
-        st.markdown(table_html(['Scope','Bucket','What sits here','State now','How to use now','If next wins'], build_commodity_resource_map_rows(core)), unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-    with detail_tabs[2]:
-        st.markdown("<div class='card'><div class='section-title'>Risk / Relative Snapshot</div>", unsafe_allow_html=True)
-        st.markdown(table_html(['Meter','Now','How to read'], build_risk_meter_rows(risk_pack)), unsafe_allow_html=True)
-        st.write('')
-        st.markdown(table_html(['Crash architecture','Placement','Why it matters'], build_crash_core_rows()), unsafe_allow_html=True)
-        st.write('')
-        st.markdown(table_html(['Lens','Bias now','Simple read','If next wins'], build_relative_compact_rows()), unsafe_allow_html=True)
-        st.write('')
-        st.markdown(table_html(['Risk item','Now','How to use'], build_crash_timing_rows(risk_pack['big_crash'])), unsafe_allow_html=True)
-        st.write('')
-        st.markdown(table_html(['Scenario','State now','How to use now','What must improve','What invalidates'], build_current_scenario_checks()), unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-    with detail_tabs[3]:
-        st.markdown("<div class='card'><div class='section-title'>Details</div>", unsafe_allow_html=True)
-        st.markdown(table_html(['','Quad','Base read','Usually works','Main crash branch','Base crash risk'], build_quad_scenario_matrix()), unsafe_allow_html=True)
-        st.write('')
-        st.markdown(table_html(['Event','When','In','Why it matters','Likely impact'], build_macro_catalyst_rows()), unsafe_allow_html=True)
-        st.write('')
-        if leaders_status_text() != 'Hidden for now (coverage valid still zero)':
-            st.markdown(f"**Leaders status ➜ {leaders_status_text()}**")
-        st.markdown(f"<div class='small-muted'><b>Core model:</b> {CORE_NAME} • <b>Policy:</b> {core.get('anchor_reason','Model-only')} • <b>Raw model:</b> {core.get('model_current_q', core['current_q'])}</div>", unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-st.markdown("<div class='small-muted'>Correlated names/themes are merged where it improves readability. Ticker scores rank candidates by macro fit + relative strength + trend. They are watchlists, not guarantees. Impact board is an attribution lens, not a certainty machine.</div>", unsafe_allow_html=True)
+with t_details:
+    st.markdown("<div class='card'><div class='section-title'>DETAILS</div>", unsafe_allow_html=True)
+    st.markdown(table_html(["", "Quad", "Base read", "Usually works", "Main crash branch", "Base crash risk"], build_quad_scenario_matrix()), unsafe_allow_html=True)
+    st.write("")
+    st.markdown(table_html(["Event", "When", "In", "Why it matters", "Likely impact"], build_macro_catalyst_rows()), unsafe_allow_html=True)
+    if leaders_status_text() != 'Hidden for now (coverage valid still zero)':
+        st.write("")
+        st.markdown(f"**Leaders status ➜ {leaders_status_text()}**")
+    st.write("")
+    st.markdown(f"<div class='small-muted'><b>Core model:</b> {CORE_NAME} • <b>Policy:</b> {core.get('anchor_reason','Model-only')} • <b>Raw model:</b> {core.get('model_current_q', core['current_q'])}</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
