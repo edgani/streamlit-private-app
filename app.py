@@ -2532,24 +2532,223 @@ def build_index_internals_rows() -> list[list[str]]:
     ]
 
 
-def _impact_rows_from_df(df: pd.DataFrame, market_label: str, n: int = 4) -> tuple[list[list[str]], list[list[str]]]:
+def _market_regime_bucket() -> str:
+    cur = core['current_q']
+    nxt = core['next_q']
+    q2_sub = q2_subtype_label()
+    if cur == 'Q3' and nxt == 'Q2' and q2_sub == 'Healthy early Q2':
+        return 'q3_to_q2_healthy'
+    if cur == 'Q3' and nxt == 'Q2':
+        return 'q3_to_q2_fragile'
+    if cur == 'Q2' and q2_sub == 'Healthy early Q2':
+        return 'q2_healthy'
+    if cur == 'Q2':
+        return 'q2_fragile'
+    return cur.lower()
+
+
+
+def _fallback_stock_candidates(market_label: str, side: str, n: int = 6) -> list[dict[str, str]]:
+    bucket = _market_regime_bucket()
+    state = 'Model long' if side == 'long' else 'Model short'
+
+    if market_label == 'US':
+        mapping = US_THEME_TAGS
+        if bucket in ['q3', 'q3_to_q2_fragile', 'q2_fragile']:
+            long_list = [
+                ('XOM', 'Q3 hedge', 'energy cashflow + inflation hedge'),
+                ('CVX', 'Q3 hedge', 'large-cap energy carry'),
+                ('NEM', 'stag hedge', 'gold / stress hedge'),
+                ('LLY', 'quality', 'defensive growth still holds up'),
+                ('COST', 'quality', 'quality consumption beats weak breadth'),
+                ('WMT', 'quality', 'defensive demand and steadier tape'),
+            ]
+            short_list = [
+                ('SNOW', 'duration beta', 'hurts if yields / USD stay hard'),
+                ('MDB', 'duration beta', 'high-beta software remains fragile'),
+                ('RBLX', 'spec beta', 'needs easier liquidity to repair'),
+                ('SMCI', 'crowded beta', 'good tape required to keep squeeze alive'),
+                ('DDOG', 'duration beta', 'relative pressure in dirty-Q2 / Q3 mix'),
+                ('CRWD', 'rich momentum', 'needs cleaner breadth to re-accelerate'),
+            ]
+        elif bucket in ['q3_to_q2_healthy', 'q2_healthy']:
+            long_list = [
+                ('CAT', 'Q2 broadening', 'cyclical breadth + capex confirmation'),
+                ('ETN', 'Q2 broadening', 'industrial leader if rates stay orderly'),
+                ('PH', 'Q2 broadening', 'quality cyclical with clean RS'),
+                ('GEV', 'reflation', 'power / capex beneficiary'),
+                ('FCX', 'metals watch', 'works if China-demand confirms'),
+                ('AXON', 'high-quality growth', 'beta that is less balance-sheet fragile'),
+            ]
+            short_list = [
+                ('KO', 'underweight defensive', 'usually lags if broad cyclical Q2 takes over'),
+                ('PG', 'underweight defensive', 'relative lag in cleaner reflation tape'),
+                ('PFE', 'weak defensive', 'does not improve just because tape broadens'),
+                ('MRK', 'defensive lag', 'clean Q2 tends to rotate elsewhere first'),
+                ('MCD', 'quality lag', 'less torque than cyclical / industrial winners'),
+                ('WMT', 'relative lag', 'can lag if breadth broadens hard'),
+            ]
+        elif bucket == 'q1':
+            long_list = [
+                ('MSFT', 'Q1 growth', 'quality growth with broad sponsorship'),
+                ('NVDA', 'Q1 growth', 'semis / AI leadership'),
+                ('AVGO', 'Q1 growth', 'AI infra breadth leader'),
+                ('AMZN', 'growth breadth', 'cyclical growth with better demand read'),
+                ('GOOGL', 'growth quality', 'large-cap growth without as much balance-sheet stress'),
+                ('PLTR', 'momentum growth', 'works when growth leadership is real'),
+            ]
+            short_list = [
+                ('KO', 'defensive lag', 'quality defensives often lag Q1 growth'),
+                ('PG', 'defensive lag', 'lower torque than growth leadership'),
+                ('WMT', 'defensive lag', 'less upside beta in growth tape'),
+                ('MCD', 'defensive lag', 'relative laggard if growth broadens'),
+                ('MRK', 'health lag', 'growth tape rotates elsewhere'),
+                ('JNJ', 'health lag', 'less torque in risk-on growth tape'),
+            ]
+        else:  # q4
+            long_list = [
+                ('LLY', 'Q4 quality', 'defensive growth holds up best'),
+                ('ABBV', 'Q4 quality', 'health-care defensiveness'),
+                ('KO', 'Q4 defensive', 'stable consumption'),
+                ('PG', 'Q4 defensive', 'quality defensive cashflow'),
+                ('WMT', 'Q4 defensive', 'balance-sheet + demand resilience'),
+                ('COST', 'Q4 defensive', 'higher-quality retail defensive'),
+            ]
+            short_list = [
+                ('FCX', 'cyclical lag', 'needs better growth, not Q4 slowdown'),
+                ('HAL', 'energy beta', 'weaker if growth scare dominates'),
+                ('VLO', 'energy beta', 'less needed in deeper slowdown'),
+                ('SMCI', 'high beta', 'fragile in growth scare / liquidity stress'),
+                ('RBLX', 'high beta', 'slowdown tape hurts beta first'),
+                ('AA', 'cyclical lag', 'materials struggle in cleaner slowdown'),
+            ]
+    else:
+        mapping = IHSG_THEME_TAGS
+        if bucket in ['q3', 'q3_to_q2_fragile', 'q2_fragile']:
+            long_list = [
+                ('MEDC.JK', 'Q3 hedge', 'energy hedge and local cashflow'),
+                ('AKRA.JK', 'energy/logistics', 'benefits from resource transmission'),
+                ('ADRO.JK', 'cashflow defensive', 'coal cashflow still matters'),
+                ('PTBA.JK', 'cashflow defensive', 'yield / cashflow support'),
+                ('TLKM.JK', 'quality', 'defensive large-cap local proxy'),
+                ('BBCA.JK', 'quality', 'higher-quality local balance sheet'),
+            ]
+            short_list = [
+                ('TRIN.JK', 'property beta', 'needs easier rates / liquidity'),
+                ('TRUE.JK', 'property beta', 'broad-beta sentiment sensitive'),
+                ('ROCK.JK', 'property beta', 'fragile without breadth repair'),
+                ('SMDM.JK', 'property beta', 'late-cycle beta under pressure'),
+                ('WIKA.JK', 'infra beta', 'balance-sheet / funding sensitivity'),
+                ('PTPP.JK', 'infra beta', 'needs cleaner financing backdrop'),
+            ]
+        elif bucket in ['q3_to_q2_healthy', 'q2_healthy']:
+            long_list = [
+                ('BBRI.JK', 'banks / beta', 'domestic beta if breadth broadens'),
+                ('BMRI.JK', 'banks / beta', 'higher torque to cleaner local risk-on'),
+                ('ASII.JK', 'domestic cyclical', 'works if domestic growth expectations lift'),
+                ('JSMR.JK', 'infra / cyclical', 'better if rates stabilize'),
+                ('PWON.JK', 'property watch', 'beta works only in cleaner early-Q2'),
+                ('ANTM.JK', 'metals watch', 'best if China-demand split wins'),
+            ]
+            short_list = [
+                ('TLKM.JK', 'defensive lag', 'can lag if local breadth broadens'),
+                ('ICBP.JK', 'defensive lag', 'clean reflation rotates elsewhere'),
+                ('INDF.JK', 'defensive lag', 'consumer staples lower torque'),
+                ('PTBA.JK', 'yield lag', 'can lag cleaner domestic beta rebound'),
+                ('ADRO.JK', 'yield lag', 'less torque than beta if broadening is real'),
+                ('BBCA.JK', 'quality lag', 'still high quality, but less torque than beta banks'),
+            ]
+        elif bucket == 'q1':
+            long_list = [
+                ('BBCA.JK', 'quality growth', 'clean local quality leadership'),
+                ('TLKM.JK', 'quality growth', 'defensive growth anchor'),
+                ('AMRT.JK', 'consumer quality', 'steady domestic demand'),
+                ('CPIN.JK', 'domestic growth', 'works if local growth improves'),
+                ('ISAT.JK', 'growth beta', 'better if growth leadership broadens'),
+                ('EXCL.JK', 'growth beta', 'same theme with cleaner local tape'),
+            ]
+            short_list = [
+                ('PTBA.JK', 'defensive lag', 'yield names often lag cleaner growth'),
+                ('ADRO.JK', 'defensive lag', 'cashflow fine, but less torque than growth'),
+                ('MEDC.JK', 'inflation hedge lag', 'less needed in clean Q1 growth'),
+                ('AKRA.JK', 'inflation hedge lag', 'resource transmission less important'),
+                ('WINS.JK', 'shipping lag', 'needs stronger commodity transmission'),
+                ('HUMI.JK', 'shipping lag', 'same logic as above'),
+            ]
+        else:  # q4
+            long_list = [
+                ('BBCA.JK', 'Q4 quality', 'cleaner balance-sheet defense'),
+                ('TLKM.JK', 'Q4 defensive', 'defensive liquid large-cap'),
+                ('ICBP.JK', 'Q4 defensive', 'consumer staple defense'),
+                ('INDF.JK', 'Q4 defensive', 'cashflow + defensiveness'),
+                ('AMRT.JK', 'Q4 defensive', 'steady domestic demand'),
+                ('PTBA.JK', 'yield defense', 'cashflow / yield defensive'),
+            ]
+            short_list = [
+                ('PWON.JK', 'beta lag', 'property beta struggles in slowdown'),
+                ('SMRA.JK', 'beta lag', 'property beta needs easier cycle'),
+                ('TRIN.JK', 'beta lag', 'fragile in growth scare'),
+                ('TRUE.JK', 'beta lag', 'same local beta problem'),
+                ('ANTM.JK', 'cyclical lag', 'needs stronger growth demand'),
+                ('MDKA.JK', 'cyclical lag', 'materials struggle in cleaner slowdown'),
+            ]
+
+    selected = long_list if side == 'long' else short_list
+    out: list[dict[str, str]] = []
+    for ticker, edge, read in selected[:n]:
+        out.append({
+            'Ticker': ticker,
+            'Theme': _theme_from_tags(ticker, mapping),
+            'State': state,
+            'Edge': edge,
+            'Read': read,
+            'Source': 'Model fallback',
+        })
+    return out
+
+
+
+def _live_stock_rows(df: pd.DataFrame, mode: str, n: int = 6) -> list[dict[str, str]]:
     if df is None or df.empty:
-        na = [[market_label, 'No data', '-', '-', '-']]
-        return na, na
-    leaders = df.sort_values(['RSScore', 'StartScore', 'Alpha21'], ascending=False).head(n)
-    detractors = df.sort_values(['Alpha21', 'Alpha63', 'RSScore'], ascending=True).head(n)
-    def _to_rows(work: pd.DataFrame) -> list[list[str]]:
+        return []
+    work = df.copy()
+    if mode == 'long':
+        work = work.sort_values(['RSScore', 'StartScore', 'Alpha21'], ascending=False).head(n)
+    else:
+        work = work.sort_values(['Alpha21', 'Alpha63', 'RSScore'], ascending=True).head(n)
+    rows: list[dict[str, str]] = []
+    for _, r in work.iterrows():
+        rows.append({
+            'Ticker': str(r['Ticker']),
+            'Theme': str(r.get('Theme', 'Other')),
+            'State': str(r.get('State', '-')),
+            'Edge': f"{100*float(r.get('Alpha21', 0.0)):+.1f}% vs bench (21d)",
+            'Read': str(r.get('Comment', '-')),
+            'Source': 'Live relative',
+        })
+    return rows
+
+
+
+def _impact_rows_from_df(df: pd.DataFrame, market_label: str, n: int = 4) -> tuple[list[list[str]], list[list[str]]]:
+    live_pos = _live_stock_rows(df, 'long', n)
+    live_neg = _live_stock_rows(df, 'short', n)
+    pos = live_pos if live_pos else _fallback_stock_candidates(market_label, 'long', n)
+    neg = live_neg if live_neg else _fallback_stock_candidates(market_label, 'short', n)
+
+    def _to_rows(work: list[dict[str, str]]) -> list[list[str]]:
         out = []
-        for _, r in work.iterrows():
+        for r in work:
             out.append([
                 market_label,
                 str(r['Ticker']).replace('.JK', ''),
-                str(r.get('Theme', 'Other')),
-                f"{100*float(r.get('Alpha21', 0.0)):+.1f}%",
-                str(r.get('State', '-')),
+                str(r['Theme']),
+                str(r['Read']),
+                str(r['Source']),
             ])
         return out or [[market_label, 'No data', '-', '-', '-']]
-    return _to_rows(leaders), _to_rows(detractors)
+
+    return _to_rows(pos), _to_rows(neg)
 
 
 def build_commodity_resource_rows() -> list[list[str]]:
@@ -2630,22 +2829,17 @@ def build_decision_snapshot_rows() -> list[list[str]]:
     ]
 
 
-def build_ticker_rows_from_df(df: pd.DataFrame, mode: str, n: int = 6) -> list[list[str]]:
-    if df is None or df.empty:
-        return [['No data', '-', '-', '-', '-']]
-    work = df.copy()
-    if mode == 'long':
-        work = work.sort_values(['RSScore', 'StartScore', 'Alpha21'], ascending=False).head(n)
-    else:
-        work = work.sort_values(['Alpha21', 'Alpha63', 'RSScore'], ascending=True).head(n)
+def build_ticker_rows_from_df(df: pd.DataFrame, mode: str, market_label: str = 'US', n: int = 6) -> list[list[str]]:
+    live = _live_stock_rows(df, mode, n)
+    use = live if live else _fallback_stock_candidates(market_label, mode, n)
     rows = []
-    for _, r in work.iterrows():
+    for r in use:
         rows.append([
             str(r['Ticker']).replace('.JK', ''),
-            str(r.get('Theme', 'Other')),
-            str(r.get('State', '-')),
-            f"{100*float(r.get('Alpha21', 0.0)):+.1f}%",
-            str(r.get('Comment', '-')),
+            str(r['Theme']),
+            str(r['State']),
+            str(r['Edge']),
+            str(r['Read']),
         ])
     return rows or [['No data', '-', '-', '-', '-']]
 
@@ -2697,10 +2891,40 @@ def build_fx_short_rows() -> list[list[str]]:
     return rows
 
 
+def _fallback_macro_rank_rows(kind: str, side: str, n: int = 5) -> list[list[str]]:
+    bucket = _market_regime_bucket()
+    if kind == 'commodity':
+        if bucket in ['q3', 'q3_to_q2_fragile', 'q2_fragile']:
+            long_rows = [['WTI', 'Q3 / dirty-Q2 hedge', 'energy / inflation transmission'], ['Gold', 'stag hedge', 'stress / policy hedge'], ['NatGas', 'tight supply beta', 'works if energy pressure persists'], ['Silver', 'mixed reflation', 'needs rates not to explode'], ['Coffee', 'idiosyncratic', 'tactical only']]
+            short_rows = [['Copper', 'needs China-demand', 'avoid if move is only oil shock'], ['Corn', 'weak beta', 'less clean macro edge'], ['Soybeans', 'weak beta', 'same logic as corn'], ['Silver', 'fragile if real yields spike', 'do not treat as pure gold clone'], ['Coffee', 'crowded / noisy', 'keep tactical only']]
+        elif bucket in ['q3_to_q2_healthy', 'q2_healthy']:
+            long_rows = [['Copper', 'healthy Q2 watch', 'best if China-demand and breadth confirm'], ['Silver', 'reflation beta', 'works if real yields behave'], ['WTI', 'cyclical beta', 'fine if growth improves cleanly'], ['Gold', 'still hedge', 'can stay okay but usually lower torque'], ['Coffee', 'idiosyncratic', 'tactical only']]
+            short_rows = [['Gold', 'relative lag', 'clean broadening often rotates elsewhere'], ['Corn', 'low macro edge', 'weaker tactical use'], ['Soybeans', 'low macro edge', 'same logic'], ['NatGas', 'idiosyncratic', 'supply-driven more than macro'], ['Coffee', 'noisy', 'avoid oversized conviction']]
+        elif bucket == 'q1':
+            long_rows = [['Copper', 'growth beta', 'works if growth leadership is real'], ['Silver', 'growth beta', 'better torque than gold in risk-on'], ['WTI', 'growth beta', 'needs demand confirmation'], ['Gold', 'tail hedge', 'not top torque, but still useful hedge'], ['Coffee', 'idiosyncratic', 'tactical only']]
+            short_rows = [['Gold', 'relative lag', 'usually lags cleaner growth tape'], ['Corn', 'low macro edge', 'less clean expression'], ['Soybeans', 'low macro edge', 'same logic'], ['NatGas', 'idiosyncratic', 'supply-driven'], ['Coffee', 'noisy', 'tactical only']]
+        else:
+            long_rows = [['Gold', 'Q4 defense', 'slowdown / stress hedge'], ['Silver', 'hedge with beta', 'works if not too industrial-heavy'], ['Corn', 'defensive commodity', 'lower beta than metals'], ['Soybeans', 'defensive commodity', 'same logic'], ['Coffee', 'idiosyncratic', 'tactical only']]
+            short_rows = [['Copper', 'cyclical lag', 'needs stronger growth not Q4 slowdown'], ['WTI', 'cyclical lag', 'energy beta fades if slowdown dominates'], ['NatGas', 'noisy beta', 'avoid macro overconfidence'], ['Silver', 'industrial drag', 'can underperform gold in deeper slowdown'], ['Coffee', 'noisy', 'tactical only']]
+        use = long_rows if side == 'long' else short_rows
+        return use[:n]
+
+    if bucket in ['q3', 'q3_to_q2_fragile', 'q2_fragile', 'q4']:
+        long_rows = [['BTC', 'relative survivor', 'higher-quality crypto beta'], ['ETH', 'core beta only', 'needs liquidity but still better than tail alts'], ['LINK', 'selective', 'use only tactically'], ['XRP', 'event-driven', 'not pure macro beta'], ['SOL', 'higher beta only', 'do not oversize in fragile tape']]
+        short_rows = [['ADA', 'tail beta', 'weaker when liquidity tightens'], ['AVAX', 'tail beta', 'needs broad risk-on to repair'], ['SOL', 'high beta', 'hurts if tape stays fragile'], ['XRP', 'mixed', 'less clean macro read'], ['LINK', 'mixed', 'beta still fragile in stress tape']]
+    else:
+        long_rows = [['SOL', 'clean beta', 'best torque if liquidity + breadth confirm'], ['ETH', 'core beta', 'works if broad crypto beta improves'], ['BTC', 'anchor', 'less torque but cleaner base'], ['LINK', 'beta extension', 'works only with better breadth'], ['AVAX', 'high beta', 'needs clean risk-on confirmation']]
+        short_rows = [['BTC', 'relative lag', 'can lag cleaner alt beta in strong risk-on'], ['XRP', 'mixed', 'less clean macro-beta expression'], ['ADA', 'weak beta', 'still lower-quality beta'], ['LINK', 'fragile if breadth fails', 'do not force if tape is messy'], ['AVAX', 'fragile if breadth fails', 'same logic']]
+    use = long_rows if side == 'long' else short_rows
+    return use[:n]
+
+
+
 def build_rank_rows(universe: dict[str, str], benchmark_ticker: str | None = None, side: str = 'long', n: int = 5) -> list[list[str]]:
     ranked = rank_simple_universe(universe, benchmark_ticker=benchmark_ticker)
     if not ranked:
-        return [['No data', '-', '-']]
+        kind = 'commodity' if universe is COMMODITY_TICKERS else 'crypto'
+        return _fallback_macro_rank_rows(kind, side, n)
     ordered = ranked[:n] if side == 'long' else list(reversed(ranked[-n:]))
     rows = []
     for label, score, comment in ordered:
@@ -2760,118 +2984,147 @@ t_decision, t_cross, t_risk, t_commodity, t_details = st.tabs(["Decision Snapsho
 
 with t_decision:
     st.markdown("<div class='card'><div class='section-title'>DECISION SNAPSHOT</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Panel inti: now, if next wins, variant sekarang, global state, confirms, invalidates, dan catalyst yang paling penting.</div>", unsafe_allow_html=True)
-    st.markdown(table_html(["Focus", "Read", "Why it matters"], build_decision_snapshot_rows()), unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Panel inti dibikin lebih ringkas: snapshot utama di kiri, scenario check di kanan, playbook detail di bawah.</div>", unsafe_allow_html=True)
+    dc1, dc2 = st.columns([1.15, 0.85])
+    with dc1:
+        st.markdown(table_html(["Focus", "Read", "Why it matters"], build_decision_snapshot_rows()), unsafe_allow_html=True)
+    with dc2:
+        st.markdown(table_html(["Scenario", "Now", "Use now", "What must improve", "What invalidates"], build_current_scenario_checks()), unsafe_allow_html=True)
     st.write("")
-    st.markdown(table_html(["Priority", "Area", "Use now", "If next wins", "Confirm first"], build_playbook_priority_rows()), unsafe_allow_html=True)
-    st.write("")
-    st.markdown(table_html(["Scenario", "Now", "Use now", "What must improve", "What invalidates"], build_current_scenario_checks()), unsafe_allow_html=True)
+    with st.expander("Playbook priorities", expanded=True):
+        st.markdown(table_html(["Priority", "Area", "Use now", "If next wins", "Confirm first"], build_playbook_priority_rows()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_cross:
     st.markdown("<div class='card'><div class='section-title'>CROSS-ASSET DIRECTIONAL BIAS</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Panel operasional utama: strongest vs weakest, FX rank, dan ticker long/short yang dipisah per asset class.</div>", unsafe_allow_html=True)
-    st.markdown(f"**Stage now ➜ {cur_stage} {core['current_q']}**")
-    st.markdown(f"<div class='small-muted'>{STAGE_GUIDE[core['current_q']][cur_stage][2]}</div>", unsafe_allow_html=True)
-    st.markdown(table_html(["", "Stage", "Usually strong", "Usually weak", "What confirms"], build_cross_asset_stage_table()), unsafe_allow_html=True)
-    st.write("")
+    st.markdown("<div class='mini-caption'>Yang operasional digabung: stage, strongest / weakest, FX, lalu ticker long/short. Ticker board sekarang tidak dibiarkan kosong; kalau live coverage drop dia pindah ke model fallback.</div>", unsafe_allow_html=True)
     focus_rows = build_cross_asset_focus_rows()
     strong_now = ", ".join([r[0] for r in focus_rows[:4]])
     weak_now = ", ".join([r[0] for r in focus_rows[-4:]])
-    st.markdown(f"**Strongest now ➜ {strong_now}**")
-    st.markdown(f"**Weakest now ➜ {weak_now}**")
-    st.markdown(table_html(["Area", "Bias now", "Use now", "If next wins"], focus_rows), unsafe_allow_html=True)
+
+    cx1, cx2 = st.columns([0.9, 1.1])
+    with cx1:
+        st.markdown(f"<div class='note-box'><b>Stage now</b><br>{cur_stage} {core['current_q']}<br><span class='small-muted'>{STAGE_GUIDE[core['current_q']][cur_stage][2]}</span></div>", unsafe_allow_html=True)
+        st.write("")
+        st.markdown(f"<div class='note-box'><b>Strongest now</b><br>{strong_now}<br><br><b>Weakest now</b><br>{weak_now}</div>", unsafe_allow_html=True)
+        st.write("")
+        st.markdown(f"<div class='note-box'><b>FX rank strong → weak</b><br>{build_fx_rank_text(fx_score_rows)}</div>", unsafe_allow_html=True)
+    with cx2:
+        st.markdown(table_html(["Area", "Bias now", "Use now", "If next wins"], focus_rows), unsafe_allow_html=True)
+
     st.write("")
-    st.markdown(f"**FX rank strong → weak ➜ {build_fx_rank_text(fx_score_rows)}**")
-    st.markdown(table_html(["FX", "Bias", "Best use"], build_fx_display_rows(fx_score_rows)), unsafe_allow_html=True)
+    fx1, fx2 = st.columns(2)
+    with fx1:
+        st.markdown("**FX board**")
+        st.markdown(table_html(["FX", "Bias", "Best use"], build_fx_display_rows(fx_score_rows)), unsafe_allow_html=True)
+    with fx2:
+        st.markdown("**Best simple FX expression**")
+        st.markdown(table_html(["Pair / expression", "Edge", "Read"], build_fx_expressions_table(fx_score_rows)), unsafe_allow_html=True)
+
     st.write("")
-    st.markdown(table_html(["Best simple FX expression", "Edge", "Read"], build_fx_expressions_table(fx_score_rows)), unsafe_allow_html=True)
-    st.write("")
-    with st.expander("Ticker board — separated long / short", expanded=False):
-        tx_us, tx_ihsg, tx_fx, tx_cmdty, tx_crypto = st.tabs(["US Stocks", "IHSG", "Forex", "Commodities", "Crypto"])
-        with tx_us:
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("**Long US stocks**")
-                st.markdown(table_html(["Ticker", "Theme", "State", "21d alpha", "Read"], build_ticker_rows_from_df(us_leaders_df, 'long')), unsafe_allow_html=True)
-            with c2:
-                st.markdown("**Short US stocks**")
-                st.markdown(table_html(["Ticker", "Theme", "State", "21d alpha", "Read"], build_ticker_rows_from_df(us_leaders_df, 'short')), unsafe_allow_html=True)
-        with tx_ihsg:
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("**Long IHSG**")
-                st.markdown(table_html(["Ticker", "Theme", "State", "21d alpha", "Read"], build_ticker_rows_from_df(ihsg_leaders_df, 'long')), unsafe_allow_html=True)
-            with c2:
-                st.markdown("**Short IHSG**")
-                st.markdown(table_html(["Ticker", "Theme", "State", "21d alpha", "Read"], build_ticker_rows_from_df(ihsg_leaders_df, 'short')), unsafe_allow_html=True)
-        with tx_fx:
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("**Long FX legs**")
-                st.markdown(table_html(["FX", "Score", "Use"], build_fx_long_rows()), unsafe_allow_html=True)
-            with c2:
-                st.markdown("**Short FX legs**")
-                st.markdown(table_html(["FX", "Score", "Use"], build_fx_short_rows()), unsafe_allow_html=True)
-        with tx_cmdty:
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("**Long commodities**")
-                st.markdown(table_html(["Ticker", "Score", "Read"], build_rank_rows(COMMODITY_TICKERS, benchmark_ticker='DBC', side='long')), unsafe_allow_html=True)
-            with c2:
-                st.markdown("**Short commodities**")
-                st.markdown(table_html(["Ticker", "Score", "Read"], build_rank_rows(COMMODITY_TICKERS, benchmark_ticker='DBC', side='short')), unsafe_allow_html=True)
-        with tx_crypto:
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("**Long crypto**")
-                st.markdown(table_html(["Ticker", "Score", "Read"], build_rank_rows(CRYPTO_TICKERS, benchmark_ticker='BTC-USD', side='long')), unsafe_allow_html=True)
-            with c2:
-                st.markdown("**Short crypto**")
-                st.markdown(table_html(["Ticker", "Score", "Read"], build_rank_rows(CRYPTO_TICKERS, benchmark_ticker='BTC-USD', side='short')), unsafe_allow_html=True)
+    st.markdown(f"<div class='small-muted'>Ticker board source → {leaders_status_text()}. Kalau live benchmark-relative coverage kosong, panel pakai model fallback by regime supaya tidak blank.</div>", unsafe_allow_html=True)
+    tx_us, tx_ihsg, tx_fx, tx_cmdty, tx_crypto = st.tabs(["US Stocks", "IHSG", "Forex", "Commodities", "Crypto"])
+    with tx_us:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**Long US stocks**")
+            st.markdown(table_html(["Ticker", "Theme", "State", "Edge", "Read"], build_ticker_rows_from_df(us_leaders_df, 'long', market_label='US')), unsafe_allow_html=True)
+        with c2:
+            st.markdown("**Short US stocks**")
+            st.markdown(table_html(["Ticker", "Theme", "State", "Edge", "Read"], build_ticker_rows_from_df(us_leaders_df, 'short', market_label='US')), unsafe_allow_html=True)
+    with tx_ihsg:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**Long IHSG**")
+            st.markdown(table_html(["Ticker", "Theme", "State", "Edge", "Read"], build_ticker_rows_from_df(ihsg_leaders_df, 'long', market_label='IHSG')), unsafe_allow_html=True)
+        with c2:
+            st.markdown("**Short IHSG**")
+            st.markdown(table_html(["Ticker", "Theme", "State", "Edge", "Read"], build_ticker_rows_from_df(ihsg_leaders_df, 'short', market_label='IHSG')), unsafe_allow_html=True)
+    with tx_fx:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**Long FX legs**")
+            st.markdown(table_html(["FX", "Score", "Use"], build_fx_long_rows()), unsafe_allow_html=True)
+        with c2:
+            st.markdown("**Short FX legs**")
+            st.markdown(table_html(["FX", "Score", "Use"], build_fx_short_rows()), unsafe_allow_html=True)
+    with tx_cmdty:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**Long commodities**")
+            st.markdown(table_html(["Ticker", "Edge", "Read"], build_rank_rows(COMMODITY_TICKERS, benchmark_ticker='DBC', side='long')), unsafe_allow_html=True)
+        with c2:
+            st.markdown("**Short commodities**")
+            st.markdown(table_html(["Ticker", "Edge", "Read"], build_rank_rows(COMMODITY_TICKERS, benchmark_ticker='DBC', side='short')), unsafe_allow_html=True)
+    with tx_crypto:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**Long crypto**")
+            st.markdown(table_html(["Ticker", "Edge", "Read"], build_rank_rows(CRYPTO_TICKERS, benchmark_ticker='BTC-USD', side='long')), unsafe_allow_html=True)
+        with c2:
+            st.markdown("**Short crypto**")
+            st.markdown(table_html(["Ticker", "Edge", "Read"], build_rank_rows(CRYPTO_TICKERS, benchmark_ticker='BTC-USD', side='short')), unsafe_allow_html=True)
+
+    with st.expander("Stage map / what usually leads-lags", expanded=False):
+        st.markdown(table_html(["", "Stage", "Usually strong", "Usually weak", "What confirms"], build_cross_asset_stage_table()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_risk:
     st.markdown("<div class='card'><div class='section-title'>RISK / RELATIVE STACK</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Yang berkorelasi dikumpulin di sini: liquidity / rates / stress engine, leadership quality / index internals, dan scenario state-now.</div>", unsafe_allow_html=True)
-    st.markdown("**Liquidity / Rates / Stress Engine**")
-    st.markdown(table_html(["Engine", "Now", "Read", "Why it matters"], [
-        ['Risk-On meter', pct(risk_on_now), exposure_posture(core['confidence'], core['fragility']), 'Use for sizing; not a blind beta switch.'],
-        ['Risk-Off meter', pct(risk_off_now), crash_meter_label(risk_off_now), 'Composite of stress, fragility, and breadth damage.'],
-        ['Big Crash meter', pct(crash_now), crash_meter_label(crash_now), 'Accident probability, not exact timing.'],
-        ['P(QE)', pct(qe_prob), 'Policy rescue odds', 'Higher = easing / rescue tail more relevant.'],
-        ['P(Neutral)', pct(neutral_prob), 'Wait / mixed', 'No strong policy edge yet.'],
-        ['P(QT)', pct(qt_prob), 'Tighter stance odds', 'Higher = inflation / rates pressure still dominates.'],
-    ]), unsafe_allow_html=True)
-    st.markdown(f"<div class='small-muted'>{policy_note}</div>", unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Yang benar-benar berkorelasi ditaruh berdampingan: liquidity / rates / crash di atas, leadership internals dan relative cross-check di bawah.</div>", unsafe_allow_html=True)
+    rc1, rc2 = st.columns(2)
+    with rc1:
+        st.markdown("**Liquidity / Rates / Stress Engine**")
+        st.markdown(table_html(["Engine", "Now", "Read", "Why it matters"], [
+            ['Risk-On meter', pct(risk_on_now), exposure_posture(core['confidence'], core['fragility']), 'Use for sizing; not a blind beta switch.'],
+            ['Risk-Off meter', pct(risk_off_now), crash_meter_label(risk_off_now), 'Composite of stress, fragility, and breadth damage.'],
+            ['Big Crash meter', pct(crash_now), crash_meter_label(crash_now), 'Accident probability, not exact timing.'],
+            ['P(QE)', pct(qe_prob), 'Policy rescue odds', 'Higher = easing / rescue tail more relevant.'],
+            ['P(Neutral)', pct(neutral_prob), 'Wait / mixed', 'No strong policy edge yet.'],
+            ['P(QT)', pct(qt_prob), 'Tighter stance odds', 'Higher = inflation / rates pressure still dominates.'],
+        ]), unsafe_allow_html=True)
+        st.markdown(f"<div class='small-muted'>{policy_note}</div>", unsafe_allow_html=True)
+        st.write("")
+        st.markdown(table_html(["Rate block", "Now", "1m delta", "What it means"], build_yield_rows()), unsafe_allow_html=True)
+    with rc2:
+        st.markdown("**Crash architecture / branch state**")
+        st.markdown(table_html(["Crash architecture", "Now", "State", "How to use"], build_crash_architecture_rows()), unsafe_allow_html=True)
+        st.write("")
+        st.markdown(table_html(["Scenario", "State now", "How to use now", "What invalidates"], build_extra_risk_branch_rows()), unsafe_allow_html=True)
+
     st.write("")
-    st.markdown(table_html(["Rate block", "Now", "1m delta", "What it means"], build_yield_rows()), unsafe_allow_html=True)
-    st.write("")
-    st.markdown(table_html(["Crash architecture", "Now", "State", "How to use"], build_crash_architecture_rows()), unsafe_allow_html=True)
-    st.write("")
-    st.markdown("**Leadership Quality / Index Internals**")
-    st.markdown(table_html(["Internal", "Now", "Read", "How to use"], build_index_internals_rows()), unsafe_allow_html=True)
-    with st.expander("Impact board detail", expanded=False):
-        us_pos, us_neg = _impact_rows_from_df(us_leaders_df, 'US')
-        ih_pos, ih_neg = _impact_rows_from_df(ihsg_leaders_df, 'IHSG')
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("**Top contributors**")
-            st.markdown(table_html(["Mkt", "Ticker", "Theme", "21d alpha", "State"], us_pos + ih_pos), unsafe_allow_html=True)
-        with c2:
-            st.markdown("**Top detractors**")
-            st.markdown(table_html(["Mkt", "Ticker", "Theme", "21d alpha", "State"], us_neg + ih_neg), unsafe_allow_html=True)
-    st.write("")
-    st.markdown("**Scenario state-now**")
-    st.markdown(table_html(["Scenario", "State now", "How to use now", "What invalidates"], build_extra_risk_branch_rows()), unsafe_allow_html=True)
-    st.write("")
-    st.markdown(table_html(["Lens", "Bias now", "Simple read", "If next wins"], build_relative_compact_rows()), unsafe_allow_html=True)
+    rc3, rc4 = st.columns(2)
+    with rc3:
+        st.markdown("**Leadership Quality / Index Internals**")
+        st.markdown(table_html(["Internal", "Now", "Read", "How to use"], build_index_internals_rows()), unsafe_allow_html=True)
+        with st.expander("Impact board / contributors vs detractors", expanded=False):
+            us_pos, us_neg = _impact_rows_from_df(us_leaders_df, 'US')
+            ih_pos, ih_neg = _impact_rows_from_df(ihsg_leaders_df, 'IHSG')
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("**Top contributors**")
+                st.markdown(table_html(["Mkt", "Ticker", "Theme", "Driver", "Source"], us_pos + ih_pos), unsafe_allow_html=True)
+            with c2:
+                st.markdown("**Top detractors**")
+                st.markdown(table_html(["Mkt", "Ticker", "Theme", "Driver", "Source"], us_neg + ih_neg), unsafe_allow_html=True)
+    with rc4:
+        st.markdown("**Relative cross-check**")
+        st.markdown(table_html(["Lens", "Bias now", "Simple read", "If next wins"], build_relative_compact_rows()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_commodity:
     st.markdown("<div class='card'><div class='section-title'>COMMODITY & RESOURCE LEADERSHIP MAP</div>", unsafe_allow_html=True)
-    st.markdown("<div class='mini-caption'>Global + IHSG resource buckets digabung jadi satu transmission map: state now, how to use now, dan if next wins.</div>", unsafe_allow_html=True)
-    st.markdown(table_html(["Scope", "Bucket", "State now", "How to use now", "If next wins"], build_commodity_resource_rows()), unsafe_allow_html=True)
+    st.markdown("<div class='mini-caption'>Tabel dipecah jadi Global vs IHSG supaya lebih cepat dibaca, tapi logikanya tetap satu transmission map.</div>", unsafe_allow_html=True)
+    commodity_rows = build_commodity_resource_rows()
+    global_rows = [r[1:] for r in commodity_rows if r[0] == 'Global']
+    ihsg_rows = [r[1:] for r in commodity_rows if r[0] == 'IHSG']
+    cm1, cm2 = st.columns(2)
+    with cm1:
+        st.markdown("**Global resource map**")
+        st.markdown(table_html(["Bucket", "State now", "How to use now", "If next wins"], global_rows), unsafe_allow_html=True)
+    with cm2:
+        st.markdown("**IHSG resource map**")
+        st.markdown(table_html(["Bucket", "State now", "How to use now", "If next wins"], ihsg_rows), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_details:
