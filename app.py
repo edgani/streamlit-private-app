@@ -2345,6 +2345,8 @@ else:
     action_sub = 'Tactical only sampai confirmation membaik.'
 
 next_read = f"{core['next_q']}"
+risk_pack = compute_riskoff_and_crash()
+risk_on = compute_riskon_meter(risk_pack)
 if core['current_q'] == 'Q3' and core['next_q'] == 'Q2':
     next_sub = 'Early Q2 if breadth + small caps + USD cooling confirm'
 elif core['next_q'] == core['current_q']:
@@ -2352,16 +2354,16 @@ elif core['next_q'] == core['current_q']:
 else:
     next_sub = f"Most likely path from {core['current_q']}"
 
-hero_cols = st.columns(6)
-hero_items = [
+hero_cols1 = st.columns(6)
+hero_items1 = [
     ("Decision Regime", core['current_q'], pill_html(f"{cur_stage} {core['current_q']}") if cur_stage else pill_html(core['current_q'])),
     ("Confidence", pct(core['confidence']), pill_html(f"Agreement {pct(core['agreement'])}")),
     ("Variant Now", variant_now, pill_html(core['sub_phase'])),
     ("Next Most Likely", next_read, pill_html(next_sub)),
-    ("Crash Meter", pct(crash_now), pill_html(crash_meter_label(crash_now))),
     ("Action Bias", action_bias, pill_html(action_sub)),
+    ("Playbook", current_playbook(), pill_html(f"Conviction {pct(core['confidence'])}")),
 ]
-for col, (title, value, sub_html) in zip(hero_cols, hero_items):
+for col, (title, value, sub_html) in zip(hero_cols1, hero_items1):
     with col:
         st.markdown(f"""
         <div class='hero-card'>
@@ -2371,10 +2373,32 @@ for col, (title, value, sub_html) in zip(hero_cols, hero_items):
         </div>
         """, unsafe_allow_html=True)
 
+hero_cols2 = st.columns(3)
+hero_items2 = [
+    ("Risk-On", pct(risk_on), pill_html(risk_on_label(risk_on))),
+    ("Risk-Off", pct(risk_pack['riskoff']), pill_html(meter_label(risk_pack['riskoff']))),
+    ("Big Crash", pct(risk_pack['crash']), pill_html(meter_label(risk_pack['crash']))),
+]
+for col, (title, value, sub_html) in zip(hero_cols2, hero_items2):
+    with col:
+        st.markdown(f"""
+        <div class='hero-card'>
+          <div class='metric-title'>{title}</div>
+          <div style='font-size:1.2rem;font-weight:800'>{value}</div>
+          <div class='metric-sub'>{sub_html}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+st.markdown(
+    f"<div class='small-muted'><b>Risk-On:</b> breadth + small caps + vol calm + credit okay. <b>Risk-Off:</b> de-risking / correction risk. <b>Big Crash:</b> needs Russell + breadth + vol + credit confirmation.</div>",
+    unsafe_allow_html=True,
+)
+
 quick_read = (
     f"Quick read: Sekarang {cur_stage} {core['current_q']} / {variant_now}. "
     f"Base case masih {core['current_q']}, tapi kalau transition lanjut jalur paling mungkin adalah {core['next_q']}. "
-    f"Action bias sekarang: {action_bias}; {action_sub}"
+    f"Action bias sekarang: {action_bias}; {action_sub}. "
+    f"Risk-On {pct(risk_on)}, Risk-Off {pct(risk_pack['riskoff'])}, Big Crash {pct(risk_pack['crash'])}."
 )
 st.markdown(f"<div class='note-box'><b>{quick_read}</b></div>", unsafe_allow_html=True)
 
@@ -2496,6 +2520,42 @@ def compute_riskoff_and_crash() -> Dict[str, float]:
         'trend': trend_block, 'macro': macro_block, 'sentiment': sentiment_block
     }
 
+def compute_riskon_meter(risk_pack: Dict[str, float]) -> float:
+    broad_participation = clamp01(core['breadth'])
+    small_caps_ok = clamp01(1.0 - risk_pack['russell'])
+    vol_calm = clamp01(1.0 - risk_pack['vol'])
+    credit_ok = clamp01(1.0 - risk_pack['credit'])
+    trend_ok = clamp01(1.0 - risk_pack['trend'])
+    macro_ok = clamp01(1.0 - risk_pack['macro'])
+    sentiment_ok = clamp01(1.0 - risk_pack['sentiment'])
+    score = (
+        0.22 * broad_participation +
+        0.18 * small_caps_ok +
+        0.16 * vol_calm +
+        0.14 * credit_ok +
+        0.12 * trend_ok +
+        0.10 * macro_ok +
+        0.08 * sentiment_ok
+    )
+    if core['current_q'] in ['Q1', 'Q2']:
+        score += 0.05
+    elif core['current_q'] in ['Q3', 'Q4']:
+        score -= 0.05
+    if core['current_q'] == 'Q3' and core['next_q'] == 'Q2':
+        score += 0.04 * broad_participation + 0.03 * small_caps_ok
+    return clamp01(score)
+
+def risk_on_label(x: float) -> str:
+    if x >= 0.80:
+        return 'Strong'
+    if x >= 0.65:
+        return 'Usable'
+    if x >= 0.45:
+        return 'Mixed'
+    if x >= 0.25:
+        return 'Weak'
+    return 'Low'
+
 def meter_label(x: float) -> str:
     if x >= 0.85: return 'Extreme'
     if x >= 0.70: return 'Severe'
@@ -2525,8 +2585,9 @@ def build_commodity_resource_map_rows() -> List[List[str]]:
         ['IHSG', 'IHSG shipping', 'HUMI, GTSI, WINS, TMAS / route-rate stories', 'Selective', 'Use only where route/rate story is clear; do not assume all shipping wins.', 'If Q2 wins, trade-sensitive shipping can broaden.'],
     ]
 
-def build_meter_breakdown_rows(risk_pack: Dict[str, float]) -> List[List[str]]:
+def build_meter_breakdown_rows(risk_pack: Dict[str, float], risk_on: float) -> List[List[str]]:
     return [
+        ['Risk-On meter', f"{pct(risk_on)} ({risk_on_label(risk_on)})", 'Broadening participation / cleaner beta / healthier risk-taking'],
         ['Risk-Off meter', f"{pct(risk_pack['riskoff'])} ({meter_label(risk_pack['riskoff'])})", 'De-risking / correction / volatility spike risk'],
         ['Big Crash meter', f"{pct(risk_pack['crash'])} ({meter_label(risk_pack['crash'])})", 'Cascading selloff / regime-break risk'],
         ['Core crash gate', f"{risk_pack['core_confirm']}/4 blocks", 'Need 3 of 4 core blocks (Russell / Breadth / Vol / Credit) for cleaner crash confirmation'],
@@ -2578,17 +2639,17 @@ with t_cross:
 with t_risk:
     st.markdown("<div class='card'><div class='section-title'>RISK / RELATIVE SNAPSHOT</div>", unsafe_allow_html=True)
     st.markdown("<div class='mini-caption'>Relative, participation, shock overlay, crash meter, dan scenario state-now gue kumpulin di sini biar nggak kebanyakan panel kecil.</div>", unsafe_allow_html=True)
-    risk_pack = compute_riskoff_and_crash()
     st.markdown(f"**Current mode ➜ Base case / watch only**")
     st.markdown(f"**Top risk ➜ {top_state_now}**")
     st.markdown(f"**Bottom risk ➜ {bottom_state_now}**")
+    st.markdown(f"**Risk-On meter ➜ {pct(risk_on)} ({risk_on_label(risk_on)})**")
     st.markdown(f"**Risk-Off meter ➜ {pct(risk_pack['riskoff'])} ({meter_label(risk_pack['riskoff'])})**")
     st.markdown(f"**Big Crash meter ➜ {pct(risk_pack['crash'])} ({meter_label(risk_pack['crash'])})**")
     st.markdown(f"**Watch window ➜ {crash_watch_window()}**")
     st.write("")
     st.markdown(table_html(["Lens", "Bias now", "Simple read", "If next wins"], build_relative_compact_rows()), unsafe_allow_html=True)
     st.write("")
-    st.markdown(table_html(["Crash / Risk item", "Now", "How to use"], build_meter_breakdown_rows(risk_pack)), unsafe_allow_html=True)
+    st.markdown(table_html(["Crash / Risk item", "Now", "How to use"], build_meter_breakdown_rows(risk_pack, risk_on)), unsafe_allow_html=True)
     st.write("")
     st.markdown(table_html(["Scenario", "State now", "How to use now", "What must improve", "What invalidates"], build_current_scenario_checks()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
