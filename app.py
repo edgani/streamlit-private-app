@@ -1187,6 +1187,97 @@ def macro_bucket_for_ticker(ticker: str, theme: str, region: str) -> str:
     return "US cyclicals"
 
 
+def quad_fit_score(bucket_name: str, engine: Dict[str, object]) -> float:
+    """Map a ticker macro bucket to a regime-fit score in [0, 1].
+
+    This is intentionally dashboard-facing and coarse: it converts the hidden
+    quad engine into tradeable family preferences without exposing raw internals.
+    Higher means the current/near-next regime is supportive for longs.
+    """
+    current_q = str(engine.get("current_q", "Q3"))
+    next_q = str(engine.get("next_q", current_q))
+    transition_prob = float(engine.get("transition_prob", 0.0))
+    variant = str(transition_variant(engine)) if isinstance(engine, dict) else "Base path"
+
+    fit_map = {
+        "Q1": {
+            "Gold / miners": 0.42,
+            "Oil / energy": 0.40,
+            "US defensives": 0.50,
+            "US cyclicals": 0.72,
+            "US small caps": 0.86,
+            "IHSG cyclicals": 0.72,
+            "EM equities": 0.66,
+            "USD": 0.28,
+            "Duration / bonds": 0.70,
+            "BTC / crypto beta": 0.82,
+        },
+        "Q2": {
+            "Gold / miners": 0.38,
+            "Oil / energy": 0.78,
+            "US defensives": 0.34,
+            "US cyclicals": 0.84,
+            "US small caps": 0.90,
+            "IHSG cyclicals": 0.80,
+            "EM equities": 0.76,
+            "USD": 0.40,
+            "Duration / bonds": 0.18,
+            "BTC / crypto beta": 0.76,
+        },
+        "Q3": {
+            "Gold / miners": 0.92,
+            "Oil / energy": 0.68,
+            "US defensives": 0.80,
+            "US cyclicals": 0.26,
+            "US small caps": 0.18,
+            "IHSG cyclicals": 0.28,
+            "EM equities": 0.36,
+            "USD": 0.84,
+            "Duration / bonds": 0.42,
+            "BTC / crypto beta": 0.24,
+        },
+        "Q4": {
+            "Gold / miners": 0.56,
+            "Oil / energy": 0.22,
+            "US defensives": 0.72,
+            "US cyclicals": 0.16,
+            "US small caps": 0.12,
+            "IHSG cyclicals": 0.18,
+            "EM equities": 0.24,
+            "USD": 0.76,
+            "Duration / bonds": 0.94,
+            "BTC / crypto beta": 0.14,
+        },
+    }
+
+    current_fit = fit_map.get(current_q, {}).get(bucket_name, 0.50)
+    next_fit = fit_map.get(next_q, {}).get(bucket_name, current_fit)
+    blend_w = clamp01(0.18 + 0.55 * transition_prob)
+    score = (1.0 - blend_w) * current_fit + blend_w * next_fit
+
+    # Variant nudges for the transition path the dashboard is already surfacing.
+    if variant == "Bad reflation":
+        if bucket_name in {"US cyclicals", "US small caps", "IHSG cyclicals", "EM equities", "BTC / crypto beta"}:
+            score -= 0.10
+        if bucket_name in {"Gold / miners", "US defensives", "USD"}:
+            score += 0.05
+    elif variant in {"Good reflation", "Healthy Q2"}:
+        if bucket_name in {"US cyclicals", "US small caps", "IHSG cyclicals", "EM equities", "BTC / crypto beta", "Oil / energy"}:
+            score += 0.05
+        if bucket_name in {"USD", "Duration / bonds"}:
+            score -= 0.04
+    elif variant == "True bottoming":
+        if bucket_name in {"US small caps", "US cyclicals", "EM equities", "BTC / crypto beta"}:
+            score += 0.04
+    elif variant in {"False dawn", "Crash-prone Q2", "Overheating rollover", "Inflation shock turn"}:
+        if bucket_name in {"US cyclicals", "US small caps", "IHSG cyclicals", "EM equities", "BTC / crypto beta"}:
+            score -= 0.06
+        if bucket_name in {"USD", "Duration / bonds", "US defensives"}:
+            score += 0.04
+
+    return clamp01(float(score))
+
+
 def score_ticker_table(df: pd.DataFrame, region: str, engine: Dict[str, object]) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
