@@ -27,103 +27,129 @@ Q3_CONSENSUS_FORCE_TOP = True
 st.markdown("""
 <style>
 :root {
-  --bg:#07101f;
-  --card:#0c1526;
-  --line:#263246;
-  --muted:#9fb0c8;
-  --text:#f3f6fb;
-  --red:#ff4d4d;
+  --bg:#020b17;
+  --bg-soft:#05111f;
+  --card:#0a1528;
+  --card-2:#0e1b33;
+  --line:#243750;
+  --line-soft:#1a2a42;
+  --muted:#9fb4d1;
+  --text:#f4f8ff;
+  --text-soft:#dbe8ff;
+  --blue:#6ea6ff;
+  --blue-2:#8ab8ff;
+  --blue-deep:#0e2d52;
+  --red:#ff5f6d;
+  --shadow:0 14px 36px rgba(0,0,0,.22);
 }
-html, body, [data-testid="stAppViewContainer"] {
-  background: var(--bg);
+html, body, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
+  background:
+    radial-gradient(circle at top left, rgba(18,39,72,.22), transparent 36%),
+    linear-gradient(180deg, #020b17 0%, #031024 100%);
   color: var(--text);
 }
-.block-container {padding-top: 1.6rem; padding-bottom: 2.0rem; max-width: 1650px;}
-h1,h2,h3,h4,h5,h6,p,span,div,label {color: var(--text);}
+[data-testid="stAppViewContainer"] > .main {
+  background: transparent;
+}
+.block-container {
+  padding-top: 1rem;
+  padding-bottom: 2.2rem;
+  max-width: 1510px;
+}
+h1,h2,h3,h4,h5,h6,p,span,div,label {
+  color: var(--text);
+}
+h1 {
+  font-size: 3.25rem !important;
+  font-weight: 800 !important;
+  line-height: 1.04 !important;
+  letter-spacing: -0.03em;
+  margin: 0 0 .45rem 0 !important;
+}
+h3 {
+  font-size: 2rem !important;
+  font-weight: 800 !important;
+  line-height: 1.1 !important;
+  margin-top: .5rem !important;
+  margin-bottom: 1rem !important;
+  letter-spacing: -0.02em;
+}
 .card {
-  background: linear-gradient(180deg, rgba(16,24,41,0.98), rgba(10,17,30,0.98));
+  background: linear-gradient(180deg, rgba(13,24,45,.98), rgba(7,16,31,.98));
   border: 1px solid var(--line);
-  border-radius: 18px;
-  padding: 14px 16px;
+  border-radius: 20px;
+  padding: 18px 18px 16px;
+  box-shadow: var(--shadow);
   height: 100%;
 }
 .hero-card {
-  background: linear-gradient(180deg, rgba(19,29,50,1), rgba(12,20,35,1));
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 12px 14px;
-  min-height: 96px;
+  background: linear-gradient(180deg, rgba(15,29,53,1), rgba(10,20,37,1));
+  border: 1px solid rgba(50,76,112,.95);
+  border-radius: 18px;
+  padding: 14px 15px 12px;
+  min-height: 116px;
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+  box-shadow: var(--shadow);
 }
 .section-title {
   font-weight: 800;
-  letter-spacing: .02em;
-  margin-bottom: 10px;
-  font-size: 1.0rem;
+  letter-spacing: .01em;
+  margin-bottom: 12px;
+  font-size: 1.12rem;
 }
 .metric-title {
   font-size: .76rem;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: .05em;
+  letter-spacing: .08em;
+  margin-bottom: 8px;
 }
 .metric-value {
-  font-size: 1.85rem;
+  font-size: 2.05rem;
   font-weight: 800;
-  line-height: 1.1;
+  line-height: 1.03;
+  letter-spacing: -0.03em;
 }
 .metric-sub {
-  font-size: .88rem;
-  color:#c4d2e6;
-  margin-top:4px;
+  font-size: .9rem;
+  color: var(--text-soft);
+  margin-top: 10px;
 }
 .pill {
   display:inline-block;
-  border:1px solid #33435d;
+  border:1px solid #36527a;
   border-radius:999px;
-  padding:3px 10px;
-  font-size:.82rem;
-  color:#dbe7ff;
-  background: rgba(30,42,63,.82);
+  padding:5px 12px;
+  font-size:.84rem;
+  color:#e4efff;
+  background: linear-gradient(180deg, rgba(29,47,78,.92), rgba(20,35,61,.92));
   margin-right:6px;
   margin-top:4px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.03);
 }
 .pill-red {
   display:inline-block;
-  border:1px solid #ff4d4d;
+  border:1px solid var(--red);
   border-radius:999px;
-  padding:3px 10px;
-  font-size:.82rem;
-  color:#ffd7d7;
-  background: rgba(120,20,20,.22);
+  padding:5px 12px;
+  font-size:.84rem;
+  color:#ffdcdc;
+  background: linear-gradient(180deg, rgba(113,27,35,.30), rgba(64,13,20,.26));
   margin-right:6px;
   margin-top:4px;
 }
-.small-muted {color: var(--muted); font-size: .92rem;}
-.tight-table table {
-  width:100%;
-  border-collapse: collapse;
-  table-layout: fixed;
+.small-muted {
+  color: var(--muted);
+  font-size: .96rem;
 }
-.tight-table th, .tight-table td {
-  border:1px solid #243147;
-  padding:8px 9px;
-  font-size:.84rem;
-  text-align:left;
-  vertical-align:top;
-  word-break: break-word;
-}
-.tight-table th {
-  color:#9fb0c8;
-  font-weight:700;
-  background: rgba(20,29,44,.85);
-}
-.tight-table td {color:#f5f8fd;}
-.col-compact {white-space: nowrap;}
 .note-box {
-  border:1px solid #27476e;
-  background: rgba(18,46,79,.65);
-  border-radius:12px;
-  padding:12px 14px;
+  border:1px solid #295182;
+  background: linear-gradient(180deg, rgba(14,42,76,.78), rgba(9,29,55,.88));
+  border-radius:14px;
+  padding:14px 15px;
+  box-shadow: var(--shadow);
 }
 .mini-caption {
   color: var(--muted);
@@ -131,8 +157,95 @@ h1,h2,h3,h4,h5,h6,p,span,div,label {color: var(--text);}
   margin-top: 2px;
   margin-bottom: 8px;
 }
-div[data-baseweb="tab-list"] {gap: 0.45rem;}
-button[data-baseweb="tab"] {padding-left:0.15rem; padding-right:0.15rem;}
+.tight-table table {
+  width:100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  overflow:hidden;
+}
+.tight-table th, .tight-table td {
+  border:1px solid #22344d;
+  padding:9px 10px;
+  font-size:.84rem;
+  text-align:left;
+  vertical-align:top;
+  word-break: break-word;
+}
+.tight-table th {
+  color:#a9bdd8;
+  font-weight:700;
+  background: rgba(18,31,51,.95);
+}
+.tight-table td {
+  color:#f5f8fd;
+  background: rgba(4,14,28,.24);
+}
+.col-compact {white-space: nowrap;}
+
+/* Streamlit containers */
+[data-testid="stExpander"] {
+  border:1px solid var(--line);
+  border-radius:12px;
+  background: rgba(6,16,31,.68);
+  box-shadow: var(--shadow);
+  overflow:hidden;
+}
+[data-testid="stExpander"] details {
+  border:none;
+  background: transparent;
+}
+[data-testid="stExpander"] summary {
+  background: rgba(7,17,32,.32);
+}
+[data-testid="stExpander"] summary p {
+  color: var(--text);
+  font-size: 1.02rem;
+  font-weight: 700;
+}
+[data-testid="stExpanderDetails"] {
+  background: transparent;
+}
+
+/* Inputs / widgets */
+[data-baseweb="input"] > div,
+[data-baseweb="select"] > div,
+[data-baseweb="base-input"] {
+  background: #081325;
+  border-color: #22344f;
+}
+input, textarea {
+  color: var(--text) !important;
+}
+[data-baseweb="select"] * {
+  color: var(--text) !important;
+}
+[data-testid="stNumberInput"] input,
+[data-testid="stTextInput"] input,
+[data-testid="stTextArea"] textarea {
+  background: #081325 !important;
+}
+
+/* Tabs */
+div[data-baseweb="tab-list"] {
+  gap: 0.45rem;
+}
+button[data-baseweb="tab"] {
+  background: rgba(8,19,36,.85);
+  border:1px solid #22344f;
+  border-radius: 12px 12px 0 0;
+  color:#b8cbe4;
+  padding: 0.45rem 0.9rem;
+}
+button[data-baseweb="tab"][aria-selected="true"] {
+  background: linear-gradient(180deg, rgba(20,35,63,.98), rgba(11,21,39,.98));
+  color: var(--text);
+  border-color:#36527b;
+}
+
+/* Horizontal rule / spacing helpers */
+hr {
+  border-color:#20314a;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -2543,9 +2656,10 @@ def num1(x: float) -> str:
 
 def bar_html(val: float) -> str:
     width = max(0.0, min(1.0, float(val))) * 100.0
+    min_px = 2 if width > 0 else 0
     return f"""
-    <div style='width:100%; height:18px; border:1px solid #243147; border-radius:999px; overflow:hidden; background: rgba(17,27,43,0.95);'>
-      <div style='width:{width:.1f}%; height:100%; background: linear-gradient(90deg, rgba(79,135,255,0.85), rgba(116,172,255,0.95));'></div>
+    <div style='width:100%; height:18px; border:1px solid #2a3f5d; border-radius:999px; overflow:hidden; background: linear-gradient(180deg, rgba(11,22,40,.97), rgba(8,18,34,.97)); box-shadow: inset 0 1px 0 rgba(255,255,255,.03);'>
+      <div style='width:{width:.1f}%; min-width:{min_px}px; height:100%; background: linear-gradient(90deg, rgba(98,145,255,.92), rgba(128,181,255,.98)); border-right:1px solid rgba(219,234,255,.28);'></div>
     </div>
     """
 
@@ -3155,7 +3269,7 @@ def coverage_rows(universe: List[str], scored: pd.DataFrame, n: int = 6) -> List
     return [[f"{len(seen)}/{len(universe)}", ', '.join(missing) if missing else 'OK']]
 
 # RENDER
-st.title("Quad • Impact • Signal • Ticker Score")
+st.markdown("<h1>Quad • Impact • Signal • Ticker Score</h1>", unsafe_allow_html=True)
 st.markdown("<div class='small-muted'>Decision-support dashboard: regime first, impact second, execution third. Engine internals yang paling penting tetap ada, tapi yang saling berkorelasi sudah di-merge.</div>", unsafe_allow_html=True)
 
 with st.expander('Dashboard controls', expanded=False):
