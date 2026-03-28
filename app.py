@@ -1,6 +1,7 @@
 import math
 from datetime import datetime, timezone
 from typing import Dict, List, Tuple
+from urllib.parse import quote
 
 import numpy as np
 import pandas as pd
@@ -255,6 +256,43 @@ def _clean_tickers(raw: str, suffix: str = "") -> List[str]:
     return uniq
 
 
+def _coerce_series(obj, name: str = "value") -> pd.Series:
+    if obj is None:
+        return pd.Series(dtype=float, name=name)
+    if isinstance(obj, pd.DataFrame):
+        if obj.empty:
+            return pd.Series(dtype=float, name=name)
+        if name in obj.columns:
+            obj = obj[name]
+        else:
+            obj = obj.iloc[:, 0]
+    if not isinstance(obj, pd.Series):
+        obj = pd.Series(obj)
+    s = pd.to_numeric(obj, errors="coerce").dropna()
+    s.name = name
+    return s
+
+
+def _get_col_as_series(df: pd.DataFrame, col: str) -> pd.Series:
+    if df is None or df.empty or col not in df.columns:
+        return pd.Series(dtype=float, name=col)
+    return _coerce_series(df.loc[:, col], col)
+
+
+def _period_to_range(period: str) -> str:
+    mp = {
+        "1mo": "1mo",
+        "3mo": "3mo",
+        "6mo": "6mo",
+        "1y": "1y",
+        "2y": "2y",
+        "5y": "5y",
+        "10y": "10y",
+        "max": "max",
+    }
+    return mp.get(period, "1y")
+
+
 # -------------------------------------------------
 # DATA FETCH
 # -------------------------------------------------
@@ -273,31 +311,26 @@ def fred_series(series_id: str) -> pd.Series:
         return pd.Series(dtype=float, name=series_id)
 
 
-YF_HEADERS = {"User-Agent": "Mozilla/5.0"}
-YF_RANGE_MAP = {"1mo": "1mo", "3mo": "3mo", "6mo": "6mo", "1y": "1y", "2y": "2y", "5y": "5y"}
-
-
-def _http_yahoo_close(ticker: str, period: str = "1y") -> pd.Series:
-    rng = YF_RANGE_MAP.get(period, period)
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
-    params = {"range": rng, "interval": "1d", "includeAdjustedClose": "true", "events": "div,splits"}
+@st.cache_data(ttl=60 * 60 * 4, show_spinner=False)
+def yahoo_close_http(ticker: str, period: str = "1y") -> pd.Series:
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{quote(ticker, safe='')}?range={_period_to_range(period)}&interval=1d&includeAdjustedClose=true"
     try:
-        r = requests.get(url, params=params, headers=YF_HEADERS, timeout=12)
-        r.raise_for_status()
-        data = r.json()
-        result = ((data or {}).get("chart") or {}).get("result") or []
+        r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+        if not r.ok:
+            return pd.Series(dtype=float, name=ticker)
+        payload = r.json()
+        result = (((payload or {}).get("chart") or {}).get("result") or [None])[0]
         if not result:
             return pd.Series(dtype=float, name=ticker)
-        item = result[0]
-        ts = item.get("timestamp") or []
-        adj = (((item.get("indicators") or {}).get("adjclose") or [{}])[0].get("adjclose"))
-        close = (((item.get("indicators") or {}).get("quote") or [{}])[0].get("close"))
-        vals = adj if adj is not None else close
-        if not ts or vals is None:
+        ts = result.get("timestamp") or []
+        quote_block = (((result.get("indicators") or {}).get("adjclose") or [{}])[0].get("adjclose"))
+        if quote_block is None:
+            quote_block = (((result.get("indicators") or {}).get("quote") or [{}])[0].get("close"))
+        if not ts or quote_block is None:
             return pd.Series(dtype=float, name=ticker)
-        idx = pd.to_datetime(ts, unit="s", utc=True).tz_convert(None)
-        s = pd.Series(pd.to_numeric(vals, errors="coerce"), index=idx).dropna()
-        s.name = ticker
+        idx = pd.to_datetime(ts, unit="s", utc=True).tz_localize(None)
+        s = pd.Series(quote_block, index=idx, name=ticker)
+        s = pd.to_numeric(s, errors="coerce").dropna()
         return s
     except Exception:
         return pd.Series(dtype=float, name=ticker)
@@ -320,136 +353,105 @@ def yahoo_close(ticker: str, period: str = "1y") -> pd.Series:
                     if ("Close", ticker) in data.columns:
                         s = data[("Close", ticker)]
                     elif "Close" in data.columns.get_level_values(0):
-                        s = data["Close"].iloc[:, 0]
+                        s = data["Close"]
                     else:
                         s = data.iloc[:, 0]
                 else:
                     s = data["Close"] if "Close" in data.columns else data.iloc[:, 0]
-                s = pd.to_numeric(s, errors="coerce").dropna()
+                s = _coerce_series(s, ticker)
                 if not s.empty:
-                    s.name = ticker
                     return s
         except Exception:
             pass
-    return _http_yahoo_close(ticker, period)
+    return yahoo_close_http(ticker, period)
 
 
 @st.cache_data(ttl=60 * 60 * 4, show_spinner=False)
 def yahoo_close_batch(tickers: List[str], period: str = "1y") -> pd.DataFrame:
     tickers = [t for t in tickers if t]
-    if yf is None or not tickers:
+    if not tickers:
         return pd.DataFrame()
-    for chunk_size in (max(1, min(40, len(tickers))), 15, 8, 1):
-        frames = []
-        ok = True
-        for i in range(0, len(tickers), chunk_size):
-            chunk = tickers[i : i + chunk_size]
-            try:
-                data = yf.download(
-                    chunk,
-                    period=period,
-                    interval="1d",
-                    auto_adjust=True,
-                    progress=False,
-                    threads=False,
-                )
-            except Exception:
-                ok = False
-                break
-            if data is None or len(data) == 0:
-                continue
-            try:
-                if isinstance(data.columns, pd.MultiIndex):
-                    if "Close" in data.columns.get_level_values(0):
-                        close = data["Close"].copy()
+    if yf is not None:
+        for chunk_size in (max(1, min(40, len(tickers))), 15, 8, 1):
+            frames = []
+            ok = True
+            for i in range(0, len(tickers), chunk_size):
+                chunk = tickers[i : i + chunk_size]
+                try:
+                    data = yf.download(
+                        chunk,
+                        period=period,
+                        interval="1d",
+                        auto_adjust=True,
+                        progress=False,
+                        threads=False,
+                    )
+                except Exception:
+                    ok = False
+                    break
+                if data is None or len(data) == 0:
+                    continue
+                try:
+                    if isinstance(data.columns, pd.MultiIndex):
+                        if "Close" in data.columns.get_level_values(0):
+                            close = data["Close"].copy()
+                        else:
+                            close = data.iloc[:, : len(chunk)].copy()
+                            close.columns = chunk[: close.shape[1]]
                     else:
-                        close = data.iloc[:, : len(chunk)].copy()
-                        close.columns = chunk[: close.shape[1]]
-                else:
-                    col = "Close" if "Close" in data.columns else data.columns[0]
-                    close = data[[col]].copy()
-                    close.columns = [chunk[0]]
-                close = close.apply(pd.to_numeric, errors="coerce")
-                frames.append(close)
-            except Exception:
-                ok = False
-                break
-        if ok and frames:
-            merged = pd.concat(frames, axis=1)
-            merged = merged.loc[:, ~merged.columns.duplicated()].sort_index()
-            missing = [t for t in tickers if t not in merged.columns]
-            if missing:
-                extra_frames = []
-                for t in missing:
-                    s = yahoo_close(t, period)
-                    if not s.empty:
-                        extra_frames.append(s.rename(t))
-                if extra_frames:
-                    merged = pd.concat([merged] + extra_frames, axis=1)
-                    merged = merged.loc[:, ~merged.columns.duplicated()].sort_index()
-            return merged
+                        col = "Close" if "Close" in data.columns else data.columns[0]
+                        close = data[[col]].copy()
+                        close.columns = [chunk[0]]
+                    close = close.apply(pd.to_numeric, errors="coerce")
+                    frames.append(close)
+                except Exception:
+                    ok = False
+                    break
+            if ok and frames:
+                merged = pd.concat(frames, axis=1)
+                merged = merged.loc[:, ~merged.columns.duplicated()].sort_index()
+                if not merged.empty:
+                    return merged
     frames = []
-    for t in tickers:
-        s = yahoo_close(t, period)
+    for ticker in tickers:
+        s = yahoo_close_http(ticker, period)
         if not s.empty:
-            frames.append(s.rename(t))
+            frames.append(s.rename(ticker))
     return pd.concat(frames, axis=1).sort_index() if frames else pd.DataFrame()
-
-
-def _quote_market_caps_http(tickers: Tuple[str, ...]) -> Dict[str, float]:
-    out: Dict[str, float] = {}
-    syms = [t for t in tickers if t]
-    for i in range(0, len(syms), 50):
-        chunk = syms[i:i + 50]
-        try:
-            r = requests.get(
-                "https://query1.finance.yahoo.com/v7/finance/quote",
-                params={"symbols": ",".join(chunk)},
-                headers=YF_HEADERS,
-                timeout=12,
-            )
-            r.raise_for_status()
-            payload = r.json()
-            rows = ((payload or {}).get("quoteResponse") or {}).get("result") or []
-            for row in rows:
-                sym = row.get("symbol")
-                cap = row.get("marketCap")
-                if sym and cap is not None and np.isfinite(cap):
-                    out[sym] = float(cap)
-        except Exception:
-            continue
-    return out
 
 
 @st.cache_data(ttl=60 * 60 * 6, show_spinner=False)
 def get_market_caps(tickers: Tuple[str, ...]) -> Dict[str, float]:
-    out: Dict[str, float] = _quote_market_caps_http(tickers)
-    if len(out) >= max(1, int(len(tickers) * 0.6)):
-        return out
-    if yf is None:
-        return out
-    for ticker in tickers:
-        if ticker in out:
-            continue
-        try:
-            obj = yf.Ticker(ticker)
-            cap = None
+    tickers = tuple([t for t in tickers if t])
+    out: Dict[str, float] = {}
+    if yf is not None:
+        for ticker in tickers:
             try:
-                fi = getattr(obj, "fast_info", None)
-                if fi is not None:
-                    cap = fi.get("market_cap") or fi.get("marketCap")
+                fast = yf.Ticker(ticker).fast_info
+                cap = None if fast is None else fast.get("market_cap")
+                if cap is None:
+                    info = yf.Ticker(ticker).info
+                    cap = None if info is None else info.get("marketCap")
+                if cap is not None and np.isfinite(cap) and float(cap) > 0:
+                    out[ticker] = float(cap)
             except Exception:
-                cap = None
-            if cap is None:
-                try:
-                    info = obj.info
-                    cap = info.get("marketCap")
-                except Exception:
-                    cap = None
-            if cap is not None and np.isfinite(cap):
-                out[ticker] = float(cap)
+                pass
+    missing = [t for t in tickers if t not in out]
+    for i in range(0, len(missing), 20):
+        chunk = missing[i:i+20]
+        try:
+            url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={quote(','.join(chunk), safe=',=^.-')}"
+            r = requests.get(url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            if not r.ok:
+                continue
+            results = (((r.json() or {}).get("quoteResponse") or {}).get("result") or [])
+            for row in results:
+                sym = row.get("symbol")
+                cap = row.get("marketCap")
+                if sym and cap is not None and np.isfinite(cap) and float(cap) > 0:
+                    out[sym] = float(cap)
         except Exception:
-            continue
+            pass
     return out
 
 
@@ -853,57 +855,40 @@ IHSG_THEME_TAGS = {
     "Consumer / telco": {"TLKM.JK","EXCL.JK","ISAT.JK","ICBP.JK","INDF.JK","CPIN.JK","AMRT.JK","MAPI.JK","ACES.JK","ERAA.JK"},
 }
 
-US_THEME_CLUSTER_MAP = {
-    "AI / compute stack": {"Quantum / speculative tech", "Semis / AI infra", "Software / AI apps"},
-    "Cyclical value / industry": {"Defense / industrial", "Financials"},
-    "Defensive quality": {"Consumer / quality", "Health care"},
-    "Hard-asset hedge": {"Energy", "Gold / metals"},
-    "Other": {"Other"},
+FX_UNIVERSE = [
+    "UUP","FXE","FXY","FXF","FXA","FXC","FXB","CYB","CEW",
+    "EURUSD=X","GBPUSD=X","AUDUSD=X","NZDUSD=X","JPY=X","CHF=X","CAD=X","IDR=X"
+]
+
+COMMODITY_UNIVERSE = [
+    "GLD","SLV","GDX","USO","UNG","DBC","DBA","CPER","DBB","CORN","WEAT","SOYB"
+]
+
+CRYPTO_UNIVERSE = [
+    "BTC-USD","ETH-USD","SOL-USD","XRP-USD","BNB-USD","ADA-USD","LINK-USD","AVAX-USD","DOGE-USD","LTC-USD"
+]
+
+FX_THEME_TAGS = {
+    "USD / safety": {"UUP","JPY=X","CHF=X"},
+    "Europe majors": {"FXE","FXB","EURUSD=X","GBPUSD=X","FXF"},
+    "Commodity FX": {"FXA","FXC","AUDUSD=X","NZDUSD=X","CAD=X"},
+    "Asia / EM FX": {"CYB","CEW","IDR=X"},
 }
 
-IHSG_THEME_CLUSTER_MAP = {
-    "Banks / liquid beta": {"Banks / large cap"},
-    "Resource complex": {"Commodities / mining", "Oil / gas / shipping", "Infra / industrial"},
-    "Domestic defensives": {"Consumer / telco"},
-    "Property / beta": {"Property / beta"},
-    "Other": {"Other"},
+COMMODITY_THEME_TAGS = {
+    "Precious metals": {"GLD","SLV","GDX"},
+    "Energy": {"USO","UNG"},
+    "Broad commodity beta": {"DBC","DBA","WEAT","CORN","SOYB"},
+    "Base metals": {"CPER","DBB"},
 }
 
-ASSET_CLUSTER_MAP = {
-    "Reflation beta": {"US cyclicals", "US small caps", "IHSG cyclicals", "EM equities", "BTC / crypto beta"},
-    "Defensives / duration": {"US defensives", "Duration / bonds"},
-    "Inflation hedge": {"Gold / miners", "Oil / energy", "USD"},
+CRYPTO_THEME_TAGS = {
+    "BTC / majors": {"BTC-USD","ETH-USD","SOL-USD","BNB-USD","XRP-USD","LTC-USD"},
+    "Alt beta": {"ADA-USD","LINK-USD","AVAX-USD","DOGE-USD"},
 }
 
 DEFAULT_BAG7 = ["AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA"]
 DEFAULT_OLD_WALL = ["XOM", "CVX", "JPM", "BAC", "ABBV", "LLY", "CAT", "GE", "WMT", "COST"]
-
-FX_UNIVERSE = ["EURUSD=X", "JPY=X", "GBPUSD=X", "AUDUSD=X", "NZDUSD=X", "CAD=X", "CHF=X", "CNH=X", "SGD=X", "IDR=X", "CEW", "UUP"]
-COMMODITY_UNIVERSE = ["GC=F", "SI=F", "CL=F", "NG=F", "HG=F", "ZC=F", "ZS=F", "KC=F", "ZN=F", "ZB=F", "DBC", "DBA"]
-CRYPTO_UNIVERSE = ["BTC-USD", "ETH-USD", "SOL-USD", "XRP-USD", "BNB-USD", "DOGE-USD", "LINK-USD", "PAXG-USD"]
-
-FX_THEME_TAGS = {
-    "USD strong / safe haven": {"JPY=X", "CAD=X", "CHF=X", "CNH=X", "SGD=X", "IDR=X", "UUP"},
-    "USD weak / pro-cyclical": {"EURUSD=X", "GBPUSD=X", "AUDUSD=X", "NZDUSD=X", "CEW"},
-}
-COMMOD_THEME_TAGS = {
-    "Precious metals": {"GC=F", "SI=F", "PAXG-USD"},
-    "Energy / inflation": {"CL=F", "NG=F", "DBC"},
-    "Industrial / agri": {"HG=F", "ZC=F", "ZS=F", "KC=F", "DBA"},
-    "Rates / duration": {"ZN=F", "ZB=F"},
-}
-CRYPTO_THEME_TAGS = {
-    "Majors": {"BTC-USD", "ETH-USD"},
-    "High beta alts": {"SOL-USD", "XRP-USD", "BNB-USD", "DOGE-USD", "LINK-USD"},
-    "Hard-asset crypto": {"PAXG-USD"},
-}
-CROSS_THEME_CLUSTER_MAP = {
-    "USD / FX": {"USD strong / safe haven", "USD weak / pro-cyclical"},
-    "Hard assets": {"Precious metals", "Energy / inflation", "Industrial / agri", "Hard-asset crypto"},
-    "Rates / duration": {"Rates / duration"},
-    "Crypto beta": {"Majors", "High beta alts"},
-    "Other": {"Other"},
-}
 
 
 def _theme_from_tags(ticker: str, mapping: Dict[str, set]) -> str:
@@ -911,32 +896,6 @@ def _theme_from_tags(ticker: str, mapping: Dict[str, set]) -> str:
         if ticker in names:
             return theme
     return "Other"
-
-
-def _cluster_from_theme(theme: str, region: str = "US") -> str:
-    if region == "US":
-        cluster_map = US_THEME_CLUSTER_MAP
-    elif region == "IHSG":
-        cluster_map = IHSG_THEME_CLUSTER_MAP
-    else:
-        cluster_map = CROSS_THEME_CLUSTER_MAP
-    for cluster, names in cluster_map.items():
-        if theme in names:
-            return cluster
-    return "Other"
-
-
-def _cluster_from_bucket(bucket: str) -> str:
-    for cluster, names in ASSET_CLUSTER_MAP.items():
-        if bucket in names:
-            return cluster
-    return bucket
-
-
-def _cluster_members_label(cluster: str, region: str = "US") -> str:
-    cluster_map = US_THEME_CLUSTER_MAP if region == "US" else IHSG_THEME_CLUSTER_MAP
-    names = sorted(cluster_map.get(cluster, {cluster}))
-    return ", ".join(names)
 
 
 def infer_cycle_stage(q: str, engine: Dict[str, object]) -> tuple[str, float]:
@@ -1084,7 +1043,7 @@ def rank_market_leaders(tickers: Tuple[str, ...], benchmark_ticker: str, period:
     prices = yahoo_close_batch(fetch, period)
 
     enough_cols = set(prices.columns) if not prices.empty else set()
-    if prices.empty or len(enough_cols.intersection(set(tickers))) < max(3, min(8, len(tickers) // 4 or 1)):
+    if prices.empty or len(enough_cols.intersection(set(tickers))) < max(3, min(8, max(1, len(tickers) // 4))):
         frames = []
         for ticker in fetch:
             s = yahoo_close(ticker, period)
@@ -1097,9 +1056,9 @@ def rank_market_leaders(tickers: Tuple[str, ...], benchmark_ticker: str, period:
     prices = prices.sort_index().ffill().dropna(how="all")
 
     def _pick_benchmark(name: str | None) -> pd.Series:
-        if not name or name not in prices.columns:
+        if not name:
             return pd.Series(dtype=float)
-        s = prices[name].dropna()
+        s = _get_col_as_series(prices, name).dropna()
         return s if len(s) >= 25 else pd.Series(dtype=float)
 
     bench_name = benchmark_ticker
@@ -1113,33 +1072,32 @@ def rank_market_leaders(tickers: Tuple[str, ...], benchmark_ticker: str, period:
     if bench.empty:
         series = []
         for ticker in tickers:
-            if ticker not in prices.columns:
-                continue
-            s = prices[ticker].dropna()
+            s = _get_col_as_series(prices, ticker).dropna()
             if len(s) < 25:
                 continue
-            series.append((s / s.iloc[0]).rename(ticker))
+            series.append((s / float(s.iloc[0])).rename(ticker))
         if series:
             basket = pd.concat(series, axis=1).dropna(how="all").mean(axis=1).dropna()
             if not basket.empty:
-                bench = basket
+                bench = basket.rename("bench")
                 bench_name = "INTERNAL_BASKET"
     if bench.empty:
         return pd.DataFrame()
+    bench = _coerce_series(bench, "bench")
 
     rows = []
     min_len = 45 if period == "1y" else 25
     for ticker in tickers:
-        if ticker not in prices.columns:
-            continue
-        s = prices[ticker].dropna()
+        s = _get_col_as_series(prices, ticker).dropna()
         if s.empty:
             continue
-        df = pd.concat([s.rename("asset"), bench.rename("bench")], axis=1).sort_index().ffill().dropna()
-        if len(df) < min_len:
+        df = pd.concat([_coerce_series(s, "asset"), _coerce_series(bench, "bench")], axis=1).sort_index().ffill().dropna()
+        if len(df) < min_len or "asset" not in df.columns or "bench" not in df.columns:
             continue
-        asset = df["asset"]
-        bm = df["bench"]
+        asset = _coerce_series(df["asset"], "asset")
+        bm = _coerce_series(df["bench"], "bench")
+        if len(asset) < min_len or len(bm) < min_len:
+            continue
         r21, r63, r126 = ret_n(asset, 21), ret_n(asset, 63), ret_n(asset, 126)
         b21, b63, b126 = ret_n(bm, 21), ret_n(bm, 63), ret_n(bm, 126)
         alpha21, alpha63, alpha126 = r21 - b21, r63 - b63, r126 - b126
@@ -1181,6 +1139,16 @@ def rank_market_leaders(tickers: Tuple[str, ...], benchmark_ticker: str, period:
     return pd.DataFrame(rows).sort_values(["RSScore", "StartScore", "Alpha21"], ascending=False).reset_index(drop=True)
 
 
+def region_theme_mapping(region: str) -> Dict[str, set]:
+    return {
+        "US": US_THEME_TAGS,
+        "IHSG": IHSG_THEME_TAGS,
+        "Forex": FX_THEME_TAGS,
+        "Commodities": COMMODITY_THEME_TAGS,
+        "Crypto": CRYPTO_THEME_TAGS,
+    }.get(region, {})
+
+
 def macro_bucket_for_ticker(ticker: str, theme: str, region: str) -> str:
     if region == "IHSG":
         if theme in ["Commodities / mining", "Oil / gas / shipping"]:
@@ -1188,16 +1156,24 @@ def macro_bucket_for_ticker(ticker: str, theme: str, region: str) -> str:
         if theme in ["Banks / large cap", "Property / beta", "Infra / industrial"]:
             return "IHSG cyclicals"
         return "EM equities"
-    if region == "FX":
-        return "USD"
-    if region == "COMMOD":
-        if theme == "Precious metals":
+    if region == "Forex":
+        if theme in ["USD / safety"]:
+            return "USD"
+        if theme in ["Europe majors"]:
+            return "Duration / bonds" if ticker in {"FXF", "CHF=X"} else "EM equities"
+        if theme in ["Commodity FX"]:
+            return "US small caps"
+        return "EM equities"
+    if region == "Commodities":
+        if theme in ["Precious metals"]:
             return "Gold / miners"
-        if theme == "Rates / duration":
-            return "Duration / bonds"
-        return "Oil / energy"
-    if region == "CRYPTO":
-        return "Gold / miners" if theme == "Hard-asset crypto" else "BTC / crypto beta"
+        if theme in ["Energy"]:
+            return "Oil / energy"
+        if theme in ["Base metals", "Broad commodity beta"]:
+            return "US cyclicals"
+        return "US cyclicals"
+    if region == "Crypto":
+        return "BTC / crypto beta"
     if theme in ["Energy"]:
         return "Oil / energy"
     if theme in ["Gold / metals"]:
@@ -1211,32 +1187,13 @@ def macro_bucket_for_ticker(ticker: str, theme: str, region: str) -> str:
     return "US cyclicals"
 
 
-def quad_fit_score(asset_bucket: str, engine: Dict[str, object]) -> float:
-    mp = ASSET_SCORE_BY_QUAD.get(asset_bucket)
-    if not mp:
-        return 0.5
-    cur = mp.get(engine["current_q"], 0.0)
-    nxt = mp.get(engine["next_q"], cur)
-    blend = 0.70 * cur + 0.30 * nxt * engine["transition_prob"]
-    return clamp01((blend + 1.0) / 2.0)
-
-
 def score_ticker_table(df: pd.DataFrame, region: str, engine: Dict[str, object]) -> pd.DataFrame:
     if df is None or df.empty:
         return pd.DataFrame()
-    if region == "US":
-        mapping = US_THEME_TAGS
-    elif region == "IHSG":
-        mapping = IHSG_THEME_TAGS
-    elif region == "FX":
-        mapping = FX_THEME_TAGS
-    elif region == "COMMOD":
-        mapping = COMMOD_THEME_TAGS
-    else:
-        mapping = CRYPTO_THEME_TAGS
+    mapping = region_theme_mapping(region)
     work = df.copy()
-    work["Theme"] = work["Ticker"].apply(lambda x: _theme_from_tags(x, mapping))
-    work["ThemeCluster"] = work["Theme"].apply(lambda x: _cluster_from_theme(x, region))
+    work["Theme"] = work["Ticker"].apply(lambda x: _theme_from_tags(x, mapping) if mapping else "Other")
+    work["Cluster"] = work["Theme"]
     work["MacroBucket"] = work.apply(lambda r: macro_bucket_for_ticker(r["Ticker"], r["Theme"], region), axis=1)
     work["MacroFit"] = work["MacroBucket"].apply(lambda x: quad_fit_score(x, engine))
     work["Weakness"] = work["Alpha21"].apply(lambda x: clamp01(_norm_tanh(-x, 0.08)))
@@ -1292,9 +1249,7 @@ def build_impact_frame(tickers: Tuple[str, ...], period: str = "3mo") -> pd.Data
     caps = get_market_caps(tickers)
     rows = []
     for t in tickers:
-        if t not in prices.columns:
-            continue
-        s = prices[t].dropna()
+        s = _get_col_as_series(prices, t).dropna()
         if len(s) < 2:
             continue
         prev_close = float(s.iloc[-2])
@@ -1346,201 +1301,43 @@ def summarize_impact(df: pd.DataFrame, bag7: List[str], old_wall: List[str]) -> 
     }
 
 
-def theme_impact_rows(df: pd.DataFrame, mapping: Dict[str, set], region: str = "US", n: int = 8) -> List[List[str]]:
+def theme_impact_rows(df: pd.DataFrame, mapping: Dict[str, set], n: int = 8) -> List[List[str]]:
     if df is None or df.empty:
-        return [["No data", "-", "-", "-", "-"]]
+        return [["No data", "-", "-", "-"]]
     work = df.copy()
     work["Theme"] = work["Ticker"].apply(lambda x: _theme_from_tags(x, mapping))
-    work["Cluster"] = work["Theme"].apply(lambda x: _cluster_from_theme(x, region))
     agg = (
-        work.groupby("Cluster", as_index=False)
+        work.groupby("Theme", as_index=False)
         .agg(
             ImpactB=("ImpactB", "sum"),
             AvgRet=("DailyRet", "mean"),
             Weight=("Weight", "sum"),
-            Members=("Ticker", "count"),
         )
         .sort_values("ImpactB", ascending=False)
     )
     out = []
     for _, r in agg.head(n).iterrows():
-        out.append([
-            r["Cluster"],
-            str(int(r["Members"])),
-            f"{r['ImpactB']:+.1f}B",
-            f"{100*r['AvgRet']:+.2f}%",
-            pct(float(r["Weight"])),
-        ])
+        out.append([r["Theme"], f"{r['ImpactB']:+.1f}B", f"{100*r['AvgRet']:+.2f}%", pct(float(r["Weight"]))])
     return out
-
-
-
-def basket_showdown_rows(df: pd.DataFrame, bag7: List[str], old_wall: List[str]) -> List[List[str]]:
-    if df is None or df.empty:
-        return [["No data", "-", "-", "-", "-", "-"]]
-    universe = list(df["Ticker"].dropna().unique())
-    universe_set = set(universe)
-    baskets = [
-        ("Bag7", [t for t in bag7 if t in universe_set]),
-        ("ex-Bag7", [t for t in universe if t not in set(bag7)]),
-        ("Old Wall", [t for t in old_wall if t in universe_set]),
-        ("ex-Old Wall", [t for t in universe if t not in set(old_wall)]),
-    ]
-    rows = []
-    for name, names in baskets:
-        sub = df[df["Ticker"].isin(names)].copy()
-        if sub.empty:
-            continue
-        rows.append([
-            name,
-            str(int(len(sub))),
-            f"{sub['ImpactB'].sum():+.1f}B",
-            f"{sub['IndexContributionPct'].sum():+.2f}%",
-            f"{100*sub['DailyRet'].mean():+.2f}%",
-            pct(float(sub['Weight'].sum())),
-        ])
-    return rows if rows else [["No overlap", "-", "-", "-", "-", "-"]]
-
-
-def ranked_quad_buckets(q: str, top: bool = True, n: int = 4) -> str:
-    ranked = sorted(
-        [(bucket, mp.get(q, 0.0)) for bucket, mp in ASSET_SCORE_BY_QUAD.items()],
-        key=lambda x: x[1],
-        reverse=top,
-    )
-    names = [name for name, _ in ranked[:n]]
-    return ", ".join(names) if names else "-"
-
-
-def ranked_quad_clusters(q: str, top: bool = True, n: int = 3) -> str:
-    cluster_scores = []
-    for cluster, members in ASSET_CLUSTER_MAP.items():
-        vals = [ASSET_SCORE_BY_QUAD[b][q] for b in members if b in ASSET_SCORE_BY_QUAD]
-        if vals:
-            cluster_scores.append((cluster, float(np.mean(vals))))
-    ranked = sorted(cluster_scores, key=lambda x: x[1], reverse=top)
-    names = [name for name, _ in ranked[:n]]
-    return ", ".join(names) if names else "-"
-
-
-def quad_matrix_rows(engine: Dict[str, object], cur_stage: str) -> List[List[str]]:
-    cur_q = engine["current_q"]
-    next_q = engine["next_q"]
-    return [
-        [
-            "Current",
-            f"{cur_stage} {cur_q}",
-            STAGE_GUIDE[cur_q][cur_stage][0],
-            STAGE_GUIDE[cur_q][cur_stage][1],
-            ranked_quad_clusters(cur_q, top=True, n=3),
-            ranked_quad_clusters(cur_q, top=False, n=3),
-        ],
-        [
-            "Next if transition wins",
-            f"Early {next_q}",
-            STAGE_GUIDE[next_q]["Early"][0],
-            STAGE_GUIDE[next_q]["Early"][1],
-            ranked_quad_clusters(next_q, top=True, n=3),
-            ranked_quad_clusters(next_q, top=False, n=3),
-        ],
-    ]
-
-
-def watchlist_display_rows(df: pd.DataFrame, n: int = 12) -> List[List[str]]:
-    if df is None or df.empty:
-        return [["No data", "-", "-", "-", "-", "-", "-"]]
-    out = []
-    for _, r in df.sort_values(["LongScore", "ShortScore"], ascending=False).head(n).iterrows():
-        out.append([
-            r["Ticker"].replace(".JK", ""),
-            r["Bias"],
-            f"{r['LongScore']:.0f}",
-            f"{r['ShortScore']:.0f}",
-            r.get("State", "-"),
-            r.get("ThemeCluster", r["Theme"]),
-            r["Comment"],
-        ])
-    return out
-
-
-def leadership_mode_rows(df: pd.DataFrame, mode: str = "leaders", n: int = 10) -> List[List[str]]:
-    if df is None or df.empty:
-        return [["No data", "-", "-", "-", "-"]]
-    work = df.copy()
-    if mode == "leaders":
-        work = work[work["State"].isin(["Leader"])].sort_values(["LongScore", "RSScore", "Alpha21"], ascending=False)
-    elif mode == "emerging":
-        work = work[work["State"].isin(["Emerging"])].sort_values(["StartScore", "Alpha21"], ascending=False)
-    else:
-        work = work[work["State"].isin(["Weak", "Fading"])].sort_values(["ShortScore", "Alpha21", "Alpha63"], ascending=[False, True, True])
-    if work.empty:
-        return [["None", "-", "-", "-", "No clean names"]]
-    rows = []
-    for _, r in work.head(n).iterrows():
-        rows.append([
-            r["Ticker"].replace(".JK", ""),
-            r["State"],
-            f"{r['LongScore']:.0f}",
-            f"{r['ShortScore']:.0f}",
-            r["Comment"],
-        ])
-    return rows
-
-
-def cluster_summary_rows(df: pd.DataFrame, n: int = 8) -> List[List[str]]:
-    if df is None or df.empty or "ThemeCluster" not in df.columns:
-        return [["No data", "-", "-", "-", "-"]]
-    agg = (
-        df.groupby("ThemeCluster", as_index=False)
-        .agg(
-            Members=("Ticker", "count"),
-            AvgLong=("LongScore", "mean"),
-            AvgShort=("ShortScore", "mean"),
-            Leaders=("Ticker", lambda s: ", ".join([x.replace('.JK','') for x in list(s.head(3))]))
-        )
-        .sort_values(["AvgLong", "AvgShort"], ascending=[False, True])
-    )
-    rows = []
-    for _, r in agg.head(n).iterrows():
-        rows.append([
-            r["ThemeCluster"],
-            str(int(r["Members"])),
-            f"{r['AvgLong']:.0f}",
-            f"{r['AvgShort']:.0f}",
-            r["Leaders"],
-        ])
-    return rows
-
-
-def coverage_rows(universe: List[str], scored: pd.DataFrame, n: int = 8) -> List[List[str]]:
-    universe = [t for t in universe if t]
-    seen = set() if scored is None or scored.empty else set(scored["Ticker"].astype(str))
-    valid = len(seen)
-    total = len(universe)
-    missing = [t.replace('.JK', '') for t in universe if t not in seen][:n]
-    return [[str(total), str(valid), str(total - valid), ", ".join(missing) if missing else "—"]]
 
 
 # -------------------------------------------------
 # SIDEBAR CONTROLS
 # -------------------------------------------------
 st.sidebar.markdown("## Dashboard Controls")
-region_mode = st.sidebar.selectbox("Ticker score region", ["US", "IHSG", "Both", "All markets"], index=3)
-st.sidebar.caption("Extra tickers are also pushed into the exact-watchlist tables so your control input always shows somewhere visible.")
+region_mode = st.sidebar.selectbox("Ticker score region", ["US", "IHSG", "Forex", "Commodities", "Crypto", "All markets"], index=5)
 
-with st.sidebar.expander("US + IHSG", expanded=True):
-    us_custom = st.text_input("Extra US tickers", value="")
-    ihsg_custom = st.text_input("Extra IHSG tickers", value="")
-    watchlist_us_raw = st.text_input("Exact US watchlist", value="AAPL,NVDA,MSFT,PLTR,XOM,GLD")
-    watchlist_ihsg_raw = st.text_input("Exact IHSG watchlist", value="BBCA,BBRI,BREN,AMMN,MEDC,TLKM")
+us_custom = st.sidebar.text_input("Extra US tickers", value="")
+ihsg_custom = st.sidebar.text_input("Extra IHSG tickers", value="")
+fx_custom = st.sidebar.text_input("Extra forex tickers", value="")
+commod_custom = st.sidebar.text_input("Extra commodities tickers", value="")
+crypto_custom = st.sidebar.text_input("Extra crypto tickers", value="")
 
-with st.sidebar.expander("Forex + Commodities + Crypto", expanded=True):
-    fx_custom = st.text_input("Extra forex tickers", value="", help="Examples: EURUSD=X, JPY=X, GBPUSD=X")
-    commod_custom = st.text_input("Extra commodities tickers", value="", help="Examples: GC=F, CL=F, HG=F, ZN=F")
-    crypto_custom = st.text_input("Extra crypto tickers", value="", help="Examples: BTC-USD, ETH-USD, SOL-USD")
-    watchlist_fx_raw = st.text_input("Exact forex watchlist", value="EURUSD=X,JPY=X,GBPUSD=X,IDR=X,UUP")
-    watchlist_commod_raw = st.text_input("Exact commodities watchlist", value="GC=F,CL=F,HG=F,ZN=F,DBC")
-    watchlist_crypto_raw = st.text_input("Exact crypto watchlist", value="BTC-USD,ETH-USD,SOL-USD,XRP-USD,PAXG-USD")
+watchlist_us_raw = st.sidebar.text_input("Exact US watchlist", value="AAPL,NVDA,MSFT,PLTR,XOM,GLD")
+watchlist_ihsg_raw = st.sidebar.text_input("Exact IHSG watchlist", value="BBCA,BBRI,BREN,AMMN,MEDC,TLKM")
+watchlist_fx_raw = st.sidebar.text_input("Exact forex watchlist", value="UUP,FXE,FXY,FXA,EURUSD=X,JPY=X")
+watchlist_commod_raw = st.sidebar.text_input("Exact commodities watchlist", value="GLD,SLV,USO,UNG,DBC,CPER")
+watchlist_crypto_raw = st.sidebar.text_input("Exact crypto watchlist", value="BTC-USD,ETH-USD,SOL-USD,XRP-USD")
 
 impact_mode = st.sidebar.selectbox("Impact board universe", ["US major universe", "Bag7 + Old Wall", "Custom US list"], index=0)
 impact_custom = st.sidebar.text_input("Custom impact tickers", value="AAPL,MSFT,NVDA,META,AMZN,GOOGL,TSLA,XOM,CVX,JPM,ABBV")
@@ -1555,22 +1352,18 @@ extra_ihsg = _clean_tickers(ihsg_custom, ".JK")
 extra_fx = _clean_tickers(fx_custom)
 extra_commod = _clean_tickers(commod_custom)
 extra_crypto = _clean_tickers(crypto_custom)
-watchlist_us = _clean_tickers(watchlist_us_raw)
-watchlist_ihsg = _clean_tickers(watchlist_ihsg_raw, ".JK")
-watchlist_fx = _clean_tickers(watchlist_fx_raw)
-watchlist_commod = _clean_tickers(watchlist_commod_raw)
-watchlist_crypto = _clean_tickers(watchlist_crypto_raw)
-watchlist_us = list(dict.fromkeys(watchlist_us + extra_us))
-watchlist_ihsg = list(dict.fromkeys(watchlist_ihsg + extra_ihsg))
-watchlist_fx = list(dict.fromkeys(watchlist_fx + extra_fx))
-watchlist_commod = list(dict.fromkeys(watchlist_commod + extra_commod))
-watchlist_crypto = list(dict.fromkeys(watchlist_crypto + extra_crypto))
 
-us_universe = list(dict.fromkeys(US_UNIVERSE + extra_us))
-ihsg_universe = list(dict.fromkeys(IHSG_UNIVERSE + extra_ihsg))
-fx_universe = list(dict.fromkeys(FX_UNIVERSE + extra_fx))
-commod_universe = list(dict.fromkeys(COMMODITY_UNIVERSE + extra_commod))
-crypto_universe = list(dict.fromkeys(CRYPTO_UNIVERSE + extra_crypto))
+watchlist_us = list(dict.fromkeys(_clean_tickers(watchlist_us_raw) + extra_us))
+watchlist_ihsg = list(dict.fromkeys(_clean_tickers(watchlist_ihsg_raw, ".JK") + extra_ihsg))
+watchlist_fx = list(dict.fromkeys(_clean_tickers(watchlist_fx_raw) + extra_fx))
+watchlist_commod = list(dict.fromkeys(_clean_tickers(watchlist_commod_raw) + extra_commod))
+watchlist_crypto = list(dict.fromkeys(_clean_tickers(watchlist_crypto_raw) + extra_crypto))
+
+us_universe = list(dict.fromkeys(US_UNIVERSE + extra_us + watchlist_us))
+ihsg_universe = list(dict.fromkeys(IHSG_UNIVERSE + extra_ihsg + watchlist_ihsg))
+fx_universe = list(dict.fromkeys(FX_UNIVERSE + extra_fx + watchlist_fx))
+commod_universe = list(dict.fromkeys(COMMODITY_UNIVERSE + extra_commod + watchlist_commod))
+crypto_universe = list(dict.fromkeys(CRYPTO_UNIVERSE + extra_crypto + watchlist_crypto))
 
 if impact_mode == "US major universe":
     impact_universe = tuple(us_universe)
@@ -1601,46 +1394,33 @@ if ihsg_rank_df.empty:
     ihsg_rank_df = rank_market_leaders(tuple(ihsg_universe), benchmark_ticker="EIDO", period="6mo", fallback_benchmark="SPY")
 ihsg_score_df = score_ticker_table(ihsg_rank_df, "IHSG", core) if not ihsg_rank_df.empty else pd.DataFrame()
 
-watch_us_rank_df = rank_market_leaders(tuple(watchlist_us), benchmark_ticker="SPY", period="1y", fallback_benchmark="QQQ") if watchlist_us else pd.DataFrame()
-if watchlist_us and watch_us_rank_df.empty:
-    watch_us_rank_df = rank_market_leaders(tuple(watchlist_us), benchmark_ticker="SPY", period="6mo", fallback_benchmark="QQQ")
-watch_us_score_df = score_ticker_table(watch_us_rank_df, "US", core) if not watch_us_rank_df.empty else pd.DataFrame()
-
-watch_ihsg_rank_df = rank_market_leaders(tuple(watchlist_ihsg), benchmark_ticker="^JKSE", period="1y", fallback_benchmark="EIDO") if watchlist_ihsg else pd.DataFrame()
-if watchlist_ihsg and watch_ihsg_rank_df.empty:
-    watch_ihsg_rank_df = rank_market_leaders(tuple(watchlist_ihsg), benchmark_ticker="EIDO", period="6mo", fallback_benchmark="SPY")
-watch_ihsg_score_df = score_ticker_table(watch_ihsg_rank_df, "IHSG", core) if not watch_ihsg_rank_df.empty else pd.DataFrame()
-
 fx_rank_df = rank_market_leaders(tuple(fx_universe), benchmark_ticker="UUP", period="1y", fallback_benchmark="CEW")
 if fx_rank_df.empty:
-    fx_rank_df = rank_market_leaders(tuple(fx_universe), benchmark_ticker="UUP", period="6mo", fallback_benchmark=None)
-fx_score_df = score_ticker_table(fx_rank_df, "FX", core) if not fx_rank_df.empty else pd.DataFrame()
+    fx_rank_df = rank_market_leaders(tuple(fx_universe), benchmark_ticker="UUP", period="6mo", fallback_benchmark="CEW")
+fx_score_df = score_ticker_table(fx_rank_df, "Forex", core) if not fx_rank_df.empty else pd.DataFrame()
 
 commod_rank_df = rank_market_leaders(tuple(commod_universe), benchmark_ticker="DBC", period="1y", fallback_benchmark="GLD")
 if commod_rank_df.empty:
-    commod_rank_df = rank_market_leaders(tuple(commod_universe), benchmark_ticker="DBC", period="6mo", fallback_benchmark=None)
-commod_score_df = score_ticker_table(commod_rank_df, "COMMOD", core) if not commod_rank_df.empty else pd.DataFrame()
+    commod_rank_df = rank_market_leaders(tuple(commod_universe), benchmark_ticker="DBC", period="6mo", fallback_benchmark="GLD")
+commod_score_df = score_ticker_table(commod_rank_df, "Commodities", core) if not commod_rank_df.empty else pd.DataFrame()
 
 crypto_rank_df = rank_market_leaders(tuple(crypto_universe), benchmark_ticker="BTC-USD", period="1y", fallback_benchmark="ETH-USD")
 if crypto_rank_df.empty:
-    crypto_rank_df = rank_market_leaders(tuple(crypto_universe), benchmark_ticker="BTC-USD", period="6mo", fallback_benchmark=None)
-crypto_score_df = score_ticker_table(crypto_rank_df, "CRYPTO", core) if not crypto_rank_df.empty else pd.DataFrame()
+    crypto_rank_df = rank_market_leaders(tuple(crypto_universe), benchmark_ticker="BTC-USD", period="6mo", fallback_benchmark="ETH-USD")
+crypto_score_df = score_ticker_table(crypto_rank_df, "Crypto", core) if not crypto_rank_df.empty else pd.DataFrame()
 
-watch_fx_rank_df = rank_market_leaders(tuple(watchlist_fx), benchmark_ticker="UUP", period="1y", fallback_benchmark="CEW") if watchlist_fx else pd.DataFrame()
-if watchlist_fx and watch_fx_rank_df.empty:
-    watch_fx_rank_df = rank_market_leaders(tuple(watchlist_fx), benchmark_ticker="UUP", period="6mo", fallback_benchmark=None)
-watch_fx_score_df = score_ticker_table(watch_fx_rank_df, "FX", core) if not watch_fx_rank_df.empty else pd.DataFrame()
+def coverage_row(label: str, universe: List[str], score_df: pd.DataFrame) -> List[str]:
+    scored = set(score_df["Ticker"].tolist()) if score_df is not None and not score_df.empty else set()
+    missing = [t for t in universe if t not in scored]
+    return [label, f"{len(scored)}/{len(universe)}", ", ".join([m.replace('.JK','') for m in missing[:5]]) if missing else "OK"]
 
-watch_commod_rank_df = rank_market_leaders(tuple(watchlist_commod), benchmark_ticker="DBC", period="1y", fallback_benchmark="GLD") if watchlist_commod else pd.DataFrame()
-if watchlist_commod and watch_commod_rank_df.empty:
-    watch_commod_rank_df = rank_market_leaders(tuple(watchlist_commod), benchmark_ticker="DBC", period="6mo", fallback_benchmark=None)
-watch_commod_score_df = score_ticker_table(watch_commod_rank_df, "COMMOD", core) if not watch_commod_rank_df.empty else pd.DataFrame()
-
-watch_crypto_rank_df = rank_market_leaders(tuple(watchlist_crypto), benchmark_ticker="BTC-USD", period="1y", fallback_benchmark="ETH-USD") if watchlist_crypto else pd.DataFrame()
-if watchlist_crypto and watch_crypto_rank_df.empty:
-    watch_crypto_rank_df = rank_market_leaders(tuple(watchlist_crypto), benchmark_ticker="BTC-USD", period="6mo", fallback_benchmark=None)
-watch_crypto_score_df = score_ticker_table(watch_crypto_rank_df, "CRYPTO", core) if not watch_crypto_rank_df.empty else pd.DataFrame()
-
+coverage_rows = [
+    coverage_row("US", us_universe, us_score_df),
+    coverage_row("IHSG", ihsg_universe, ihsg_score_df),
+    coverage_row("Forex", fx_universe, fx_score_df),
+    coverage_row("Commodities", commod_universe, commod_score_df),
+    coverage_row("Crypto", crypto_universe, crypto_score_df),
+]
 
 # -------------------------------------------------
 # HEADER
@@ -1677,31 +1457,7 @@ st.markdown(
 )
 
 st.markdown("### Dashboard Control Check")
-cc1, cc2, cc3 = st.columns(3)
-with cc1:
-    st.markdown("<div class='card'><div class='section-title'>Coverage • US / IHSG</div>", unsafe_allow_html=True)
-    st.markdown(table_html(["Universe", "Valid", "Missing", "Examples missing"], [
-        ["US " + coverage_rows(us_universe, us_score_df)[0][0], coverage_rows(us_universe, us_score_df)[0][1], coverage_rows(us_universe, us_score_df)[0][2], coverage_rows(us_universe, us_score_df)[0][3]],
-        ["IHSG " + coverage_rows(ihsg_universe, ihsg_score_df)[0][0], coverage_rows(ihsg_universe, ihsg_score_df)[0][1], coverage_rows(ihsg_universe, ihsg_score_df)[0][2], coverage_rows(ihsg_universe, ihsg_score_df)[0][3]],
-    ]), unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-with cc2:
-    st.markdown("<div class='card'><div class='section-title'>Coverage • Cross-Asset</div>", unsafe_allow_html=True)
-    st.markdown(table_html(["Universe", "Valid", "Missing", "Examples missing"], [
-        ["FX " + coverage_rows(fx_universe, fx_score_df)[0][0], coverage_rows(fx_universe, fx_score_df)[0][1], coverage_rows(fx_universe, fx_score_df)[0][2], coverage_rows(fx_universe, fx_score_df)[0][3]],
-        ["Commod " + coverage_rows(commod_universe, commod_score_df)[0][0], coverage_rows(commod_universe, commod_score_df)[0][1], coverage_rows(commod_universe, commod_score_df)[0][2], coverage_rows(commod_universe, commod_score_df)[0][3]],
-        ["Crypto " + coverage_rows(crypto_universe, crypto_score_df)[0][0], coverage_rows(crypto_universe, crypto_score_df)[0][1], coverage_rows(crypto_universe, crypto_score_df)[0][2], coverage_rows(crypto_universe, crypto_score_df)[0][3]],
-    ]), unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-with cc3:
-    st.markdown("<div class='card'><div class='section-title'>Control wiring</div>", unsafe_allow_html=True)
-    st.markdown(table_html(["Input", "Feeds into"], [
-        ["Extra tickers", "Universe + exact watchlist"],
-        ["Exact watchlists", "Force-show score tables"],
-        ["Impact custom list", "Impact board when custom mode is selected"],
-        ["Rows per table", "All main/supporting tables"],
-    ]), unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+st.markdown(table_html(["Market", "Coverage", "Missing examples"], coverage_rows), unsafe_allow_html=True)
 
 # -------------------------------------------------
 # QUAD BOARD
@@ -1736,16 +1492,6 @@ with q_right:
     ]
     st.markdown(table_html(["Field", "Read"], regime_rows), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
-
-st.markdown("<div class='card'><div class='section-title'>Current / Next Winners-Losers Matrix</div>", unsafe_allow_html=True)
-st.markdown(
-    table_html(
-        ["Window", "Quad", "Usually strong", "Usually weak", "Merged strong groups", "Merged weak groups"],
-        quad_matrix_rows(core, cur_stage),
-    ),
-    unsafe_allow_html=True,
-)
-st.markdown("</div>", unsafe_allow_html=True)
 
 # -------------------------------------------------
 # IMPACT BOARD
@@ -1787,21 +1533,9 @@ with i_right:
     st.markdown("</div>", unsafe_allow_html=True)
 
 if not impact_df.empty:
-    impact_extra_cols = st.columns([1.1, 1.1])
-    with impact_extra_cols[0]:
-        st.markdown("<div class='card'><div class='section-title'>Basket Showdown</div>", unsafe_allow_html=True)
-        st.markdown(
-            table_html(
-                ["Basket", "Names", "Δ MCap", "Idx contrib", "Avg 1D", "Weight"],
-                basket_showdown_rows(impact_df, bag7, old_wall),
-            ),
-            unsafe_allow_html=True,
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
-    with impact_extra_cols[1]:
-        st.markdown("<div class='card'><div class='section-title'>Merged Correlated Impact</div>", unsafe_allow_html=True)
-        st.markdown(table_html(["Cluster", "Names", "Δ MCap", "Avg 1D", "Weight"], theme_impact_rows(impact_df, US_THEME_TAGS, region="US")), unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("<div class='card'><div class='section-title'>Theme Impact Rollup</div>", unsafe_allow_html=True)
+    st.markdown(table_html(["Theme", "Δ MCap", "Avg 1D", "Weight"], theme_impact_rows(impact_df, US_THEME_TAGS)), unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # -------------------------------------------------
 # SIGNAL BOARD
@@ -1861,124 +1595,117 @@ def score_rows_for_display(df: pd.DataFrame, mode: str, n: int = 10) -> List[Lis
             r["Bias"],
             f"{r['LongScore']:.0f}",
             f"{r['ShortScore']:.0f}",
-            r.get("ThemeCluster", r["Theme"]),
+            r.get("Cluster", r.get("Theme", "Other")),
             r["Comment"],
         ])
     return out
 
-if region_mode == "US":
-    ls_cols = st.columns(2)
-    panels = [("Top Long Candidates • US", us_score_df, "long"), ("Top Short Candidates • US", us_score_df, "short")]
-    for col, (title, df, mode) in zip(ls_cols, panels):
-        with col:
-            st.markdown(f"<div class='card'><div class='section-title'>{title}</div>", unsafe_allow_html=True)
-            st.markdown(table_html(["Ticker", "Bias", "Long", "Short", "Cluster", "Comment"], score_rows_for_display(df, mode, show_count)), unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-elif region_mode == "IHSG":
-    ls_cols = st.columns(2)
-    panels = [("Top Long Candidates • IHSG", ihsg_score_df, "long"), ("Top Short Candidates • IHSG", ihsg_score_df, "short")]
-    for col, (title, df, mode) in zip(ls_cols, panels):
-        with col:
-            st.markdown(f"<div class='card'><div class='section-title'>{title}</div>", unsafe_allow_html=True)
-            st.markdown(table_html(["Ticker", "Bias", "Long", "Short", "Cluster", "Comment"], score_rows_for_display(df, mode, show_count)), unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-elif region_mode == "Both":
-    ls_cols = st.columns(4)
-    panels = [
-        ("Top Longs • US", us_score_df, "long"),
-        ("Top Shorts • US", us_score_df, "short"),
-        ("Top Longs • IHSG", ihsg_score_df, "long"),
-        ("Top Shorts • IHSG", ihsg_score_df, "short"),
-    ]
-    for col, (title, df, mode) in zip(ls_cols, panels):
-        with col:
-            st.markdown(f"<div class='card'><div class='section-title'>{title}</div>", unsafe_allow_html=True)
-            st.markdown(table_html(["Ticker", "Bias", "Long", "Short", "Cluster", "Comment"], score_rows_for_display(df, mode, min(show_count, 8))), unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-else:
-    ls_cols = st.columns(5)
-    panels = [
-        ("US", us_score_df, "long"),
-        ("IHSG", ihsg_score_df, "long"),
-        ("Forex", fx_score_df, "long"),
-        ("Commodities", commod_score_df, "long"),
-        ("Crypto", crypto_score_df, "long"),
-    ]
-    for col, (title, df, mode) in zip(ls_cols, panels):
-        with col:
-            st.markdown(f"<div class='card'><div class='section-title'>Top Longs • {title}</div>", unsafe_allow_html=True)
-            st.markdown(table_html(["Ticker", "Bias", "Long", "Short", "Cluster", "Comment"], score_rows_for_display(df, mode, min(show_count, 8))), unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
-    ls2 = st.columns(3)
-    extra_panels = [
-        ("Top Shorts • Forex", fx_score_df, "short"),
-        ("Top Shorts • Commodities", commod_score_df, "short"),
-        ("Top Shorts • Crypto", crypto_score_df, "short"),
-    ]
-    for col, (title, df, mode) in zip(ls2, extra_panels):
-        with col:
-            st.markdown(f"<div class='card'><div class='section-title'>{title}</div>", unsafe_allow_html=True)
-            st.markdown(table_html(["Ticker", "Bias", "Long", "Short", "Cluster", "Comment"], score_rows_for_display(df, mode, min(show_count, 8))), unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
 
-st.markdown("### Exact Watchlist Score")
-watch_panels = [
-    ("Exact Watchlist • US", watch_us_score_df),
-    ("Exact Watchlist • IHSG", watch_ihsg_score_df),
-    ("Exact Watchlist • Forex", watch_fx_score_df),
-    ("Exact Watchlist • Commodities", watch_commod_score_df),
-    ("Exact Watchlist • Crypto", watch_crypto_score_df),
+def exact_rows_for_display(df: pd.DataFrame, watchlist: List[str], n: int = 12) -> List[List[str]]:
+    if not watchlist:
+        return [["No watchlist", "-", "-", "-", "-", "-", "-"]]
+    if df is None or df.empty:
+        return [[t.replace('.JK',''), "No data", "-", "-", "Missing", "-", "No price / benchmark data"] for t in watchlist[:n]]
+    out = []
+    work = df.set_index("Ticker", drop=False)
+    for t in watchlist[:n]:
+        if t in work.index:
+            r = work.loc[t]
+            out.append([
+                t.replace('.JK',''), r["Bias"], f"{r['LongScore']:.0f}", f"{r['ShortScore']:.0f}", r["State"], r.get("Cluster", r.get("Theme", "Other")), r["Comment"],
+            ])
+        else:
+            out.append([t.replace('.JK',''), "No data", "-", "-", "Missing", "-", "Ticker not scored / bad coverage"] )
+    return out
+
+
+def leadership_rows(df: pd.DataFrame, mode: str, n: int = 8) -> List[List[str]]:
+    if df is None or df.empty:
+        return [["No data", "-", "-", "-", "-"]]
+    work = df.copy()
+    if mode == "leaders":
+        work = work[work["State"].isin(["Leader"])].sort_values(["RSScore", "Alpha21"], ascending=False)
+    elif mode == "emerging":
+        work = work[work["State"].isin(["Emerging"])].sort_values(["StartScore", "Alpha21"], ascending=False)
+    else:
+        work = work[work["State"].isin(["Fading", "Weak"])].sort_values(["ShortScore", "Alpha21"], ascending=[False, True]) if "ShortScore" in work.columns else work.sort_values(["Alpha21", "Alpha63"])
+    if work.empty:
+        return [["None", "-", "-", "-", "No clean names"]]
+    out = []
+    for _, r in work.head(n).iterrows():
+        out.append([r["Ticker"].replace(".JK", ""), r["State"], pct(float(r["LongScore"]) / 100.0) if "LongScore" in r else "-", pct(float(r["ShortScore"]) / 100.0) if "ShortScore" in r else "-", r["Comment"]])
+    return out
+
+
+def cluster_rows(df: pd.DataFrame, n: int = 6) -> List[List[str]]:
+    if df is None or df.empty:
+        return [["No data", "-", "-", "-", "-"]]
+    key = "Cluster" if "Cluster" in df.columns else ("Theme" if "Theme" in df.columns else None)
+    if not key:
+        return [["No cluster", "-", "-", "-", "-"]]
+    work = df.copy()
+    agg = (
+        work.groupby(key, as_index=False)
+        .agg(Names=("Ticker", "count"), AvgLong=("LongScore", "mean"), AvgShort=("ShortScore", "mean"), Examples=("Ticker", lambda s: ", ".join([x.replace('.JK','') for x in list(s.head(3))])))
+        .sort_values(["AvgLong", "Names"], ascending=[False, False])
+    )
+    out = []
+    for _, r in agg.head(n).iterrows():
+        out.append([r[key], str(int(r["Names"])), f"{r['AvgLong']:.0f}", f"{r['AvgShort']:.0f}", r["Examples"]])
+    return out
+
+
+def render_market_panels(label: str, df: pd.DataFrame, watchlist: List[str], tabs_container=None):
+    cols = st.columns(2)
+    with cols[0]:
+        st.markdown(f"<div class='card'><div class='section-title'>Top Long Candidates • {label}</div>", unsafe_allow_html=True)
+        st.markdown(table_html(["Ticker", "Bias", "Long", "Short", "Cluster", "Comment"], score_rows_for_display(df, "long", show_count)), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    with cols[1]:
+        st.markdown(f"<div class='card'><div class='section-title'>Top Short Candidates • {label}</div>", unsafe_allow_html=True)
+        st.markdown(table_html(["Ticker", "Bias", "Long", "Short", "Cluster", "Comment"], score_rows_for_display(df, "short", show_count)), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown(f"<div class='card'><div class='section-title'>Exact Watchlist • {label}</div>", unsafe_allow_html=True)
+    st.markdown(table_html(["Ticker", "Bias", "Long", "Short", "State", "Cluster", "Comment"], exact_rows_for_display(df, watchlist, max(show_count, len(watchlist)))), unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+
+market_payloads = [
+    ("US", us_score_df, watchlist_us),
+    ("IHSG", ihsg_score_df, watchlist_ihsg),
+    ("Forex", fx_score_df, watchlist_fx),
+    ("Commodities", commod_score_df, watchlist_commod),
+    ("Crypto", crypto_score_df, watchlist_crypto),
 ]
-for i in range(0, len(watch_panels), 2):
-    cols = st.columns(min(2, len(watch_panels) - i))
-    for col, (title, df) in zip(cols, watch_panels[i:i+2]):
-        with col:
-            st.markdown(f"<div class='card'><div class='section-title'>{title}</div>", unsafe_allow_html=True)
-            st.markdown(table_html(["Ticker", "Bias", "Long", "Short", "State", "Cluster", "Comment"], watchlist_display_rows(df, max(show_count, 8))), unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+
+if region_mode == "All markets":
+    tabs = st.tabs([m[0] for m in market_payloads])
+    for tab, (label, df, watchlist) in zip(tabs, market_payloads):
+        with tab:
+            render_market_panels(label, df, watchlist)
+else:
+    payload = {m[0]: m for m in market_payloads}[region_mode]
+    render_market_panels(payload[0], payload[1], payload[2])
 
 with st.expander("Show supporting tables that still matter"):
-    st.markdown("<div class='small-muted'>These are supporting reads that were compressed out of the main layout. They still matter for confirmation, breadth, and leadership quality.</div>", unsafe_allow_html=True)
-    sup1, sup2 = st.columns(2)
-    with sup1:
-        st.markdown("<div class='card'><div class='section-title'>US Leadership Diagnostics</div>", unsafe_allow_html=True)
-        st.markdown(table_html(["Ticker", "State", "Long", "Short", "Comment"], leadership_mode_rows(us_score_df, "leaders", min(show_count, 10))), unsafe_allow_html=True)
-        st.markdown(table_html(["Ticker", "State", "Long", "Short", "Comment"], leadership_mode_rows(us_score_df, "emerging", min(show_count, 10))), unsafe_allow_html=True)
-        st.markdown(table_html(["Ticker", "State", "Long", "Short", "Comment"], leadership_mode_rows(us_score_df, "weak", min(show_count, 10))), unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-    with sup2:
-        st.markdown("<div class='card'><div class='section-title'>IHSG Leadership Diagnostics</div>", unsafe_allow_html=True)
-        st.markdown(table_html(["Ticker", "State", "Long", "Short", "Comment"], leadership_mode_rows(ihsg_score_df, "leaders", min(show_count, 10))), unsafe_allow_html=True)
-        st.markdown(table_html(["Ticker", "State", "Long", "Short", "Comment"], leadership_mode_rows(ihsg_score_df, "emerging", min(show_count, 10))), unsafe_allow_html=True)
-        st.markdown(table_html(["Ticker", "State", "Long", "Short", "Comment"], leadership_mode_rows(ihsg_score_df, "weak", min(show_count, 10))), unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-    sup3, sup4 = st.columns(2)
-    with sup3:
-        st.markdown("<div class='card'><div class='section-title'>US Cluster Summary</div>", unsafe_allow_html=True)
-        st.markdown(table_html(["Cluster", "Names", "Avg Long", "Avg Short", "Examples"], cluster_summary_rows(us_score_df, min(show_count, 8))), unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-    with sup4:
-        st.markdown("<div class='card'><div class='section-title'>IHSG Cluster Summary</div>", unsafe_allow_html=True)
-        st.markdown(table_html(["Cluster", "Names", "Avg Long", "Avg Short", "Examples"], cluster_summary_rows(ihsg_score_df, min(show_count, 8))), unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-    sup5, sup6, sup7 = st.columns(3)
-    with sup5:
-        st.markdown("<div class='card'><div class='section-title'>Forex Diagnostics</div>", unsafe_allow_html=True)
-        st.markdown(table_html(["Ticker", "State", "Long", "Short", "Comment"], leadership_mode_rows(fx_score_df, "leaders", min(show_count, 8))), unsafe_allow_html=True)
-        st.markdown(table_html(["Cluster", "Names", "Avg Long", "Avg Short", "Examples"], cluster_summary_rows(fx_score_df, min(show_count, 6))), unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-    with sup6:
-        st.markdown("<div class='card'><div class='section-title'>Commodities Diagnostics</div>", unsafe_allow_html=True)
-        st.markdown(table_html(["Ticker", "State", "Long", "Short", "Comment"], leadership_mode_rows(commod_score_df, "leaders", min(show_count, 8))), unsafe_allow_html=True)
-        st.markdown(table_html(["Cluster", "Names", "Avg Long", "Avg Short", "Examples"], cluster_summary_rows(commod_score_df, min(show_count, 6))), unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
-    with sup7:
-        st.markdown("<div class='card'><div class='section-title'>Crypto Diagnostics</div>", unsafe_allow_html=True)
-        st.markdown(table_html(["Ticker", "State", "Long", "Short", "Comment"], leadership_mode_rows(crypto_score_df, "leaders", min(show_count, 8))), unsafe_allow_html=True)
-        st.markdown(table_html(["Cluster", "Names", "Avg Long", "Avg Short", "Examples"], cluster_summary_rows(crypto_score_df, min(show_count, 6))), unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+    support_tabs = st.tabs([m[0] for m in market_payloads])
+    for tab, (label, df, _watchlist) in zip(support_tabs, market_payloads):
+        with tab:
+            a, b = st.columns(2)
+            with a:
+                st.markdown(f"<div class='card'><div class='section-title'>{label} Leadership Diagnostics</div>", unsafe_allow_html=True)
+                st.markdown(table_html(["Ticker", "State", "Long", "Short", "Comment"], leadership_rows(df, "leaders", show_count)), unsafe_allow_html=True)
+                st.write("")
+                st.markdown(table_html(["Ticker", "State", "Long", "Short", "Comment"], leadership_rows(df, "emerging", show_count)), unsafe_allow_html=True)
+                st.write("")
+                st.markdown(table_html(["Ticker", "State", "Long", "Short", "Comment"], leadership_rows(df, "fading", show_count)), unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+            with b:
+                st.markdown(f"<div class='card'><div class='section-title'>{label} Cluster Summary</div>", unsafe_allow_html=True)
+                st.markdown(table_html(["Cluster", "Names", "AvgLong", "AvgShort", "Examples"], cluster_rows(df, show_count)), unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown(
-    "<div class='small-muted'>Correlated names/themes are merged into tighter clusters where it improves readability. Ticker scores rank candidates by macro fit + relative strength + trend. They are watchlists, not guarantees. Impact board is an attribution lens, not a certainty machine. Extra tickers now also flow into the exact-watchlist tables so custom input always has a visible output. US, IHSG, forex, commodities, and crypto stay on the dashboard.</div>",
+    "<div class='small-muted'>Correlated names/themes are merged into tighter clusters where it improves readability. Ticker scores rank candidates by macro fit + relative strength + trend. They are watchlists, not guarantees. Impact board is an attribution lens, not a certainty machine.</div>",
     unsafe_allow_html=True,
 )
