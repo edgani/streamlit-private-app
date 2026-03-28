@@ -1338,6 +1338,55 @@ def watchlist_display_rows(df: pd.DataFrame, n: int = 12) -> List[List[str]]:
     return out
 
 
+def leadership_mode_rows(df: pd.DataFrame, mode: str = "leaders", n: int = 10) -> List[List[str]]:
+    if df is None or df.empty:
+        return [["No data", "-", "-", "-", "-"]]
+    work = df.copy()
+    if mode == "leaders":
+        work = work[work["State"].isin(["Leader"])].sort_values(["LongScore", "RSScore", "Alpha21"], ascending=False)
+    elif mode == "emerging":
+        work = work[work["State"].isin(["Emerging"])].sort_values(["StartScore", "Alpha21"], ascending=False)
+    else:
+        work = work[work["State"].isin(["Weak", "Fading"])].sort_values(["ShortScore", "Alpha21", "Alpha63"], ascending=[False, True, True])
+    if work.empty:
+        return [["None", "-", "-", "-", "No clean names"]]
+    rows = []
+    for _, r in work.head(n).iterrows():
+        rows.append([
+            r["Ticker"].replace(".JK", ""),
+            r["State"],
+            f"{r['LongScore']:.0f}",
+            f"{r['ShortScore']:.0f}",
+            r["Comment"],
+        ])
+    return rows
+
+
+def cluster_summary_rows(df: pd.DataFrame, n: int = 8) -> List[List[str]]:
+    if df is None or df.empty or "ThemeCluster" not in df.columns:
+        return [["No data", "-", "-", "-", "-"]]
+    agg = (
+        df.groupby("ThemeCluster", as_index=False)
+        .agg(
+            Members=("Ticker", "count"),
+            AvgLong=("LongScore", "mean"),
+            AvgShort=("ShortScore", "mean"),
+            Leaders=("Ticker", lambda s: ", ".join([x.replace('.JK','') for x in list(s.head(3))]))
+        )
+        .sort_values(["AvgLong", "AvgShort"], ascending=[False, True])
+    )
+    rows = []
+    for _, r in agg.head(n).iterrows():
+        rows.append([
+            r["ThemeCluster"],
+            str(int(r["Members"])),
+            f"{r['AvgLong']:.0f}",
+            f"{r['AvgShort']:.0f}",
+            r["Leaders"],
+        ])
+    return rows
+
+
 # -------------------------------------------------
 # SIDEBAR CONTROLS
 # -------------------------------------------------
@@ -1360,6 +1409,9 @@ extra_us = _clean_tickers(us_custom)
 extra_ihsg = _clean_tickers(ihsg_custom, ".JK")
 watchlist_us = _clean_tickers(watchlist_us_raw)
 watchlist_ihsg = _clean_tickers(watchlist_ihsg_raw, ".JK")
+# Make custom inputs visible by default in the exact-watchlist panels too.
+watchlist_us = list(dict.fromkeys(watchlist_us + extra_us))
+watchlist_ihsg = list(dict.fromkeys(watchlist_ihsg + extra_ihsg))
 
 us_universe = list(dict.fromkeys(US_UNIVERSE + extra_us))
 ihsg_universe = list(dict.fromkeys(IHSG_UNIVERSE + extra_ihsg))
@@ -1653,7 +1705,32 @@ if watchlist_us or watchlist_ihsg:
             )
             st.markdown("</div>", unsafe_allow_html=True)
 
+with st.expander("Show supporting tables that still matter"):
+    st.markdown("<div class='small-muted'>These are supporting reads that were compressed out of the main layout. They still matter for confirmation, breadth, and leadership quality.</div>", unsafe_allow_html=True)
+    sup1, sup2 = st.columns(2)
+    with sup1:
+        st.markdown("<div class='card'><div class='section-title'>US Leadership Diagnostics</div>", unsafe_allow_html=True)
+        st.markdown(table_html(["Ticker", "State", "Long", "Short", "Comment"], leadership_mode_rows(us_score_df, "leaders", min(show_count, 10))), unsafe_allow_html=True)
+        st.markdown(table_html(["Ticker", "State", "Long", "Short", "Comment"], leadership_mode_rows(us_score_df, "emerging", min(show_count, 10))), unsafe_allow_html=True)
+        st.markdown(table_html(["Ticker", "State", "Long", "Short", "Comment"], leadership_mode_rows(us_score_df, "weak", min(show_count, 10))), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    with sup2:
+        st.markdown("<div class='card'><div class='section-title'>IHSG Leadership Diagnostics</div>", unsafe_allow_html=True)
+        st.markdown(table_html(["Ticker", "State", "Long", "Short", "Comment"], leadership_mode_rows(ihsg_score_df, "leaders", min(show_count, 10))), unsafe_allow_html=True)
+        st.markdown(table_html(["Ticker", "State", "Long", "Short", "Comment"], leadership_mode_rows(ihsg_score_df, "emerging", min(show_count, 10))), unsafe_allow_html=True)
+        st.markdown(table_html(["Ticker", "State", "Long", "Short", "Comment"], leadership_mode_rows(ihsg_score_df, "weak", min(show_count, 10))), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    sup3, sup4 = st.columns(2)
+    with sup3:
+        st.markdown("<div class='card'><div class='section-title'>US Cluster Summary</div>", unsafe_allow_html=True)
+        st.markdown(table_html(["Cluster", "Names", "Avg Long", "Avg Short", "Examples"], cluster_summary_rows(us_score_df, min(show_count, 8))), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    with sup4:
+        st.markdown("<div class='card'><div class='section-title'>IHSG Cluster Summary</div>", unsafe_allow_html=True)
+        st.markdown(table_html(["Cluster", "Names", "Avg Long", "Avg Short", "Examples"], cluster_summary_rows(ihsg_score_df, min(show_count, 8))), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
 st.markdown(
-    "<div class='small-muted'>Correlated names/themes are merged into tighter clusters where it improves readability. Ticker scores rank candidates by macro fit + relative strength + trend. They are watchlists, not guarantees. Impact board is an attribution lens, not a certainty machine.</div>",
+    "<div class='small-muted'>Correlated names/themes are merged into tighter clusters where it improves readability. Ticker scores rank candidates by macro fit + relative strength + trend. They are watchlists, not guarantees. Impact board is an attribution lens, not a certainty machine. Extra tickers now also flow into the exact-watchlist tables so custom input always has a visible output.</div>",
     unsafe_allow_html=True,
 )
