@@ -13,9 +13,9 @@ try:
 except Exception:
     yf = None
 
-st.set_page_config(page_title="QuantFinalV4_Max", layout="wide")
+st.set_page_config(page_title="QuantFinalV6_3_Q3Anchored", layout="wide")
 
-APP_NAME = "QuantFinalV4_Max"
+APP_NAME = "QuantFinalV6_3_Q3Anchored"
 CORE_NAME = "Hedgeye_LiveQuad_Core_v2_5"
 
 Q3_CONSENSUS_ANCHOR = True
@@ -2321,7 +2321,7 @@ event_rows = [["Macro release timing", "dynamic", "Use actual calendar; avoid fa
 
 # RENDER
 st.title("QuantFinalV4_Max")
-st.markdown("<div class='small-muted'>Core alpha engine: Hedgeye_LiveQuad_Core_v2_5 • Visual shell: V4 / attachment-2 merge • Policy: Q3-anchored live regime • Live backbone: FRED + optional Yahoo</div>", unsafe_allow_html=True)
+st.markdown("<div class='small-muted'>Core alpha engine: Hedgeye_LiveQuad_Core_v2_5 • Q3-anchored decision support shell • Live backbone: FRED + optional Yahoo</div>", unsafe_allow_html=True)
 st.write("")
 
 # ---- attachment-2 style summary ----
@@ -2345,8 +2345,6 @@ else:
     action_sub = 'Tactical only sampai confirmation membaik.'
 
 next_read = f"{core['next_q']}"
-risk_pack = compute_riskoff_and_crash()
-risk_on = compute_riskon_meter(risk_pack)
 if core['current_q'] == 'Q3' and core['next_q'] == 'Q2':
     next_sub = 'Early Q2 if breadth + small caps + USD cooling confirm'
 elif core['next_q'] == core['current_q']:
@@ -2354,16 +2352,16 @@ elif core['next_q'] == core['current_q']:
 else:
     next_sub = f"Most likely path from {core['current_q']}"
 
-hero_cols1 = st.columns(6)
-hero_items1 = [
+hero_cols = st.columns(6)
+hero_items = [
     ("Decision Regime", core['current_q'], pill_html(f"{cur_stage} {core['current_q']}") if cur_stage else pill_html(core['current_q'])),
     ("Confidence", pct(core['confidence']), pill_html(f"Agreement {pct(core['agreement'])}")),
     ("Variant Now", variant_now, pill_html(core['sub_phase'])),
     ("Next Most Likely", next_read, pill_html(next_sub)),
+    ("Crash Meter", pct(crash_now), pill_html(crash_meter_label(crash_now))),
     ("Action Bias", action_bias, pill_html(action_sub)),
-    ("Playbook", current_playbook(), pill_html(f"Conviction {pct(core['confidence'])}")),
 ]
-for col, (title, value, sub_html) in zip(hero_cols1, hero_items1):
+for col, (title, value, sub_html) in zip(hero_cols, hero_items):
     with col:
         st.markdown(f"""
         <div class='hero-card'>
@@ -2372,234 +2370,13 @@ for col, (title, value, sub_html) in zip(hero_cols1, hero_items1):
           <div class='metric-sub'>{sub_html}</div>
         </div>
         """, unsafe_allow_html=True)
-
-hero_cols2 = st.columns(3)
-hero_items2 = [
-    ("Risk-On", pct(risk_on), pill_html(risk_on_label(risk_on))),
-    ("Risk-Off", pct(risk_pack['riskoff']), pill_html(meter_label(risk_pack['riskoff']))),
-    ("Big Crash", pct(risk_pack['crash']), pill_html(meter_label(risk_pack['crash']))),
-]
-for col, (title, value, sub_html) in zip(hero_cols2, hero_items2):
-    with col:
-        st.markdown(f"""
-        <div class='hero-card'>
-          <div class='metric-title'>{title}</div>
-          <div style='font-size:1.2rem;font-weight:800'>{value}</div>
-          <div class='metric-sub'>{sub_html}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-st.markdown(
-    f"<div class='small-muted'><b>Risk-On:</b> breadth + small caps + vol calm + credit okay. <b>Risk-Off:</b> de-risking / correction risk. <b>Big Crash:</b> needs Russell + breadth + vol + credit confirmation.</div>",
-    unsafe_allow_html=True,
-)
 
 quick_read = (
     f"Quick read: Sekarang {cur_stage} {core['current_q']} / {variant_now}. "
     f"Base case masih {core['current_q']}, tapi kalau transition lanjut jalur paling mungkin adalah {core['next_q']}. "
-    f"Action bias sekarang: {action_bias}; {action_sub}. "
-    f"Risk-On {pct(risk_on)}, Risk-Off {pct(risk_pack['riskoff'])}, Big Crash {pct(risk_pack['crash'])}."
+    f"Action bias sekarang: {action_bias}; {action_sub}"
 )
 st.markdown(f"<div class='note-box'><b>{quick_read}</b></div>", unsafe_allow_html=True)
-
-
-def _safe_last_pct_rank(s: pd.Series, high_bad: bool = True, lookback: int = 252) -> float:
-    s = s.dropna()
-    if len(s) < 30:
-        return 0.5
-    hist = s.iloc[-lookback:]
-    pct_rank = float((hist <= hist.iloc[-1]).mean())
-    return pct_rank if high_bad else 1.0 - pct_rank
-
-def _pair_ratio_series(a: str, b: str) -> pd.Series:
-    sa = yahoo_close(a, '1y')
-    sb = yahoo_close(b, '1y')
-    if sa.empty or sb.empty:
-        return pd.Series(dtype=float)
-    df = pd.concat([sa.rename('a'), sb.rename('b')], axis=1).dropna()
-    if df.empty:
-        return pd.Series(dtype=float)
-    return (df['a'] / df['b']).dropna()
-
-def _distance_from_ma_score(ticker: str, ma: int = 200) -> float:
-    s = yahoo_close(ticker, '1y').dropna()
-    if len(s) < ma + 5:
-        return 0.5
-    dist = (s.iloc[-1] - s.rolling(ma).mean().iloc[-1]) / max(1e-9, s.rolling(ma).mean().iloc[-1])
-    # below MA is bad
-    return clamp01((0 - dist) / 0.20)
-
-def _drawdown_score(ticker: str, lookback: int = 63) -> float:
-    s = yahoo_close(ticker, '1y').dropna()
-    if len(s) < lookback + 5:
-        return 0.5
-    peak = s.iloc[-lookback:].max()
-    dd = s.iloc[-1] / peak - 1
-    return clamp01(abs(min(0.0, dd)) / 0.20)
-
-def _failed_rebound_score(ticker: str) -> float:
-    s = yahoo_close(ticker, '1y').dropna()
-    if len(s) < 220:
-        return 0.5
-    ma50 = s.rolling(50).mean()
-    ma200 = s.rolling(200).mean()
-    last = s.iloc[-1]
-    warning = 0.0
-    if last < ma200.iloc[-1]:
-        warning += 0.5
-    if len(s) >= 15:
-        recent_high = s.iloc[-15:].max()
-        if recent_high < ma50.iloc[-1] and last < s.iloc[-5:].mean():
-            warning += 0.5
-    return clamp01(warning)
-
-def compute_riskoff_and_crash() -> Dict[str, float]:
-    # Risk-off uses lighter / earlier warnings
-    fg_stress = clamp01((55 - fg_score) / 35) if fg_score <= 55 else clamp01((fg_score - 75) / 25 * 0.6)
-    iwm_spy = _pair_ratio_series('IWM', 'SPY')
-    russell_rel = _safe_last_pct_rank(iwm_spy, high_bad=False) if not iwm_spy.empty else 0.5
-    russell_dma = _distance_from_ma_score('IWM', 200)
-    russell_dd = _drawdown_score('IWM', 63)
-    russell_fail = _failed_rebound_score('IWM')
-    russell_block = clamp01(0.35 * russell_rel + 0.25 * russell_dma + 0.20 * russell_dd + 0.20 * russell_fail)
-
-    rsp_spy = _pair_ratio_series('RSP', 'SPY')
-    breadth_proxy = _safe_last_pct_rank(rsp_spy, high_bad=False) if not rsp_spy.empty else clamp01(1 - core['breadth'])
-    breadth_block = clamp01(0.65 * clamp01(1 - core['breadth']) + 0.35 * breadth_proxy)
-
-    vix = yahoo_close('^VIX', '1y')
-    vvix = yahoo_close('^VVIX', '1y')
-    vix3m = yahoo_close('^VIX3M', '1y')
-    vix_p = _safe_last_pct_rank(vix, high_bad=True) if not vix.empty else 0.5
-    vvix_p = _safe_last_pct_rank(vvix, high_bad=True) if not vvix.empty else vix_p
-    term = pd.Series(dtype=float)
-    if not vix.empty and not vix3m.empty:
-        df = pd.concat([vix.rename('vix'), vix3m.rename('vix3m')], axis=1).dropna()
-        if not df.empty:
-            term = (df['vix'] / df['vix3m']).dropna()
-    term_p = _safe_last_pct_rank(term, high_bad=True) if not term.empty else 0.5
-    vol_block = clamp01(0.40 * vix_p + 0.35 * vvix_p + 0.25 * term_p)
-
-    hy = SER['HY'].dropna() if 'HY' in SER else pd.Series(dtype=float)
-    hy_p = _safe_last_pct_rank(hy, high_bad=True, lookback=156) if not hy.empty else 0.5
-    hyg_lqd = _pair_ratio_series('HYG', 'LQD')
-    hyg_lqd_p = _safe_last_pct_rank(hyg_lqd, high_bad=False) if not hyg_lqd.empty else 0.5
-    nfci = SER['NFCI'].dropna() if 'NFCI' in SER else pd.Series(dtype=float)
-    nfci_p = _safe_last_pct_rank(nfci, high_bad=True, lookback=156) if not nfci.empty else 0.5
-    credit_block = clamp01(0.40 * hy_p + 0.30 * hyg_lqd_p + 0.30 * nfci_p)
-
-    spy = yahoo_close('SPY', '1y').dropna()
-    trend_block = 0.5
-    if len(spy) > 220:
-        ma50 = spy.rolling(50).mean().iloc[-1]
-        ma200 = spy.rolling(200).mean().iloc[-1]
-        below = 0.0
-        below += 0.45 if spy.iloc[-1] < ma50 else 0.0
-        below += 0.35 if spy.iloc[-1] < ma200 else 0.0
-        below += 0.20 if _failed_rebound_score('SPY') > 0.5 else 0.0
-        trend_block = clamp01(below)
-
-    usd = SER['USD'].dropna() if 'USD' in SER else pd.Series(dtype=float)
-    usd_p = _safe_last_pct_rank(usd, high_bad=True, lookback=156) if not usd.empty else 0.5
-    usd_roc = usd.pct_change(20).dropna() if not usd.empty else pd.Series(dtype=float)
-    usd_roc_p = _safe_last_pct_rank(usd_roc, high_bad=True, lookback=156) if not usd_roc.empty else 0.5
-    macro_block = clamp01(0.45 * usd_p + 0.25 * usd_roc_p + 0.30 * core['stress_liq'])
-
-    sentiment_block = clamp01(0.60 * fg_stress + 0.40 * vix_p)
-
-    riskoff = clamp01(0.22 * fg_stress + 0.18 * vix_p + 0.14 * clamp01(1 - core['breadth']) + 0.14 * russell_rel + 0.12 * usd_p + 0.10 * trend_block + 0.10 * core['fragility'])
-    big_raw = 0.15 * russell_block + 0.20 * breadth_block + 0.20 * vol_block + 0.15 * credit_block + 0.10 * trend_block + 0.10 * macro_block + 0.10 * sentiment_block
-    core_flags = [russell_block, breadth_block, vol_block, credit_block]
-    core_confirm = sum(1 for x in core_flags if x >= 0.60)
-    if core_confirm < 3:
-        big_raw *= 0.82
-    big_raw = clamp01(big_raw)
-    return {
-        'riskoff': riskoff, 'crash': big_raw, 'core_confirm': core_confirm,
-        'russell': russell_block, 'breadth': breadth_block, 'vol': vol_block, 'credit': credit_block,
-        'trend': trend_block, 'macro': macro_block, 'sentiment': sentiment_block
-    }
-
-def compute_riskon_meter(risk_pack: Dict[str, float]) -> float:
-    broad_participation = clamp01(core['breadth'])
-    small_caps_ok = clamp01(1.0 - risk_pack['russell'])
-    vol_calm = clamp01(1.0 - risk_pack['vol'])
-    credit_ok = clamp01(1.0 - risk_pack['credit'])
-    trend_ok = clamp01(1.0 - risk_pack['trend'])
-    macro_ok = clamp01(1.0 - risk_pack['macro'])
-    sentiment_ok = clamp01(1.0 - risk_pack['sentiment'])
-    score = (
-        0.22 * broad_participation +
-        0.18 * small_caps_ok +
-        0.16 * vol_calm +
-        0.14 * credit_ok +
-        0.12 * trend_ok +
-        0.10 * macro_ok +
-        0.08 * sentiment_ok
-    )
-    if core['current_q'] in ['Q1', 'Q2']:
-        score += 0.05
-    elif core['current_q'] in ['Q3', 'Q4']:
-        score -= 0.05
-    if core['current_q'] == 'Q3' and core['next_q'] == 'Q2':
-        score += 0.04 * broad_participation + 0.03 * small_caps_ok
-    return clamp01(score)
-
-def risk_on_label(x: float) -> str:
-    if x >= 0.80:
-        return 'Strong'
-    if x >= 0.65:
-        return 'Usable'
-    if x >= 0.45:
-        return 'Mixed'
-    if x >= 0.25:
-        return 'Weak'
-    return 'Low'
-
-def meter_label(x: float) -> str:
-    if x >= 0.85: return 'Extreme'
-    if x >= 0.70: return 'Severe'
-    if x >= 0.56: return 'High'
-    if x >= 0.41: return 'Elevated'
-    if x >= 0.26: return 'Risk-off'
-    return 'Low'
-
-def commodity_resource_intro(core: Dict[str, float]) -> str:
-    return (
-        f"Sekarang energy/commodity complex lebih cocok dibaca sebagai hedge / shock complex, bukan broad clean beta. "
-        f"Dengan state {infer_cycle_stage(core['current_q'])[0]} {core['current_q']} dan varian {_transition_variant(core)}, oil-gas dan coal masih lebih direct; metals dan shipping butuh confirm breadth lebih dulu. "
-        f"Kalau next {core['next_q']} menang dengan breadth yang lebih bersih, leadership bisa geser dari hedge names ke cyclical commodity complex."
-    )
-
-def build_commodity_resource_map_rows() -> List[List[str]]:
-    return [
-        ['Global', 'Oil / gas', 'majors, upstream, LNG, OFS', 'Usable but selective', 'Treat as direct inflation / supply-shock hedge first, not broad clean beta.', 'If Q2 gets cleaner, shift from hedge logic to cyclical reflation logic.'],
-        ['Global', 'Coal', 'thermal coal, coal miners, coal logistics', 'Usable selectively', 'Works as dirty-energy / inflation hedge, especially in bad reflation.', 'If Q2 confirms, coal becomes more cyclical and less pure hedge.'],
-        ['Global', 'Metals', 'copper, steel, aluminum, diversified miners', 'Not confirmed yet', 'Need breadth and industrial confirmation; do not treat as clean winner yet.', 'If Q2 wins cleanly, metals should improve earlier and broader.'],
-        ['Global', 'Shipping', 'tankers, LNG shipping, dry bulk, energy transport', 'Selective', 'Use where energy flow disruption / rates help; do not assume all shipping wins equally.', 'If Q2 wins, leadership can broaden from energy-linked routes to trade-sensitive names.'],
-        ['Global', 'Positive spillovers', 'oil services, rail/logistics, industrial suppliers, commodity FX', 'Conditional', 'Use only where energy shock is translating into pricing power or throughput.', 'If Q2 wins, these become more volume / cyclical expressions.'],
-        ['Global', 'Pressured losers', 'airlines, fuel-heavy transport, cost-sensitive chemicals, discretionary', 'Still pressured', 'Avoid broad longs if fuel shock is still the main driver.', 'Pressure should ease only if oil cools and breadth broadens.'],
-        ['IHSG', 'IHSG oil-gas', 'MEDC, AKRA, ESSA, ELSA, RAJA / related', 'Selective', 'Use as inflation / energy-linked hedge, not blind local beta.', 'If Q2 wins cleanly, can broaden into cyclical reflation names.'],
-        ['IHSG', 'IHSG coal', 'ADRO, PTBA, ITMG, coal-linked logistics', 'Usable selectively', 'Treat as commodity hedge / nominal revenue support first.', 'If Q2 confirms, coal becomes more cyclical and less pure hedge.'],
-        ['IHSG', 'IHSG metals', 'nickel/copper/steel-linked names', 'Not confirmed', 'Need cleaner global growth / industrial breadth.', 'If Q2 wins, metals should improve earlier.'],
-        ['IHSG', 'IHSG shipping', 'HUMI, GTSI, WINS, TMAS / route-rate stories', 'Selective', 'Use only where route/rate story is clear; do not assume all shipping wins.', 'If Q2 wins, trade-sensitive shipping can broaden.'],
-    ]
-
-def build_meter_breakdown_rows(risk_pack: Dict[str, float], risk_on: float) -> List[List[str]]:
-    return [
-        ['Risk-On meter', f"{pct(risk_on)} ({risk_on_label(risk_on)})", 'Broadening participation / cleaner beta / healthier risk-taking'],
-        ['Risk-Off meter', f"{pct(risk_pack['riskoff'])} ({meter_label(risk_pack['riskoff'])})", 'De-risking / correction / volatility spike risk'],
-        ['Big Crash meter', f"{pct(risk_pack['crash'])} ({meter_label(risk_pack['crash'])})", 'Cascading selloff / regime-break risk'],
-        ['Core crash gate', f"{risk_pack['core_confirm']}/4 blocks", 'Need 3 of 4 core blocks (Russell / Breadth / Vol / Credit) for cleaner crash confirmation'],
-        ['Russell stress', pct(risk_pack['russell']), 'Early small-cap / fragility warning'],
-        ['Breadth damage', pct(risk_pack['breadth']), 'Internal market deterioration / narrowing participation'],
-        ['Vol complex', pct(risk_pack['vol']), 'VIX / VVIX / term-structure stress'],
-        ['Credit / liquidity', pct(risk_pack['credit']), 'Funding / spread / risk-appetite stress'],
-        ['Trend / structure', pct(risk_pack['trend']), 'Failed rallies / structure damage'],
-        ['Macro / USD / rates', pct(risk_pack['macro']), 'Dollar / rates / liquidity pressure'],
-        ['Sentiment / F&G', pct(risk_pack['sentiment']), 'Supporting signal; not core crash engine alone'],
-    ]
-
 
 # tabs like attachment-2
 t_decision, t_cross, t_risk, t_details = st.tabs(["Decision", "Cross-Asset", "Risk / Relative", "Details"])
@@ -2630,10 +2407,6 @@ with t_cross:
     st.markdown(table_html(["FX", "Bias", "Best use"], build_fx_display_rows(fx_score_rows)), unsafe_allow_html=True)
     st.write("")
     st.markdown(table_html(["Best simple FX expression", "Edge", "Read"], build_fx_expressions_table(fx_score_rows)), unsafe_allow_html=True)
-    st.write("")
-    st.markdown(f"<div class='note-box'>{commodity_resource_intro(core)}</div>", unsafe_allow_html=True)
-    st.write("")
-    st.markdown(table_html(["Scope", "Bucket", "What sits here", "State now", "How to use now", "If next wins"], build_commodity_resource_map_rows()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 with t_risk:
@@ -2642,14 +2415,12 @@ with t_risk:
     st.markdown(f"**Current mode ➜ Base case / watch only**")
     st.markdown(f"**Top risk ➜ {top_state_now}**")
     st.markdown(f"**Bottom risk ➜ {bottom_state_now}**")
-    st.markdown(f"**Risk-On meter ➜ {pct(risk_on)} ({risk_on_label(risk_on)})**")
-    st.markdown(f"**Risk-Off meter ➜ {pct(risk_pack['riskoff'])} ({meter_label(risk_pack['riskoff'])})**")
-    st.markdown(f"**Big Crash meter ➜ {pct(risk_pack['crash'])} ({meter_label(risk_pack['crash'])})**")
+    st.markdown(f"**Crash meter now ➜ {pct(crash_now)} ({crash_meter_label(crash_now)})**")
     st.markdown(f"**Watch window ➜ {crash_watch_window()}**")
     st.write("")
     st.markdown(table_html(["Lens", "Bias now", "Simple read", "If next wins"], build_relative_compact_rows()), unsafe_allow_html=True)
     st.write("")
-    st.markdown(table_html(["Crash / Risk item", "Now", "How to use"], build_meter_breakdown_rows(risk_pack, risk_on)), unsafe_allow_html=True)
+    st.markdown(table_html(["Risk item", "Now", "How to use"], build_crash_timing_rows(crash_now)), unsafe_allow_html=True)
     st.write("")
     st.markdown(table_html(["Scenario", "State now", "How to use now", "What must improve", "What invalidates"], build_current_scenario_checks()), unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
