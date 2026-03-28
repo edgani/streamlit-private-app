@@ -240,83 +240,162 @@ def fred_series(series_id: str) -> pd.Series:
     except Exception:
         return pd.Series(dtype=float, name=series_id)
 
-@st.cache_data(ttl=60*60*4, show_spinner=False)
-def yahoo_close(ticker: str, period: str = "1y") -> pd.Series:
-    if yf is None:
-        return pd.Series(dtype=float, name=ticker)
+def _chart_params_from_period(period: str) -> Tuple[str, str]:
+    p = str(period).lower().strip()
+    mapping = {
+        '5d': ('5d', '1d'),
+        '1mo': ('1mo', '1d'),
+        '3mo': ('3mo', '1d'),
+        '6mo': ('6mo', '1d'),
+        '1y': ('1y', '1d'),
+        '2y': ('2y', '1d'),
+        '5y': ('5y', '1wk'),
+        '10y': ('10y', '1mo'),
+        'max': ('max', '1mo'),
+    }
+    return mapping.get(p, ('1y', '1d'))
+
+
+def _parse_yahoo_chart_to_series(payload: dict, ticker: str) -> pd.Series:
     try:
-        data = yf.download(
-            ticker,
-            period=period,
-            interval="1d",
-            auto_adjust=True,
-            progress=False,
-            threads=False,
-        )
-        if data is None or len(data) == 0:
+        result = (payload or {}).get('chart', {}).get('result', [])
+        if not result:
             return pd.Series(dtype=float, name=ticker)
-        if isinstance(data.columns, pd.MultiIndex):
-            if ("Close", ticker) in data.columns:
-                s = data[("Close", ticker)]
-            elif "Close" in data.columns.get_level_values(0):
-                s = data["Close"].iloc[:, 0]
-            else:
-                s = data.iloc[:, 0]
-        else:
-            s = data["Close"] if "Close" in data.columns else data.iloc[:, 0]
-        s = pd.to_numeric(s, errors="coerce").dropna()
-        s.name = ticker
+        res0 = result[0]
+        ts = res0.get('timestamp') or []
+        quote = ((res0.get('indicators') or {}).get('quote') or [{}])[0]
+        adj = ((res0.get('indicators') or {}).get('adjclose') or [{}])[0].get('adjclose')
+        close = adj if adj is not None else quote.get('close')
+        if not ts or close is None:
+            return pd.Series(dtype=float, name=ticker)
+        idx = pd.to_datetime(ts, unit='s', utc=True).tz_convert(None)
+        s = pd.Series(close, index=idx, name=ticker)
+        s = pd.to_numeric(s, errors='coerce').dropna()
+        s = s[~s.index.duplicated(keep='last')]
         return s
     except Exception:
         return pd.Series(dtype=float, name=ticker)
 
+
+@st.cache_data(ttl=60*60*2, show_spinner=False)
+def yahoo_chart_close(ticker: str, period: str = "1y") -> pd.Series:
+    rng, interval = _chart_params_from_period(period)
+    urls = [
+        f'https://query1.finance.yahoo.com/v8/finance/chart/{ticker}',
+        f'https://query2.finance.yahoo.com/v8/finance/chart/{ticker}',
+    ]
+    params = {
+        'range': rng,
+        'interval': interval,
+        'includePrePost': 'false',
+        'events': 'div,splits',
+    }
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    for url in urls:
+        try:
+            r = requests.get(url, params=params, headers=headers, timeout=12)
+            if not r.ok:
+                continue
+            s = _parse_yahoo_chart_to_series(r.json(), ticker)
+            if not s.empty:
+                return s
+        except Exception:
+            continue
+    return pd.Series(dtype=float, name=ticker)
+
+
+@st.cache_data(ttl=60*60*4, show_spinner=False)
+def yahoo_close(ticker: str, period: str = "1y") -> pd.Series:
+    if yf is not None:
+        try:
+            data = yf.download(
+                ticker,
+                period=period,
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+                threads=False,
+            )
+            if data is not None and len(data) > 0:
+                if isinstance(data.columns, pd.MultiIndex):
+                    if ("Close", ticker) in data.columns:
+                        s = data[("Close", ticker)]
+                    elif "Close" in data.columns.get_level_values(0):
+                        s = data["Close"].iloc[:, 0]
+                    else:
+                        s = data.iloc[:, 0]
+                else:
+                    s = data["Close"] if "Close" in data.columns else data.iloc[:, 0]
+                s = pd.to_numeric(s, errors="coerce").dropna()
+                if not s.empty:
+                    s.name = ticker
+                    return s
+        except Exception:
+            pass
+    return yahoo_chart_close(ticker, period)
+
+
 @st.cache_data(ttl=60*60*4, show_spinner=False)
 def yahoo_close_batch(tickers: List[str], period: str = "1y") -> pd.DataFrame:
     tickers = [t for t in tickers if t]
-    if yf is None or not tickers:
+    if not tickers:
         return pd.DataFrame()
-    # Fallback ladder improves survival on Streamlit Cloud where big downloads sometimes fail.
-    for chunk_size in (max(1, min(40, len(tickers))), 15, 8, 1):
-        frames = []
-        ok = True
-        for i in range(0, len(tickers), chunk_size):
-            chunk = tickers[i:i+chunk_size]
-            try:
-                data = yf.download(
-                    chunk,
-                    period=period,
-                    interval="1d",
-                    auto_adjust=True,
-                    progress=False,
-                    threads=False,
-                )
-            except Exception:
-                ok = False
-                break
-            if data is None or len(data) == 0:
-                continue
-            try:
-                if isinstance(data.columns, pd.MultiIndex):
-                    if "Close" in data.columns.get_level_values(0):
-                        close = data["Close"].copy()
+
+    frames = []
+    seen = set()
+    if yf is not None:
+        for chunk_size in (max(1, min(40, len(tickers))), 15, 8, 1):
+            frames = []
+            ok = True
+            for i in range(0, len(tickers), chunk_size):
+                chunk = tickers[i:i+chunk_size]
+                try:
+                    data = yf.download(
+                        chunk,
+                        period=period,
+                        interval="1d",
+                        auto_adjust=True,
+                        progress=False,
+                        threads=False,
+                    )
+                except Exception:
+                    ok = False
+                    break
+                if data is None or len(data) == 0:
+                    continue
+                try:
+                    if isinstance(data.columns, pd.MultiIndex):
+                        if "Close" in data.columns.get_level_values(0):
+                            close = data["Close"].copy()
+                        else:
+                            close = data.iloc[:, :len(chunk)].copy()
+                            close.columns = chunk[:close.shape[1]]
                     else:
-                        close = data.iloc[:, :len(chunk)].copy()
-                        close.columns = chunk[:close.shape[1]]
-                else:
-                    # Single ticker case
-                    col = "Close" if "Close" in data.columns else data.columns[0]
-                    close = data[[col]].copy()
-                    close.columns = [chunk[0]]
-                close = close.apply(pd.to_numeric, errors="coerce")
-                frames.append(close)
-            except Exception:
-                ok = False
+                        col = "Close" if "Close" in data.columns else data.columns[0]
+                        close = data[[col]].copy()
+                        close.columns = [chunk[0]]
+                    close = close.apply(pd.to_numeric, errors="coerce")
+                    if not close.empty:
+                        frames.append(close)
+                        seen.update([c for c in close.columns if c in tickers])
+                except Exception:
+                    ok = False
+                    break
+            if ok and frames:
                 break
-        if ok and frames:
-            merged = pd.concat(frames, axis=1)
-            merged = merged.loc[:, ~merged.columns.duplicated()].sort_index()
-            return merged
-    return pd.DataFrame()
+
+    missing = [t for t in tickers if t not in seen]
+    for t in missing:
+        s = yahoo_chart_close(t, period)
+        if not s.empty:
+            frames.append(s.rename(t).to_frame())
+
+    if not frames:
+        return pd.DataFrame()
+    merged = pd.concat(frames, axis=1)
+    merged = merged.loc[:, ~merged.columns.duplicated()].sort_index()
+    return merged
+
 
 def ret_n(s: pd.Series, n: int = 21) -> float:
     if s.empty or len(s) < n + 1:
@@ -2658,6 +2737,33 @@ def yahoo_market_caps(tickers: Tuple[str, ...]) -> Dict[str, float]:
     return out
 
 
+def impact_proxy_from_macro(universe: List[str], market: str = 'US') -> pd.DataFrame:
+    scored = score_ticker_table(macro_only_rank(universe, market, core), market, core)
+    if scored is None or scored.empty:
+        return pd.DataFrame()
+    work = scored.head(20).copy()
+    total = float((work['LongScore'].abs() + work['ShortScore'].abs()).sum())
+    if total <= 0:
+        total = float(len(work))
+    rows = []
+    for _, r in work.iterrows():
+        edge = float(r['LongScore']) - float(r['ShortScore'])
+        wt = abs(edge) / total if total > 0 else 1.0 / max(1, len(work))
+        impact_val = 100.0 * wt * (edge / 100.0)
+        rows.append({
+            'Ticker': r['Ticker'],
+            'DailyRet': edge / 100.0,
+            'ImpactVal': impact_val,
+            'Weight': wt,
+            'IndexContributionPct': impact_val,
+            'MarketCap': np.nan,
+            'ImpactMode': 'macro_proxy',
+            'ImpactLabel': 'Proxy score',
+            'ImpactUnit': '%',
+        })
+    return pd.DataFrame(rows).sort_values('ImpactVal', ascending=False).reset_index(drop=True)
+
+
 def compute_impact_table(tickers: List[str], period: str = '5d') -> pd.DataFrame:
     tickers = _dedupe_keep([t for t in tickers if t])
     if not tickers:
@@ -2671,9 +2777,8 @@ def compute_impact_table(tickers: List[str], period: str = '5d') -> pd.DataFrame
                 frames.append(s.rename(t))
         prices = pd.concat(frames, axis=1).sort_index() if frames else pd.DataFrame()
     if prices.empty:
-        return pd.DataFrame()
+        return impact_proxy_from_macro(tickers, 'US')
 
-    # Prefer real market-cap attribution, but never leave the board empty.
     caps = yahoo_market_caps(tuple(tickers))
     cap_cov = len(caps) / max(1, len(tickers))
     use_cap = len(caps) >= max(5, int(0.35 * len(tickers))) and cap_cov >= 0.35
@@ -2692,7 +2797,7 @@ def compute_impact_table(tickers: List[str], period: str = '5d') -> pd.DataFrame
         if prev > 0:
             valid.append((t, last / prev - 1.0))
     if not valid:
-        return pd.DataFrame()
+        return impact_proxy_from_macro(tickers, 'US')
 
     if use_cap:
         usable_caps = {t: float(caps[t]) for t, _ in valid if t in caps and np.isfinite(float(caps[t])) and float(caps[t]) > 0}
@@ -2738,7 +2843,7 @@ def compute_impact_table(tickers: List[str], period: str = '5d') -> pd.DataFrame
                 'ImpactUnit': impact_unit,
             })
     if not rows:
-        return pd.DataFrame()
+        return impact_proxy_from_macro(tickers, 'US')
     return pd.DataFrame(rows).sort_values('ImpactVal', ascending=False).reset_index(drop=True)
 
 
@@ -2868,6 +2973,53 @@ def fallback_rank_from_prices(tickers: List[str], benchmark_ticker: str, period:
     return pd.DataFrame(rows).sort_values(['RSScore','StartScore','Alpha21'], ascending=False).reset_index(drop=True) if rows else pd.DataFrame()
 
 
+def macro_only_rank(tickers: List[str], market: str, engine: Dict[str, object]) -> pd.DataFrame:
+    tickers = [t for t in tickers if t]
+    if not tickers:
+        return pd.DataFrame()
+    rows = []
+    for t in tickers:
+        theme = _theme_from_market(str(t), market)
+        bucket = _macro_bucket_for_ticker(str(t), market, str(theme))
+        fit = _quad_fit_score(str(bucket), engine)
+        jitter = ((sum(ord(ch) for ch in str(t)) % 17) - 8) / 200.0
+        trend = clamp01(0.50 + 0.22 * fit + jitter)
+        rs = clamp01(0.52 + 0.26 * fit + jitter)
+        start = clamp01(0.50 + 0.18 * fit - jitter)
+        alpha21 = 0.10 * fit + jitter / 2
+        alpha63 = 0.14 * fit + jitter / 3
+        alpha126 = 0.18 * fit + jitter / 4
+        if fit >= 0.28:
+            state = 'Leader'
+        elif fit >= 0.08:
+            state = 'Emerging'
+        elif fit <= -0.28:
+            state = 'Weak'
+        elif fit <= -0.08:
+            state = 'Fading'
+        else:
+            state = 'Neutral'
+        comment = f'macro-only fallback; {bucket.lower()} fit'
+        rows.append({
+            'Ticker': t,
+            'Benchmark': 'MACRO_ONLY',
+            'State': state,
+            'RSScore': rs,
+            'StartScore': start,
+            'Alpha21': alpha21,
+            'Alpha63': alpha63,
+            'Alpha126': alpha126,
+            'Ret21': alpha21,
+            'Ret63': alpha63,
+            'Trend': trend,
+            'Comment': comment,
+            'Bars': 0,
+        })
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows).sort_values(['RSScore','StartScore','Alpha21'], ascending=False).reset_index(drop=True)
+
+
 def market_score_payload(market: str, universe: List[str], watchlist: List[str], benchmark: str, fallback: str | None = None, suffix: str = '') -> Tuple[pd.DataFrame, pd.DataFrame]:
     rank_df = rank_market_leaders(universe, benchmark_ticker=benchmark, period='1y', fallback_benchmark=fallback)
     if rank_df.empty:
@@ -2876,6 +3028,8 @@ def market_score_payload(market: str, universe: List[str], watchlist: List[str],
         rank_df = rank_market_leaders(universe, benchmark_ticker=fallback, period='6mo', fallback_benchmark=benchmark)
     if rank_df.empty:
         rank_df = fallback_rank_from_prices(universe, benchmark_ticker=benchmark, period='6mo', fallback_benchmark=fallback)
+    if rank_df.empty:
+        rank_df = macro_only_rank(universe, market, core)
     score_df = score_ticker_table(rank_df, market, core) if not rank_df.empty else pd.DataFrame()
     watch = _dedupe_keep(watchlist)
     if watch:
@@ -2886,6 +3040,8 @@ def market_score_payload(market: str, universe: List[str], watchlist: List[str],
             w_rank = rank_market_leaders(watch, benchmark_ticker=fallback, period='6mo', fallback_benchmark=benchmark)
         if w_rank.empty:
             w_rank = fallback_rank_from_prices(watch, benchmark_ticker=benchmark, period='6mo', fallback_benchmark=fallback)
+        if w_rank.empty:
+            w_rank = macro_only_rank(watch, market, core)
         w_score = score_ticker_table(w_rank, market, core) if not w_rank.empty else pd.DataFrame()
     else:
         w_score = pd.DataFrame()
@@ -3096,7 +3252,7 @@ st.markdown('</div>', unsafe_allow_html=True)
 # IMPACT BOARD
 st.markdown('### Impact Board')
 impact_metric_label = impact_summary.get('impact_label', 'Δ MCap') if impact_summary else 'Δ MCap'
-impact_mode_text = 'Real market-cap attribution' if impact_summary.get('mode') == 'market_cap' else 'Proxy mode: equal-weight contribution fallback'
+impact_mode_text = 'Real market-cap attribution' if impact_summary.get('mode') == 'market_cap' else ('Proxy mode: equal-weight contribution fallback' if impact_summary.get('mode') == 'proxy_equal_weight' else 'Macro proxy fallback: score-weighted impact')
 i_left, i_mid, i_right = st.columns([1.15, 1.15, 1.1])
 with i_left:
     st.markdown("<div class='card'><div class='section-title'>Largest Positive Impact</div>", unsafe_allow_html=True)
@@ -3191,28 +3347,18 @@ st.markdown('### Merged Playbook + Risk Map')
 m1, m2 = st.columns([1.1, 1.1])
 with m1:
     st.markdown("<div class='card'><div class='section-title'>Merged Cross-Asset Playbook</div>", unsafe_allow_html=True)
-    playbook_rows = []
-    focus_rows = build_cross_asset_focus_rows()
-    ranked_lookup = {
-        'US stocks': score_rows_for_display(us_score_df, 'long', 3),
-        'IHSG': score_rows_for_display(ihsg_score_df, 'long', 3),
-        'Forex': score_rows_for_display(fx_score_df, 'long', 3),
-        'Commodities': score_rows_for_display(commod_score_df, 'long', 3),
-        'Crypto': score_rows_for_display(crypto_score_df, 'long', 3),
-    }
-    avoid_lookup = {
-        'US stocks': score_rows_for_display(us_score_df, 'short', 3),
-        'IHSG': score_rows_for_display(ihsg_score_df, 'short', 3),
-        'Forex': score_rows_for_display(fx_score_df, 'short', 3),
-        'Commodities': score_rows_for_display(commod_score_df, 'short', 3),
-        'Crypto': score_rows_for_display(crypto_score_df, 'short', 3),
-    }
-    row_map = {r[0].lower(): r for r in focus_rows}
-    for area in ['US stocks','IHSG','Forex','Commodities','Crypto']:
-        ref = row_map.get(area.lower(), [area, '-', '-', '-'])
-        best_now = ', '.join([r[0] for r in ranked_lookup.get(area, [])][:3]) if ranked_lookup.get(area) else '-'
-        avoid_now = ', '.join([r[0] for r in avoid_lookup.get(area, [])][:3]) if avoid_lookup.get(area) else '-'
-        playbook_rows.append([area, ref[1], ref[3], best_now or '-', avoid_now or '-'])
+    def _best_names(df: pd.DataFrame, mode: str) -> str:
+        rows = score_rows_for_display(df, mode, 3)
+        names = [r[0] for r in rows if r and r[0] not in ['No data', 'None']]
+        return ', '.join(names[:3]) if names else '-'
+
+    playbook_rows = [
+        ['US stocks', ', '.join(play_cur['US Stocks']) or '-', ', '.join(play_next['US Stocks']) or '-', _best_names(us_score_df, 'long'), _best_names(us_score_df, 'short')],
+        ['IHSG', ', '.join(play_cur['IHSG']) or '-', ', '.join(play_next['IHSG']) or '-', _best_names(ihsg_score_df, 'long'), _best_names(ihsg_score_df, 'short')],
+        ['Forex', ', '.join(play_cur['Forex']) or '-', ', '.join(play_next['Forex']) or '-', _best_names(fx_score_df, 'long'), _best_names(fx_score_df, 'short')],
+        ['Commodities', ', '.join(play_cur['Futures / Commodities']) or '-', ', '.join(play_next['Futures / Commodities']) or '-', _best_names(commod_score_df, 'long'), _best_names(commod_score_df, 'short')],
+        ['Crypto', ', '.join(play_cur['Crypto']) or '-', ', '.join(play_next['Crypto']) or '-', _best_names(crypto_score_df, 'long'), _best_names(crypto_score_df, 'short')],
+    ]
     st.markdown(table_html(['Area','Bias now','If next wins','Best ranked now','Avoid now'], playbook_rows), unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 with m2:
