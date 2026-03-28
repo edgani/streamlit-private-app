@@ -1596,9 +1596,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-st.markdown("### Dashboard Control Check")
-st.markdown(table_html(["Market", "Coverage", "Missing examples"], coverage_rows), unsafe_allow_html=True)
-
 # -------------------------------------------------
 # QUAD BOARD
 # -------------------------------------------------
@@ -1795,6 +1792,49 @@ def cluster_rows(df: pd.DataFrame, n: int = 6) -> List[List[str]]:
     return out
 
 
+def top_rank_text(df: pd.DataFrame, side: str = "long", n: int = 3) -> str:
+    if df is None or df.empty:
+        return "No clean data"
+    work = df.copy()
+    if side == "long":
+        work = work.sort_values(["LongScore", "RSScore", "StartScore"], ascending=False)
+    else:
+        work = work.sort_values(["ShortScore", "Alpha21", "Trend"], ascending=[False, True, True])
+    names = [str(x).replace('.JK', '') for x in work["Ticker"].head(n).tolist()]
+    return ", ".join(names) if names else "No clean data"
+
+
+def merged_playbook_rows(core: Dict[str, object], play_now: Dict[str, List[str]], play_next: Dict[str, List[str]], us_df: pd.DataFrame, ihsg_df: pd.DataFrame, fx_df: pd.DataFrame, commod_df: pd.DataFrame, crypto_df: pd.DataFrame) -> List[List[str]]:
+    return [
+        ["US stocks", ", ".join(play_now.get("US Stocks", [])), ", ".join(play_next.get("US Stocks", [])), top_rank_text(us_df, "long"), top_rank_text(us_df, "short")],
+        ["IHSG", "selective cyclicals / resource beta" if core["current_q"] in ["Q1", "Q2"] else "banks + resource barbell / selective defensives", "broader beta if breadth improves" if core["next_q"] in ["Q1", "Q2"] else "stay selective and quality", top_rank_text(ihsg_df, "long"), top_rank_text(ihsg_df, "short")],
+        ["Forex", "favor USD / safety" if core["current_q"] in ["Q3", "Q4"] else "favor commodity FX / weaker USD", "watch cross-over in commodity FX and Europe majors", top_rank_text(fx_df, "long"), top_rank_text(fx_df, "short")],
+        ["Commodities", "hard-asset hedge + selective energy" if core["current_q"] == "Q3" else ("reflation basket" if core["current_q"] == "Q2" else "duration-sensitive / mixed"), "more cyclicals / base metals" if core["next_q"] == "Q2" else ("more duration / defensives" if core["next_q"] == "Q4" else "stay selective"), top_rank_text(commod_df, "long"), top_rank_text(commod_df, "short")],
+        ["Crypto", ", ".join(play_now.get("Crypto", [])), ", ".join(play_next.get("Crypto", [])), top_rank_text(crypto_df, "long"), top_rank_text(crypto_df, "short")],
+    ]
+
+
+def merged_risk_rows(core: Dict[str, object], risk_pack: Dict[str, float]) -> List[List[str]]:
+    return [
+        ["Base stance", "Stay selective" if core["current_q"] in ["Q3", "Q4"] else "Can lean risk-on selectively", "Use ticker score for ranking; do not treat it as certainty"],
+        ["Crash watch", bucket(risk_pack["big_crash"], (0.25, 0.45), ("Low", "Watch", "Elevated+")), "Watch breadth, leader retention, credit/liquidity proxies"],
+        ["Top / bottom risk", f"{ladder_state(core['top_score'], 'top')} / {ladder_state(core['bottom_score'], 'bottom')}", "Separates stretched tape from true washout"],
+        ["Transition pressure", pct(core["transition_pressure"]), "Higher means current quad is less stable"],
+        ["Confirmation", "breadth improvement + stronger leaders + lower fragility", "Needed before pressing broad beta"],
+        ["Invalidation", "narrow breadth + rising crash meter + weak leader retention", "Means keep sizing smaller and avoid chasing"],
+    ]
+
+
+def macro_framework_rows() -> List[List[str]]:
+    return [
+        ["Inflation prints", "CPI / PPI / PCE", "Shifts Q2↔Q3 probability and hard-asset vs duration balance"],
+        ["Labor / growth", "NFP, jobless claims, retail sales, ISM, industrial production", "Moves growth branch and breadth durability"],
+        ["Policy / liquidity", "FOMC, QT/QE, funding stress, real rates", "Changes fragility and risk-on / risk-off posture"],
+        ["Cross-asset confirms", "DXY, yields, oil, credit", "Confirms whether the move is broad, inflationary, or defensive"],
+        ["Market structure", "breadth, leaders, basket concentration", "Tells you whether impact is healthy or too narrow"],
+    ]
+
+
 def render_market_panels(label: str, df: pd.DataFrame, watchlist: List[str], tabs_container=None):
     cols = st.columns(2)
     with cols[0]:
@@ -1844,6 +1884,29 @@ with st.expander("Show supporting tables that still matter"):
                 st.markdown(f"<div class='card'><div class='section-title'>{label} Cluster Summary</div>", unsafe_allow_html=True)
                 st.markdown(table_html(["Cluster", "Names", "AvgLong", "AvgShort", "Examples"], cluster_rows(df, show_count)), unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
+
+with st.expander("Show merged engine details that still matter"):
+    meta_tabs = st.tabs(["Merged playbook", "Risk + catalyst map", "Coverage / diagnostics"])
+    with meta_tabs[0]:
+        st.markdown("<div class='small-muted'>Ini bagian yang sebelumnya hilang dari engine lama: decision snapshot, cross-asset bias, FX / commodity map, dan winners-losers per market. Sekarang gue merge biar nggak numpuk.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='card'><div class='section-title'>Merged Cross-Asset Playbook</div>", unsafe_allow_html=True)
+        st.markdown(table_html(["Area", "Bias now", "If next wins", "Best ranked now", "Avoid now"], merged_playbook_rows(core, play_now, play_next, us_score_df, ihsg_score_df, fx_score_df, commod_score_df, crypto_score_df)), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+    with meta_tabs[1]:
+        a, b = st.columns(2)
+        with a:
+            st.markdown("<div class='card'><div class='section-title'>Merged Risk Architecture</div>", unsafe_allow_html=True)
+            st.markdown(table_html(["Lens", "Read now", "How to use"], merged_risk_rows(core, risk_pack)), unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+        with b:
+            st.markdown("<div class='card'><div class='section-title'>Macro Catalyst Framework</div>", unsafe_allow_html=True)
+            st.markdown(table_html(["Bucket", "Watch", "Why it matters"], macro_framework_rows()), unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+    with meta_tabs[2]:
+        st.markdown("<div class='small-muted'>Dashboard Control Check gunanya buat ngecek universe mana yang kebaca dan mana yang miss. Itu berguna buat debug input ticker, tapi bukan board utama, jadi gue taruh di bawah dan bisa di-hide.</div>", unsafe_allow_html=True)
+        st.markdown("<div class='card'><div class='section-title'>Dashboard Control Check</div>", unsafe_allow_html=True)
+        st.markdown(table_html(["Market", "Coverage", "Missing examples"], coverage_rows), unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown(
     "<div class='small-muted'>Correlated names/themes are merged into tighter clusters where it improves readability. Ticker scores rank candidates by macro fit + relative strength + trend. They are watchlists, not guarantees. Impact board is an attribution lens, not a certainty machine.</div>",
