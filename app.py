@@ -842,295 +842,6 @@ def summarize_symbol(category: str, symbol: str, tf_label: str, horizon: int, k_
         return None
 
 
-
-
-# =========================================================
-# LEADERSHIP / INTERNALS OVERLAY
-# =========================================================
-US_THEME_MAP = {
-    "AAPL": "Tech", "MSFT": "Tech", "NVDA": "Tech / Semis", "AMD": "Tech / Semis",
-    "AMZN": "Consumer Beta", "META": "Tech / Internet", "GOOGL": "Tech / Internet",
-    "TSLA": "Consumer Beta", "PLTR": "Software / Defense", "JPM": "Financials",
-    "QQQ": "Mega-cap Growth", "SPY": "Broad Market", "IWM": "Small Caps",
-    "XLE": "Energy", "XLF": "Financials", "XLV": "Healthcare", "XLI": "Industrials",
-    "XLK": "Tech", "XLP": "Staples", "XLU": "Utilities", "XLY": "Consumer Beta",
-}
-IHSG_THEME_MAP = {
-    "BBCA.JK": "Banks", "BBRI.JK": "Banks", "BMRI.JK": "Banks", "BBNI.JK": "Banks",
-    "ASII.JK": "Cyclicals", "TLKM.JK": "Telecom", "ICBP.JK": "Staples", "UNVR.JK": "Staples",
-    "ADRO.JK": "Coal / Energy", "ITMG.JK": "Coal / Energy", "MDKA.JK": "Metals", "ANTM.JK": "Metals",
-}
-CRYPTO_THEME_MAP = {
-    "BTC/USDT": "Large-cap Crypto", "ETH/USDT": "Large-cap Crypto", "SOL/USDT": "High Beta Crypto",
-    "BNB/USDT": "Exchange Beta", "XRP/USDT": "Large-cap Crypto", "DOGE/USDT": "Meme Beta",
-}
-FUTURES_THEME_MAP = {
-    "GC=F": "Gold", "SI=F": "Precious Metals", "CL=F": "Energy", "BZ=F": "Energy",
-    "NG=F": "Energy", "HG=F": "Industrial Metals", "ZC=F": "Agri", "ZS=F": "Agri",
-    "ZW=F": "Agri", "ES=F": "US Equity Beta", "NQ=F": "Tech Beta", "RTY=F": "Small Caps",
-    "ZN=F": "Rates", "DX=F": "USD",
-}
-FOREX_THEME_MAP = {
-    "EURUSD=X": "Major FX", "GBPUSD=X": "Major FX", "JPY=X": "JPY / Rates", "USDIDR=X": "EM FX",
-    "CNH=X": "China FX", "USDKRW=X": "Asia FX", "USDSGD=X": "Asia FX",
-}
-
-
-def infer_theme(symbol: str, category: str) -> str:
-    sym = str(symbol).strip().upper()
-    if category == "US Stocks":
-        return US_THEME_MAP.get(sym, "US Equity")
-    if category == "IHSG":
-        return IHSG_THEME_MAP.get(sym, "IHSG")
-    if category == "Crypto":
-        return CRYPTO_THEME_MAP.get(sym, "Crypto")
-    if category == "Futures & Commodities":
-        return FUTURES_THEME_MAP.get(sym, "Futures")
-    if category == "Forex":
-        return FOREX_THEME_MAP.get(sym, "FX")
-    return "General"
-
-
-def build_symbols_to_scan(category: str, watchlist: List[str], scan_max: int, symbol: str) -> Tuple[List[str], Dict[str, str]]:
-    if watchlist:
-        symbols_to_scan = watchlist[:scan_max]
-        cat_map = {s: infer_category_from_symbol(s) for s in symbols_to_scan}
-        return symbols_to_scan, cat_map
-
-    if category == "US Stocks":
-        symbols_to_scan = POPULAR_US[:scan_max]
-    elif category == "IHSG":
-        symbols_to_scan = POPULAR_IHSG[:scan_max]
-    elif category == "Crypto":
-        symbols_to_scan = POPULAR_CRYPTO[:scan_max]
-    elif category == "Forex":
-        symbols_to_scan = list(FOREX_LIBRARY.values())[:scan_max]
-    elif category == "Futures & Commodities":
-        symbols_to_scan = list(FUTURES_LIBRARY.values())[:scan_max]
-    else:
-        symbols_to_scan = [symbol]
-    cat_map = {s: (category if category != "Custom" else infer_category_from_symbol(s)) for s in symbols_to_scan}
-    return symbols_to_scan, cat_map
-
-
-@st.cache_data(show_spinner=False, ttl=900)
-def summarize_internal_symbol(category: str, symbol: str) -> Optional[Dict]:
-    try:
-        raw = fetch_history(category, symbol, "Daily")
-        if raw is None or raw.empty or len(raw) < 80:
-            return None
-        df = raw.copy().sort_index()
-        close = pd.to_numeric(df["Close"], errors="coerce").dropna()
-        if len(close) < 80:
-            return None
-        volume = pd.to_numeric(df.get("Volume", pd.Series(index=df.index, dtype=float)), errors="coerce").fillna(0.0)
-        ma50 = close.rolling(50).mean()
-        ma200 = close.rolling(200).mean()
-        ret5 = safe_float(close.iloc[-1] / close.iloc[-6] - 1.0 if len(close) >= 6 else 0.0)
-        ret21 = safe_float(close.iloc[-1] / close.iloc[-22] - 1.0 if len(close) >= 22 else 0.0)
-        ret63 = safe_float(close.iloc[-1] / close.iloc[-64] - 1.0 if len(close) >= 64 else 0.0)
-        above50 = float(close.iloc[-1] > ma50.iloc[-1]) if pd.notna(ma50.iloc[-1]) else 0.0
-        above200 = float(close.iloc[-1] > ma200.iloc[-1]) if len(ma200.dropna()) else 0.0
-        dollar_turnover = pd.Series(close.values, index=close.index).reindex(df.index).fillna(method="ffill") * volume
-        avg_dollar_turnover = safe_float(dollar_turnover.tail(20).replace([np.inf, -np.inf], np.nan).dropna().mean(), 0.0)
-        liquidity_score = math.log1p(max(avg_dollar_turnover, 0.0))
-        pos_impact = max(ret21, 0.0) * max(liquidity_score, 1.0)
-        neg_impact = max(-ret21, 0.0) * max(liquidity_score, 1.0)
-        rs_score = 0.40 * ret21 + 0.20 * ret5 + 0.15 * ret63 + 0.15 * (close.iloc[-1] / (ma50.iloc[-1] + EPS) - 1.0 if pd.notna(ma50.iloc[-1]) else 0.0) + 0.10 * (close.iloc[-1] / (ma200.iloc[-1] + EPS) - 1.0 if len(ma200.dropna()) else 0.0)
-        if ret21 > 0.10 and ret5 > 0 and above50:
-            state = "Strong / continuation"
-        elif ret21 > 0 and ret5 < 0 and above50:
-            state = "Leader but cooling"
-        elif ret21 < 0 and ret5 > 0:
-            state = "Trying to turn"
-        elif ret21 < -0.08 and ret5 < 0:
-            state = "Weak / distributed"
-        else:
-            state = "Mixed"
-        return {
-            "Ticker": symbol,
-            "Category": category,
-            "Theme": infer_theme(symbol, category),
-            "Ret5": ret5,
-            "Ret21": ret21,
-            "Ret63": ret63,
-            "Above50": above50,
-            "Above200": above200,
-            "AvgDollarTurnover": avg_dollar_turnover,
-            "LiquidityScore": liquidity_score,
-            "PosImpact": pos_impact,
-            "NegImpact": neg_impact,
-            "AbsImpact": abs(ret21) * max(liquidity_score, 1.0),
-            "RSScore": rs_score,
-            "State": state,
-        }
-    except Exception:
-        return None
-
-
-def classify_leadership_profile(top5_share: float, breadth50: float, adv_dec_ratio: float, cap_eq_gap: float) -> Tuple[str, str]:
-    if top5_share >= 0.65 and breadth50 < 0.45:
-        return (
-            "Fragile / narrow leadership",
-            "Kalau cuma 5–7 saham yang gerakin indeks, market rapuh. Index memang bisa kelihatan hijau, tapi mesin utamanya sempit; kalau leaders ini capek sedikit saja, indeks gampang goyah dan breadth cepat rusak.",
-        )
-    if top5_share >= 0.55 and breadth50 < 0.60:
-        return (
-            "Narrow but still standing",
-            "Masih didorong beberapa nama besar. Belum separah rapuh total, tapi rally belum sehat penuh karena sektor pendukungnya belum banyak ikut bantu.",
-        )
-    if top5_share < 0.45 and breadth50 >= 0.60 and adv_dec_ratio >= 1.15:
-        return (
-            "Broad / healthy leadership",
-            "Bukan cuma beberapa saham besar yang hijau. Banyak nama dan sektor ikut bantu, jadi rally lebih sehat dan continuation biasanya lebih layak dipercaya.",
-        )
-    if cap_eq_gap > 0.03 and breadth50 < 0.52:
-        return (
-            "Index looks strong but thin",
-            "Cap-weight lebih kuat daripada equal-weight. Artinya tampilan indeks bisa kelihatan bagus, padahal di bawah permukaan partisipasinya tipis.",
-        )
-    return (
-        "Mixed leadership",
-        "Ada partisipasi, tapi belum cukup bersih untuk disebut broad rally. Perlu lihat apakah breadth makin lebar atau justru balik menyempit.",
-    )
-
-
-
-def classify_flow_concentration(top5_share: float, top7_share: float, breadth50: float) -> Tuple[str, str]:
-    if top5_share >= 0.65 or top7_share >= 0.80:
-        return (
-            "High concentration",
-            "Flow sangat terkonsentrasi. Kalau cuma 5–7 saham yang paling banyak mendorong indeks, itu biasanya tanda market sempit dan rapuh, bukan bull tape yang sehat.",
-        )
-    if top5_share >= 0.50:
-        return (
-            "Moderate concentration",
-            "Masih ada ketergantungan ke beberapa nama besar, tapi belum ekstrem. Skenario terbaiknya breadth ikut melebar; skenario jeleknya index tetap hijau tapi internals makin tipis.",
-        )
-    if breadth50 >= 0.60:
-        return (
-            "Distributed / healthy",
-            "Flow tersebar ke lebih banyak nama. Ini lebih sehat karena tenaga pasar tidak tergantung ke sedikit saham saja.",
-        )
-    return (
-        "Diffuse but weak",
-        "Flow tidak terlalu terkonsentrasi, tapi itu bukan otomatis bullish. Bisa juga artinya penjualan atau keraguan tersebar merata ke banyak saham.",
-    )
-
-
-
-def build_rotation_text(df: pd.DataFrame) -> Tuple[str, pd.DataFrame]:
-    if df.empty:
-        return "Belum ada data rotasi yang valid.", pd.DataFrame(columns=["Theme", "NetFlow", "Read"])
-    grp = df.groupby("Theme", as_index=False).agg(
-        NetFlow=("Ret5", "mean"),
-        PosImpact=("PosImpact", "sum"),
-        NegImpact=("NegImpact", "sum"),
-        RSScore=("RSScore", "mean"),
-    )
-    grp["NetImpact"] = grp["PosImpact"] - grp["NegImpact"]
-    grp = grp.sort_values("NetImpact", ascending=False).reset_index(drop=True)
-    winners = grp.head(min(2, len(grp)))
-    losers = grp.tail(min(2, len(grp)))
-    if winners.empty:
-        return "Belum ada rotasi tema yang cukup jelas.", grp[["Theme", "NetImpact"]]
-    up_txt = ", ".join(winners["Theme"].astype(str).tolist())
-    dn_txt = ", ".join(losers["Theme"].astype(str).tolist()) if not losers.empty else "belum jelas"
-    text = f"Rotasi tape sekarang lebih banyak menyerap: {up_txt}. Yang lebih banyak dibuang / melemah: {dn_txt}. Kalau winners baru muncul sambil leaders lama dibuang, itu rotasi; kalau hampir semua lemah bareng, itu bukan rotasi sehat tapi distribusi yang lebih luas."
-    grp["Read"] = np.where(
-        grp["NetImpact"] > 0,
-        "Diserap / menerima flow",
-        np.where(grp["NetImpact"] < 0, "Dibuang / kehilangan flow", "Netral"),
-    )
-    return text, grp[["Theme", "NetImpact", "Read"]]
-
-
-
-def build_relative_strength_text(rs_df: pd.DataFrame) -> str:
-    if rs_df.empty:
-        return "Belum ada kandidat relative strength yang bersih."
-    names = ", ".join(rs_df.head(min(4, len(rs_df)))["Ticker"].tolist())
-    return f"Relative strength paling menarik saat ini: {names}. Intinya bukan cuma hijau, tapi tetap kuat ketika tape lain goyah; kandidat seperti ini biasanya lebih layak jadi continuation dibanding nama yang naik karena short-covering sesaat."
-
-
-
-def compute_market_internals(symbols_to_scan: List[str], cat_map: Dict[str, str]) -> Dict[str, object]:
-    rows: List[Dict] = []
-    if not symbols_to_scan:
-        return {
-            "df": pd.DataFrame(), "leadership_label": "No data", "leadership_explainer": "Tidak ada universe untuk dihitung.",
-            "concentration_label": "No data", "concentration_explainer": "Tidak ada universe untuk dihitung.",
-            "rotation_text": "Tidak ada universe untuk dihitung.", "rotation_df": pd.DataFrame(),
-            "rs_text": "Tidak ada universe untuk dihitung.", "leaders": pd.DataFrame(), "laggards": pd.DataFrame(),
-            "metrics": {},
-        }
-    with ThreadPoolExecutor(max_workers=6) as ex:
-        futs = {ex.submit(summarize_internal_symbol, cat_map[s], s): s for s in symbols_to_scan}
-        for fut in as_completed(futs):
-            item = fut.result()
-            if item is not None:
-                rows.append(item)
-    df = pd.DataFrame(rows)
-    if df.empty:
-        return {
-            "df": df, "leadership_label": "No data", "leadership_explainer": "Data breadth / impact belum valid.",
-            "concentration_label": "No data", "concentration_explainer": "Data breadth / impact belum valid.",
-            "rotation_text": "Data breadth / impact belum valid.", "rotation_df": pd.DataFrame(),
-            "rs_text": "Data breadth / impact belum valid.", "leaders": pd.DataFrame(), "laggards": pd.DataFrame(),
-            "metrics": {},
-        }
-    advancers = int((df["Ret5"] > 0).sum())
-    decliners = int((df["Ret5"] < 0).sum())
-    adv_dec_ratio = advancers / max(decliners, 1)
-    breadth50 = safe_float(df["Above50"].mean())
-    breadth200 = safe_float(df["Above200"].mean())
-    equal_weight_ret = safe_float(df["Ret21"].mean())
-    w = df["LiquidityScore"].clip(lower=1.0)
-    cap_weight_ret = safe_float(np.average(df["Ret21"], weights=w)) if len(df) else 0.0
-    cap_eq_gap = cap_weight_ret - equal_weight_ret
-    pos_total = safe_float(df["PosImpact"].sum())
-    pos_sorted = df.sort_values("PosImpact", ascending=False).copy()
-    neg_sorted = df.sort_values("NegImpact", ascending=False).copy()
-    top5_share = safe_float(pos_sorted.head(min(5, len(pos_sorted)))["PosImpact"].sum() / max(pos_total, EPS)) if len(df) else 0.0
-    top7_share = safe_float(pos_sorted.head(min(7, len(pos_sorted)))["PosImpact"].sum() / max(pos_total, EPS)) if len(df) else 0.0
-    leadership_label, leadership_explainer = classify_leadership_profile(top5_share, breadth50, adv_dec_ratio, cap_eq_gap)
-    concentration_label, concentration_explainer = classify_flow_concentration(top5_share, top7_share, breadth50)
-    rotation_text, rotation_df = build_rotation_text(df)
-
-    leaders = pos_sorted[pos_sorted["PosImpact"] > 0].head(7)[["Ticker", "Theme", "State", "Ret21", "PosImpact", "RSScore"]].copy()
-    laggards = neg_sorted[neg_sorted["NegImpact"] > 0].head(7)[["Ticker", "Theme", "State", "Ret21", "NegImpact", "RSScore"]].copy()
-    leaders = leaders.rename(columns={"Ret21": "21D Return", "PosImpact": "Impact", "RSScore": "Relative Strength"})
-    laggards = laggards.rename(columns={"Ret21": "21D Return", "NegImpact": "Impact", "RSScore": "Relative Strength"})
-
-    rs_df = df[(df["RSScore"] > df["RSScore"].median()) & (df["Ret5"] >= -0.01) & (df["Above50"] > 0)].copy()
-    rs_df = rs_df.sort_values(["RSScore", "PosImpact"], ascending=False)[["Ticker", "Theme", "State", "RSScore", "Ret21"]].head(7)
-    rs_text = build_relative_strength_text(rs_df)
-
-    return {
-        "df": df,
-        "leadership_label": leadership_label,
-        "leadership_explainer": leadership_explainer,
-        "concentration_label": concentration_label,
-        "concentration_explainer": concentration_explainer,
-        "rotation_text": rotation_text,
-        "rotation_df": rotation_df,
-        "rs_text": rs_text,
-        "leaders": leaders,
-        "laggards": laggards,
-        "rs_df": rs_df,
-        "metrics": {
-            "breadth50": breadth50,
-            "breadth200": breadth200,
-            "adv_dec_ratio": adv_dec_ratio,
-            "equal_weight_ret": equal_weight_ret,
-            "cap_weight_ret": cap_weight_ret,
-            "cap_eq_gap": cap_eq_gap,
-            "top5_share": top5_share,
-            "top7_share": top7_share,
-            "universe_n": int(len(df)),
-        },
-    }
-
 # =========================================================
 # UI
 # =========================================================
@@ -1248,8 +959,6 @@ def infer_category_from_symbol(sym: str) -> str:
 
 active_category = category if category != "Custom" else infer_category_from_symbol(symbol)
 
-symbols_to_scan, cat_map = build_symbols_to_scan(category, watchlist, scan_max, symbol)
-
 # =========================================================
 # MAIN ANALYSIS
 # =========================================================
@@ -1353,7 +1062,7 @@ with line2:
 # =========================================================
 # DETAIL TAB
 # =========================================================
-tab1, tab2, tab3, tab4 = st.tabs(["Ringkasan detail", "Analog historis", "Leadership / Internals", "Scanner"])
+tab1, tab2, tab3, tab4 = st.tabs(["Ringkasan detail", "Analog historis", "Scanner", "Routing notes"])
 
 with tab1:
     last = decision["last_row"]
@@ -1409,84 +1118,39 @@ with tab2:
 
 with tab3:
     st.write(
-        "Blok ini menggabungkan hal-hal yang paling nyambung: leadership, flow concentration, rotation, dan relative strength. "
-        "Jadi bukan sekadar lihat siapa yang hijau, tapi siapa yang benar-benar menggerakkan tape, seberapa sempit flow-nya, dan apakah ada continuation yang layak dipercaya."
-    )
-    internals = compute_market_internals(symbols_to_scan, cat_map)
-    m = internals["metrics"]
-
-    if not internals["df"].empty:
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Breadth > MA50", pct(m["breadth50"]))
-        c2.metric("Top-5 impact share", pct(m["top5_share"]))
-        c3.metric("A/D ratio", f"{m['adv_dec_ratio']:.2f}")
-        c4.metric("Cap vs Eq gap", f"{m['cap_eq_gap'] * 100:.1f}%")
-
-        with st.container(border=True):
-            st.subheader("Leadership + Flow Concentration")
-            left, right = st.columns(2)
-            with left:
-                st.markdown(f"**Leadership**: {internals['leadership_label']}")
-                st.write(
-                    "Leadership = saham yang bukan cuma hijau, tapi impact-nya besar. "
-                    "Kalau nama-nama dengan impact tertinggi ikut mengangkat tape, berarti mereka benar-benar matter buat market."
-                )
-                st.info(internals["leadership_explainer"])
-            with right:
-                st.markdown(f"**Flow concentration**: {internals['concentration_label']}")
-                st.write(
-                    "Flow concentration membaca apakah tenaga indeks tersebar ke banyak saham atau cuma numpuk di sedikit nama."
-                )
-                st.warning(internals["concentration_explainer"])
-            st.markdown(
-                "**Cara baca skenario:** kalau top-5 / top-7 impact share tinggi tapi breadth lemah, index bisa naik sambil rapuh. "
-                "Kalau concentration turun dan breadth melebar, rally biasanya lebih sehat. Kalau concentration rendah tapi breadth juga lemah, itu bukan broad rally — bisa jadi justru distribusi yang merata."
-            )
-
-        tleft, tright = st.columns(2)
-        with tleft:
-            st.markdown("**Top impact leaders**")
-            st.dataframe(
-                internals["leaders"].style.format({"21D Return": "{:.1%}", "Impact": "{:.2f}", "Relative Strength": "{:.3f}"}),
-                use_container_width=True,
-                hide_index=True,
-            )
-        with tright:
-            st.markdown("**Top impact detractors**")
-            st.dataframe(
-                internals["laggards"].style.format({"21D Return": "{:.1%}", "Impact": "{:.2f}", "Relative Strength": "{:.3f}"}),
-                use_container_width=True,
-                hide_index=True,
-            )
-
-        with st.container(border=True):
-            st.subheader("Rotation + Relative Strength")
-            st.write(internals["rotation_text"])
-            if not internals["rotation_df"].empty:
-                st.dataframe(
-                    internals["rotation_df"].style.format({"NetImpact": "{:.3f}"}),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-            st.info(internals["rs_text"])
-            if not internals["rs_df"].empty:
-                st.dataframe(
-                    internals["rs_df"].style.format({"RSScore": "{:.3f}", "Ret21": "{:.1%}"}),
-                    use_container_width=True,
-                    hide_index=True,
-                )
-        st.caption(
-            "Catatan: blok internals ini dihitung dari universe scanner aktif / watchlist aktif, bukan seluruh indeks resmi. "
-            "Jadi dia paling berguna sebagai tape read cepat dan pembanding internal, bukan pengganti index breadth institutional penuh."
-        )
-    else:
-        st.warning("Belum ada data internals yang valid dari universe scanner aktif.")
-
-with tab4:
-    st.write(
         "Scanner berguna untuk mencari simbol yang paling rapi menurut model. "
         "Kalau watchlist custom diisi, scanner akan pakai isi watchlist itu. Kalau kosong, scanner pakai kategori aktif."
     )
+
+    if watchlist:
+        symbols_to_scan = watchlist[:scan_max]
+        categories = []
+        for s in symbols_to_scan:
+            if "/" in s:
+                categories.append("Crypto")
+            elif s.endswith(".JK"):
+                categories.append("IHSG")
+            elif s.endswith("=X"):
+                categories.append("Forex")
+            elif s.endswith("=F"):
+                categories.append("Futures & Commodities")
+            else:
+                categories.append("US Stocks")
+        cat_map = dict(zip(symbols_to_scan, categories))
+    else:
+        if category == "US Stocks":
+            symbols_to_scan = POPULAR_US[:scan_max]
+        elif category == "IHSG":
+            symbols_to_scan = POPULAR_IHSG[:scan_max]
+        elif category == "Crypto":
+            symbols_to_scan = POPULAR_CRYPTO[:scan_max]
+        elif category == "Forex":
+            symbols_to_scan = list(FOREX_LIBRARY.values())[:scan_max]
+        elif category == "Futures & Commodities":
+            symbols_to_scan = list(FUTURES_LIBRARY.values())[:scan_max]
+        else:
+            symbols_to_scan = [symbol]
+        cat_map = {s: (category if category != "Custom" else infer_category_from_symbol(s)) for s in symbols_to_scan}
 
     if st.button("Jalankan scanner"):
         rows = []
